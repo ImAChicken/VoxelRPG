@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\4cecd37375f778ba7c04afd3e450393b\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{CB25F2E4-5778-3F3E-B5BA-6F973AF196D7}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

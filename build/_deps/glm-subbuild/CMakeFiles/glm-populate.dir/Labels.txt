@@ -1,0 +1,14 @@
+# Target labels
+ glm-populate
+# Source files and their labels
+C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/glm-populate
+C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/4cecd37375f778ba7c04afd3e450393b/glm-populate.rule
+C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e98ba668bc42d9b30220a3086febe5b0/glm-populate-complete.rule
+C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-build.rule
+C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-configure.rule
+C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-download.rule
+C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-install.rule
+C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-mkdir.rule
+C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-patch.rule
+C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-test.rule
+C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-update.rule

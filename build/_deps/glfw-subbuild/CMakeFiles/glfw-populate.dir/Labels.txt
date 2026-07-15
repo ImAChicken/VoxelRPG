@@ -1,0 +1,14 @@
+# Target labels
+ glfw-populate
+# Source files and their labels
+C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/CMakeFiles/glfw-populate
+C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/CMakeFiles/b94527329a3d78e2cd958f876f95d42c/glfw-populate.rule
+C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/CMakeFiles/7e155f705bf48a4f61e23ff65b2afdb1/glfw-populate-complete.rule
+C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/CMakeFiles/214a6a817642846fea1f8349d1f75c85/glfw-populate-build.rule
+C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/CMakeFiles/214a6a817642846fea1f8349d1f75c85/glfw-populate-configure.rule
+C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/CMakeFiles/214a6a817642846fea1f8349d1f75c85/glfw-populate-download.rule
+C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/CMakeFiles/214a6a817642846fea1f8349d1f75c85/glfw-populate-install.rule
+C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/CMakeFiles/214a6a817642846fea1f8349d1f75c85/glfw-populate-mkdir.rule
+C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/CMakeFiles/214a6a817642846fea1f8349d1f75c85/glfw-populate-patch.rule
+C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/CMakeFiles/214a6a817642846fea1f8349d1f75c85/glfw-populate-test.rule
+C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/CMakeFiles/214a6a817642846fea1f8349d1f75c85/glfw-populate-update.rule

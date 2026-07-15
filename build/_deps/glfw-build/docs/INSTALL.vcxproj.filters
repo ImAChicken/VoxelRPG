@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\CMakeFiles\76a1ca53cf9b94c9dd610fe11f057285\INSTALL_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{8778F245-AE75-3E21-994E-3299AD283A36}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,69 @@
+cmake_minimum_required(VERSION 3.25)
+project(VoxelRPG VERSION 0.1.0 LANGUAGES CXX)
+
+# C++20
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Output binaries here
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# Fetch dependencies automatically
+include(FetchContent)
+
+FetchContent_Declare(
+    glfw
+    GIT_REPOSITORY https://github.com/glfw/glfw.git
+    GIT_TAG        3.4
+)
+
+FetchContent_Declare(
+    glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG        1.0.1
+)
+
+FetchContent_MakeAvailable(glfw glm)
+
+# Find OpenGL
+find_package(OpenGL REQUIRED)
+
+# Collect all source files
+file(GLOB_RECURSE SOURCES
+    "src/*.cpp"
+    "src/*.c"
+    "src/*.h"
+)
+
+add_executable(VoxelRPG ${SOURCES})
+
+target_include_directories(VoxelRPG PRIVATE
+    src
+    src/glad/include
+)
+
+target_link_libraries(VoxelRPG PRIVATE
+    glfw
+    glm::glm
+    OpenGL::GL
+)
+
+# Windows specific
+if(MSVC)
+    target_compile_options(VoxelRPG PRIVATE
+        /W4
+        /MP
+        /utf-8
+    )
+    target_compile_definitions(VoxelRPG PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+        _CRT_SECURE_NO_WARNINGS
+    )
+endif()
+
+# Dev build flag
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_definitions(VoxelRPG PRIVATE DEV_BUILD)
+endif()

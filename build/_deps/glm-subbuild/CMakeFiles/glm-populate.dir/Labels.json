@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/glm-populate"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/4cecd37375f778ba7c04afd3e450393b/glm-populate.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e98ba668bc42d9b30220a3086febe5b0/glm-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-build.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-download.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-install.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-test.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/glm-subbuild/CMakeFiles/e794002faa388ad675993201ff5c27e1/glm-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"glm-populate"
+		],
+		"name" : "glm-populate"
+	}
+}

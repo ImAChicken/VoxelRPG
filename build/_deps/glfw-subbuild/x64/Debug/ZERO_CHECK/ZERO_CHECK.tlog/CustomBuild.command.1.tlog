@@ -1,0 +1,10 @@
+^C:\DEV\VOXELRPG\BUILD\_DEPS\GLFW-SUBBUILD\CMAKEFILES\B94527329A3D78E2CD958F876F95D42C\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Dev/VoxelRPG/build/_deps/glfw-subbuild -BC:/Dev/VoxelRPG/build/_deps/glfw-subbuild --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Dev/VoxelRPG/build/_deps/glfw-subbuild/glfw-populate.slnx
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -1,0 +1,15 @@
+C:/Dev/VoxelRPG/build/CMakeFiles/VoxelRPG.dir
+C:/Dev/VoxelRPG/build/CMakeFiles/INSTALL.dir
+C:/Dev/VoxelRPG/build/CMakeFiles/ALL_BUILD.dir
+C:/Dev/VoxelRPG/build/CMakeFiles/ZERO_CHECK.dir
+C:/Dev/VoxelRPG/build/_deps/glfw-build/CMakeFiles/uninstall.dir
+C:/Dev/VoxelRPG/build/_deps/glfw-build/CMakeFiles/INSTALL.dir
+C:/Dev/VoxelRPG/build/_deps/glfw-build/CMakeFiles/ALL_BUILD.dir
+C:/Dev/VoxelRPG/build/_deps/glfw-build/src/CMakeFiles/glfw.dir
+C:/Dev/VoxelRPG/build/_deps/glfw-build/src/CMakeFiles/update_mappings.dir
+C:/Dev/VoxelRPG/build/_deps/glfw-build/src/CMakeFiles/INSTALL.dir
+C:/Dev/VoxelRPG/build/_deps/glfw-build/docs/CMakeFiles/INSTALL.dir
+C:/Dev/VoxelRPG/build/_deps/glm-build/CMakeFiles/INSTALL.dir
+C:/Dev/VoxelRPG/build/_deps/glm-build/CMakeFiles/ALL_BUILD.dir
+C:/Dev/VoxelRPG/build/_deps/glm-build/glm/CMakeFiles/glm.dir
+C:/Dev/VoxelRPG/build/_deps/glm-build/glm/CMakeFiles/INSTALL.dir

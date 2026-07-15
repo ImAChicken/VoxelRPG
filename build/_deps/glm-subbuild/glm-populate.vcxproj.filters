@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\e794002faa388ad675993201ff5c27e1\glm-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\e794002faa388ad675993201ff5c27e1\glm-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\e794002faa388ad675993201ff5c27e1\glm-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\e794002faa388ad675993201ff5c27e1\glm-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\e794002faa388ad675993201ff5c27e1\glm-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\e794002faa388ad675993201ff5c27e1\glm-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\e794002faa388ad675993201ff5c27e1\glm-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\e794002faa388ad675993201ff5c27e1\glm-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\e98ba668bc42d9b30220a3086febe5b0\glm-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\4cecd37375f778ba7c04afd3e450393b\glm-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Dev\VoxelRPG\build\_deps\glm-subbuild\CMakeFiles\glm-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{CB25F2E4-5778-3F3E-B5BA-6F973AF196D7}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
