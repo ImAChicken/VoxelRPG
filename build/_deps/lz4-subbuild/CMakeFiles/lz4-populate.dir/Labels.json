@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/CMakeFiles/lz4-populate"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/CMakeFiles/a08ed7eda9cae9f04f502c452c113c2b/lz4-populate.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/CMakeFiles/df2380cb6ee13613b144d0c5a0f634dd/lz4-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/CMakeFiles/7c9099db7f4314822ff954794a8bd37f/lz4-populate-build.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/CMakeFiles/7c9099db7f4314822ff954794a8bd37f/lz4-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/CMakeFiles/7c9099db7f4314822ff954794a8bd37f/lz4-populate-download.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/CMakeFiles/7c9099db7f4314822ff954794a8bd37f/lz4-populate-install.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/CMakeFiles/7c9099db7f4314822ff954794a8bd37f/lz4-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/CMakeFiles/7c9099db7f4314822ff954794a8bd37f/lz4-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/CMakeFiles/7c9099db7f4314822ff954794a8bd37f/lz4-populate-test.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/CMakeFiles/7c9099db7f4314822ff954794a8bd37f/lz4-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"lz4-populate"
+		],
+		"name" : "lz4-populate"
+	}
+}

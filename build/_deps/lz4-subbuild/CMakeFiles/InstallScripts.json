@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Dev/VoxelRPG/build/_deps/lz4-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

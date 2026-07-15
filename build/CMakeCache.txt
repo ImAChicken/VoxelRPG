@@ -282,6 +282,10 @@ FETCHCONTENT_SOURCE_DIR_GLFW:PATH=
 FETCHCONTENT_SOURCE_DIR_GLM:PATH=
 
 //When not empty, overrides where to find pre-populated content
+// for lz4
+FETCHCONTENT_SOURCE_DIR_LZ4:PATH=
+
+//When not empty, overrides where to find pre-populated content
 // for tomlplusplus
 FETCHCONTENT_SOURCE_DIR_TOMLPLUSPLUS:PATH=
 
@@ -293,6 +297,9 @@ FETCHCONTENT_UPDATES_DISCONNECTED_GLFW:BOOL=OFF
 
 //Enables UPDATE_DISCONNECTED behavior just for population of glm
 FETCHCONTENT_UPDATES_DISCONNECTED_GLM:BOOL=OFF
+
+//Enables UPDATE_DISCONNECTED behavior just for population of lz4
+FETCHCONTENT_UPDATES_DISCONNECTED_LZ4:BOOL=OFF
 
 //Enables UPDATE_DISCONNECTED behavior just for population of tomlplusplus
 FETCHCONTENT_UPDATES_DISCONNECTED_TOMLPLUSPLUS:BOOL=OFF

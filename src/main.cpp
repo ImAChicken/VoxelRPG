@@ -11,6 +11,7 @@
 #include "chunk/Chunk.h"
 #include "chunk/ChunkManager.h"
 #include "voxel/VoxelRegistry.h"
+#include "lz4/lz4.h"
 
 Camera* gCamera = nullptr;
 float lastFrame = 0.0f;

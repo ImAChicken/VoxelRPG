@@ -388,6 +388,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\glad\src\glad\include\KHR\khrplatform.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\glad\src\glad\include\glad\glad.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\glad\src\glad\src\glad.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\src\lz4\lz4.c" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\lz4\lz4.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\main.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Camera.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Mesher.h" />
