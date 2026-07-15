@@ -1,4 +1,6 @@
 #include <iostream>
+#include <array>
+#include <functional>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -7,7 +9,7 @@
 #include "render/Shader.h"
 #include "render/Mesher.h"
 #include "chunk/Chunk.h"
-#include "chunk/ChunkGenerator.h"
+#include "chunk/ChunkManager.h"
 
 Camera* gCamera = nullptr;
 float lastFrame = 0.0f;
@@ -23,6 +25,13 @@ int main() {
 
     Camera camera;
     gCamera = &camera;
+
+    // Start camera above center of 8x8 grid
+    camera.position = glm::vec3(
+        WORLD_SIZE_X * VOXEL_DIM * 0.5f,
+        80.0f,
+        WORLD_SIZE_Z * VOXEL_DIM * 0.5f
+    );
 
     if (!glfwInit()) {
         std::cout << "GLFW init failed\n";
@@ -64,17 +73,35 @@ int main() {
         return -1;
     }
 
-    // Generate chunk and build mesh
-    ChunkPtr chunk = generateTestChunk();
-    std::cout << "Chunk generated\n";
+    // Generate world
+    std::cout << "Generating world...\n";
     std::cout.flush();
 
-    Mesher mesher;
-    int vertCount = mesher.buildMesh(*chunk);
-    std::cout << "Mesh built: " << vertCount << " vertices\n";
-    std::cout.flush();
+    ChunkManager world;
 
-    std::cout << "Entering game loop — WASD to move, ESC to quit\n";
+    // Build one mesh per chunk
+    std::array<Mesher, WORLD_SIZE_X * WORLD_SIZE_Z> meshers;
+
+    int totalVerts = 0;
+    for (int cx = 0; cx < WORLD_SIZE_X; cx++)
+    for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
+        Chunk* chunk = world.getChunk(cx, cz);
+        glm::vec3 origin = world.chunkOrigin(cx, cz);
+
+        // Neighbour sampler — handles cross-chunk face culling
+        auto sampler = [&](int x, int y, int z) -> uint16_t {
+            return world.typeAtWorld(cx, cz, x, y, z);
+        };
+
+        int verts = meshers[world.index(cx, cz)]
+            .buildMesh(*chunk, sampler, origin);
+        totalVerts += verts;
+    }
+
+    std::cout << "World built: " << totalVerts << " total vertices"
+              << " across " << WORLD_SIZE_X * WORLD_SIZE_Z
+              << " chunks\n";
+    std::cout << "WASD to move, Space/Ctrl up/down, ESC to quit\n";
     std::cout.flush();
 
     while (!glfwWindowShouldClose(window)) {
@@ -98,18 +125,23 @@ int main() {
         glClearColor(0.4f, 0.6f, 0.9f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Draw chunk
         shader.use();
         shader.setMat4("uView",       camera.getViewMatrix());
-        shader.setMat4("uProjection", camera.getProjectionMatrix(1280.0f / 720.0f));
+        shader.setMat4("uProjection",
+            camera.getProjectionMatrix(1280.0f / 720.0f));
 
-        mesher.draw();
+        // Draw all chunk meshes
+        for (int cx = 0; cx < WORLD_SIZE_X; cx++)
+        for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
+            meshers[world.index(cx, cz)].draw();
+        }
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
-    mesher.cleanup();
+    // Cleanup
+    for (auto& m : meshers) m.cleanup();
     glfwTerminate();
     return 0;
 }
