@@ -1,7 +1,6 @@
 #pragma once
 #include "Chunk.h"
-#include "ChunkGenerator.h"
-#include <array>
+#include "TerrainGenerator.h"
 #include <memory>
 #include <vector>
 #include <glm/glm.hpp>
@@ -12,15 +11,17 @@ constexpr int WORLD_SIZE_Z = 8;
 class ChunkManager {
 public:
     std::vector<ChunkPtr> chunks;
-    std::vector<bool>     dirty;   // true = mesh needs rebuild
+    std::vector<bool>     dirty;
 
-    ChunkManager() {
+    ChunkManager(int seed = 42) {
         chunks.resize(WORLD_SIZE_X * WORLD_SIZE_Z);
         dirty.resize(WORLD_SIZE_X * WORLD_SIZE_Z, false);
 
+        TerrainGenerator gen(seed);
+
         for (int cx = 0; cx < WORLD_SIZE_X; cx++)
         for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
-            chunks[index(cx, cz)] = generateTestChunk();
+            chunks[index(cx, cz)] = gen.generateChunk(cx, cz);
         }
     }
 
@@ -72,9 +73,9 @@ public:
 
     glm::vec3 chunkOrigin(int cx, int cz) const {
         return glm::vec3(
-            cx * VOXEL_DIM,
+            (float)(cx * VOXEL_DIM),
             0.0f,
-            cz * VOXEL_DIM
+            (float)(cz * VOXEL_DIM)
         );
     }
 };

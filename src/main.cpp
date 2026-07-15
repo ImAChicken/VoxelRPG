@@ -13,6 +13,7 @@
 #include "chunk/ChunkLoader.h"
 #include "chunk/StructureGenerator.h"
 #include "chunk/PasteSystem.h"
+#include "chunk/TerrainGenerator.h"
 #include "voxel/VoxelRegistry.h"
 
 Camera* gCamera = nullptr;
@@ -21,23 +22,6 @@ float lastFrame = 0.0f;
 void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
     (void)window;
     if (gCamera) gCamera->processMouse((float)xpos, (float)ypos);
-}
-
-// Rebuild mesh for a single chunk
-void rebuildMesh(ChunkManager& world,
-                 std::vector<Mesher>& meshers,
-                 int cx, int cz) {
-    Chunk* chunk = world.getChunk(cx, cz);
-    if (!chunk) return;
-
-    glm::vec3 origin = world.chunkOrigin(cx, cz);
-    auto sampler = [&](int x, int y, int z) -> uint16_t {
-        return world.typeAtWorld(cx, cz, x, y, z);
-    };
-
-    meshers[world.index(cx, cz)].cleanup();
-    meshers[world.index(cx, cz)].buildMesh(*chunk, sampler, origin);
-    world.clearDirty(cx, cz);
 }
 
 int main() {
@@ -49,7 +33,7 @@ int main() {
 
     camera.position = glm::vec3(
         WORLD_SIZE_X * VOXEL_DIM * 0.5f,
-        80.0f,
+        60.0f,
         WORLD_SIZE_Z * VOXEL_DIM * 0.5f
     );
 
@@ -100,16 +84,15 @@ int main() {
         return -1;
     }
 
-    // Generate world
-    std::cout << "Generating world...\n";
+    // Generate world with seed
+    const int SEED = 42;
+    std::cout << "Generating world (seed " << SEED << ")...\n";
     std::cout.flush();
 
-    ChunkManager world;
+    ChunkManager world(SEED);
+    TerrainGenerator gen(SEED);
 
-    // Generate and save tree structure files
-    std::cout << "Generating tree structures...\n";
-    std::cout.flush();
-
+    // Generate tree structure files
     ChunkPtr oakTree  = generateOakTree();
     ChunkPtr pineTree = generatePineTree();
 
@@ -120,48 +103,47 @@ int main() {
         "data/structures/pine_tree.vxrp",
         0, 0, 0, ChunkRole::Structure);
 
-    std::cout << "Tree structures saved\n";
+    // Scatter trees based on noise
+    std::cout << "Placing trees...\n";
+    std::cout.flush();
 
-    // Scatter trees across the world
-    // Place on top of grass layer (y=32 is first air above grass at y=31)
-    struct TreePlacement {
-        int cx, cz;     // which chunk
-        int lx, lz;     // local position within chunk
-        bool isPine;
-    };
+    int treeCount = 0;
+    for (int cx = 0; cx < WORLD_SIZE_X; cx++)
+    for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
+        // Sample every 8 voxels within the chunk
+        for (int lx = 4; lx < VOXEL_DIM; lx += 8)
+        for (int lz = 4; lz < VOXEL_DIM; lz += 8) {
+            int wx = cx * VOXEL_DIM + lx;
+            int wz = cz * VOXEL_DIM + lz;
 
-    TreePlacement trees[] = {
-        { 1, 1,  10, 10, false },
-        { 1, 1,  40, 40, true  },
-        { 2, 2,  15, 20, false },
-        { 2, 3,  50, 15, true  },
-        { 3, 1,  25, 45, false },
-        { 4, 4,  10, 50, false },
-        { 4, 2,  55, 30, true  },
-        { 5, 5,  20, 20, false },
-        { 6, 3,  35, 10, true  },
-        { 3, 6,  45, 35, false },
-    };
+            if (gen.shouldPlaceTree(wx, wz)) {
+                int surfY = gen.getSurfaceY(wx, wz);
 
-    for (auto& t : trees) {
-        const Chunk& src = t.isPine ? *pineTree : *oakTree;
-        PasteSystem::paste(
-            world, src,
-            t.cx, t.cz,
-            t.lx, 32, t.lz,  // y=32 = on top of grass
-            32, 32,           // source origin = center of structure chunk
-            PasteMode::AirIsTransparent
-        );
+                // Pick oak or pine based on position
+                bool isPine = ((wx + wz) % 3 == 0);
+                const Chunk& src = isPine ? *pineTree : *oakTree;
 
-        // Mark affected chunks dirty for mesh rebuild
-        world.markDirty(t.cx,     t.cz);
-        world.markDirty(t.cx - 1, t.cz);
-        world.markDirty(t.cx + 1, t.cz);
-        world.markDirty(t.cx,     t.cz - 1);
-        world.markDirty(t.cx,     t.cz + 1);
+                PasteSystem::paste(
+                    world, src,
+                    cx, cz,
+                    lx, surfY, lz,
+                    32, 32,
+                    PasteMode::AirIsTransparent
+                );
+
+                // Mark this chunk and neighbours dirty
+                world.markDirty(cx,     cz);
+                world.markDirty(cx - 1, cz);
+                world.markDirty(cx + 1, cz);
+                world.markDirty(cx,     cz - 1);
+                world.markDirty(cx,     cz + 1);
+
+                treeCount++;
+            }
+        }
     }
 
-    std::cout << "Trees pasted into world\n";
+    std::cout << "Placed " << treeCount << " trees\n";
     std::cout.flush();
 
     // Build all meshes
