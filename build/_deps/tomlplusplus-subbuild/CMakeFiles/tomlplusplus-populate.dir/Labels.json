@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/tomlplusplus-populate"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/8fddca1fb425a81fae4aff01404f5594/tomlplusplus-populate.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/96a3906fa0cd825afac3b520f4b041a6/tomlplusplus-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/c24bfba5d3be20526de6e7dc40b43be3/tomlplusplus-populate-build.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/c24bfba5d3be20526de6e7dc40b43be3/tomlplusplus-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/c24bfba5d3be20526de6e7dc40b43be3/tomlplusplus-populate-download.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/c24bfba5d3be20526de6e7dc40b43be3/tomlplusplus-populate-install.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/c24bfba5d3be20526de6e7dc40b43be3/tomlplusplus-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/c24bfba5d3be20526de6e7dc40b43be3/tomlplusplus-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/c24bfba5d3be20526de6e7dc40b43be3/tomlplusplus-populate-test.rule"
+		},
+		{
+			"file" : "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/c24bfba5d3be20526de6e7dc40b43be3/tomlplusplus-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"tomlplusplus-populate"
+		],
+		"name" : "tomlplusplus-populate"
+	}
+}

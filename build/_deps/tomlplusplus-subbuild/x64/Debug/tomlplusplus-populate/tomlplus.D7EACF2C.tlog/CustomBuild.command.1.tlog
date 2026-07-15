@@ -1,0 +1,150 @@
+^C:\DEV\VOXELRPG\BUILD\_DEPS\TOMLPLUSPLUS-SUBBUILD\CMAKEFILES\C24BFBA5D3BE20526DE6E7DC40B43BE3\TOMLPLUSPLUS-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/tmp/tomlplusplus-populate-mkdirs.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/Debug/tomlplusplus-populate-mkdir
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\DEV\VOXELRPG\BUILD\_DEPS\TOMLPLUSPLUS-SUBBUILD\CMAKEFILES\C24BFBA5D3BE20526DE6E7DC40B43BE3\TOMLPLUSPLUS-POPULATE-DOWNLOAD.RULE
+setlocal
+cd C:\Dev\VoxelRPG\build\_deps
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/tmp/tomlplusplus-populate-gitclone.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/Debug/tomlplusplus-populate-download
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\DEV\VOXELRPG\BUILD\_DEPS\TOMLPLUSPLUS-SUBBUILD\CMAKEFILES\C24BFBA5D3BE20526DE6E7DC40B43BE3\TOMLPLUSPLUS-POPULATE-UPDATE.RULE
+setlocal
+cd C:\Dev\VoxelRPG\build\_deps\tomlplusplus-src
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/tmp/tomlplusplus-populate-gitupdate.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\DEV\VOXELRPG\BUILD\_DEPS\TOMLPLUSPLUS-SUBBUILD\CMAKEFILES\C24BFBA5D3BE20526DE6E7DC40B43BE3\TOMLPLUSPLUS-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/Debug/tomlplusplus-populate-patch
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\DEV\VOXELRPG\BUILD\_DEPS\TOMLPLUSPLUS-SUBBUILD\CMAKEFILES\C24BFBA5D3BE20526DE6E7DC40B43BE3\TOMLPLUSPLUS-POPULATE-CONFIGURE.RULE
+setlocal
+cd C:\Dev\VoxelRPG\build\_deps\tomlplusplus-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/Debug/tomlplusplus-populate-configure
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\DEV\VOXELRPG\BUILD\_DEPS\TOMLPLUSPLUS-SUBBUILD\CMAKEFILES\C24BFBA5D3BE20526DE6E7DC40B43BE3\TOMLPLUSPLUS-POPULATE-BUILD.RULE
+setlocal
+cd C:\Dev\VoxelRPG\build\_deps\tomlplusplus-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/Debug/tomlplusplus-populate-build
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\DEV\VOXELRPG\BUILD\_DEPS\TOMLPLUSPLUS-SUBBUILD\CMAKEFILES\C24BFBA5D3BE20526DE6E7DC40B43BE3\TOMLPLUSPLUS-POPULATE-INSTALL.RULE
+setlocal
+cd C:\Dev\VoxelRPG\build\_deps\tomlplusplus-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/Debug/tomlplusplus-populate-install
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\DEV\VOXELRPG\BUILD\_DEPS\TOMLPLUSPLUS-SUBBUILD\CMAKEFILES\C24BFBA5D3BE20526DE6E7DC40B43BE3\TOMLPLUSPLUS-POPULATE-TEST.RULE
+setlocal
+cd C:\Dev\VoxelRPG\build\_deps\tomlplusplus-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/Debug/tomlplusplus-populate-test
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\DEV\VOXELRPG\BUILD\_DEPS\TOMLPLUSPLUS-SUBBUILD\CMAKEFILES\96A3906FA0CD825AFAC3B520F4B041A6\TOMLPLUSPLUS-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/Debug
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/Debug/tomlplusplus-populate-complete
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/Debug/tomlplusplus-populate-done
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\DEV\VOXELRPG\BUILD\_DEPS\TOMLPLUSPLUS-SUBBUILD\CMAKEFILES\8FDDCA1FB425A81FAE4AFF01404F5594\TOMLPLUSPLUS-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\DEV\VOXELRPG\BUILD\_DEPS\TOMLPLUSPLUS-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild -BC:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild --check-stamp-file C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

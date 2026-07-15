@@ -1,0 +1,266 @@
+# VoxelRPG Block Registry
+# All block types defined here — engine loads this at startup
+# id 0 = air, hardcoded, not listed here
+
+[[block]]
+id = 1
+name = "stone"
+material = "stone"
+hardness = 4
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 2
+color = [0.50, 0.50, 0.50]
+
+[[block]]
+id = 2
+name = "cracked_stone"
+material = "stone"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 3
+color = [0.45, 0.43, 0.43]
+
+[[block]]
+id = 3
+name = "rubble"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.42, 0.40, 0.38]
+
+[[block]]
+id = 4
+name = "dirt"
+material = "dirt"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.60, 0.40, 0.20]
+
+[[block]]
+id = 5
+name = "grass"
+material = "dirt"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 4
+color = [0.30, 0.70, 0.20]
+
+[[block]]
+id = 6
+name = "farmland"
+material = "dirt"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 4
+color = [0.50, 0.32, 0.15]
+
+[[block]]
+id = 7
+name = "log_y"
+material = "wood"
+hardness = 4
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.40, 0.25, 0.10]
+
+[[block]]
+id = 8
+name = "log_x"
+material = "wood"
+hardness = 4
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.40, 0.25, 0.10]
+
+[[block]]
+id = 9
+name = "log_z"
+material = "wood"
+hardness = 4
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.40, 0.25, 0.10]
+
+[[block]]
+id = 10
+name = "planks"
+material = "wood"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.80, 0.60, 0.30]
+
+[[block]]
+id = 11
+name = "thatch"
+material = "wood"
+hardness = 1
+opacity = "translucent"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.75, 0.65, 0.25]
+
+[[block]]
+id = 12
+name = "bricks"
+material = "stone"
+hardness = 6
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 13
+color = [0.70, 0.35, 0.25]
+
+[[block]]
+id = 13
+name = "cracked_brick"
+material = "stone"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.62, 0.30, 0.22]
+
+[[block]]
+id = 14
+name = "leaves"
+material = "organic"
+hardness = 1
+opacity = "partial"
+flags = ["destructible"]
+on_destroy = 0
+color = [0.20, 0.55, 0.15]
+
+[[block]]
+id = 15
+name = "glass"
+material = "stone"
+hardness = 1
+opacity = "none"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.80, 0.90, 0.95]
+
+[[block]]
+id = 16
+name = "fire"
+material = "none"
+hardness = 0
+opacity = "none"
+flags = ["emits_light"]
+on_destroy = 0
+color = [1.00, 0.55, 0.15]
+emitted_light = [31, 16, 4]
+
+[[block]]
+id = 17
+name = "water"
+material = "fluid"
+hardness = 0
+opacity = "translucent"
+flags = ["fluid"]
+on_destroy = 0
+color = [0.15, 0.40, 0.80]
+
+[[block]]
+id = 18
+name = "lava"
+material = "fluid"
+hardness = 0
+opacity = "translucent"
+flags = ["fluid", "emits_light"]
+on_destroy = 0
+color = [0.90, 0.35, 0.05]
+emitted_light = [31, 10, 1]
+
+[[block]]
+id = 19
+name = "torch"
+material = "wood"
+hardness = 1
+opacity = "none"
+flags = ["destructible", "emits_light"]
+on_destroy = 0
+color = [0.90, 0.75, 0.30]
+emitted_light = [28, 12, 3]
+
+[[block]]
+id = 20
+name = "snow"
+material = "none"
+hardness = 1
+opacity = "translucent"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.92, 0.95, 1.00]
+
+[[block]]
+id = 21
+name = "sand"
+material = "dirt"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.90, 0.82, 0.55]
+
+[[block]]
+id = 22
+name = "cobblestone"
+material = "stone"
+hardness = 5
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.45, 0.45, 0.45]
+
+[[block]]
+id = 23
+name = "moss_stone"
+material = "stone"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.35, 0.48, 0.30]
+
+[[block]]
+id = 24
+name = "mud"
+material = "dirt"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.38, 0.28, 0.18]
+
+[[block]]
+id = 25
+name = "gravel"
+material = "stone"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.55, 0.52, 0.50]
+
+[[block]]
+id = 26
+name = "volcanic_rock"
+material = "stone"
+hardness = 7
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.22, 0.18, 0.18]

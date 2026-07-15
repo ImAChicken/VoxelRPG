@@ -24,7 +24,13 @@ FetchContent_Declare(
     GIT_TAG        1.0.1
 )
 
-FetchContent_MakeAvailable(glfw glm)
+FetchContent_Declare(
+    tomlplusplus
+    GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+    GIT_TAG        v3.4.0
+)
+
+FetchContent_MakeAvailable(glfw glm tomlplusplus)
 
 # Find OpenGL
 find_package(OpenGL REQUIRED)
@@ -47,6 +53,7 @@ target_link_libraries(VoxelRPG PRIVATE
     glfw
     glm::glm
     OpenGL::GL
+    tomlplusplus::tomlplusplus
 )
 
 # Windows specific

@@ -196,7 +196,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </ProjectReference>
-    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\glm-build\ALL_BUILD.vcxproj">
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\tomlplusplus-build\ALL_BUILD.vcxproj">
       <Project>{B68E45CE-02AD-3DE4-8BC1-111A5A294A9A}</Project>
       <Name>ALL_BUILD</Name>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>

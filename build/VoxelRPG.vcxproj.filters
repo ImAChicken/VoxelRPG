@@ -15,6 +15,9 @@
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\ChunkGenerator.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\ChunkManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\glad\include\KHR\khrplatform.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -30,7 +33,16 @@
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Camera.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\Mesher.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\voxel\Voxel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\voxel\VoxelRegistry.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

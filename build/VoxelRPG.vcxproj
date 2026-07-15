@@ -87,13 +87,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-src/include" /utf-8</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <BufferSecurityCheck></BufferSecurityCheck>
       <CallingConvention></CallingConvention>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
@@ -114,10 +115,10 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;WIN32_LEAN_AND_MEAN;NOMINMAX;_CRT_SECURE_NO_WARNINGS;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;C:\Dev\VoxelRPG\build\_deps\tomlplusplus-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;C:\Dev\VoxelRPG\build\_deps\tomlplusplus-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -145,12 +146,13 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-src/include" /utf-8</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <BufferSecurityCheck></BufferSecurityCheck>
       <CallingConvention></CallingConvention>
       <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
@@ -173,10 +175,10 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;WIN32_LEAN_AND_MEAN;NOMINMAX;_CRT_SECURE_NO_WARNINGS;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;C:\Dev\VoxelRPG\build\_deps\tomlplusplus-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;C:\Dev\VoxelRPG\build\_deps\tomlplusplus-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -204,12 +206,13 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-src/include" /utf-8</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <BufferSecurityCheck></BufferSecurityCheck>
       <CallingConvention></CallingConvention>
       <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
@@ -232,10 +235,10 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;WIN32_LEAN_AND_MEAN;NOMINMAX;_CRT_SECURE_NO_WARNINGS;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;C:\Dev\VoxelRPG\build\_deps\tomlplusplus-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;C:\Dev\VoxelRPG\build\_deps\tomlplusplus-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -263,13 +266,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/Dev/VoxelRPG/build/_deps/tomlplusplus-src/include" /utf-8</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <BufferSecurityCheck></BufferSecurityCheck>
       <CallingConvention></CallingConvention>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
@@ -290,10 +294,10 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;WIN32_LEAN_AND_MEAN;NOMINMAX;_CRT_SECURE_NO_WARNINGS;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;C:\Dev\VoxelRPG\build\_deps\tomlplusplus-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Dev\VoxelRPG\src;C:\Dev\VoxelRPG\src\glad\include;C:\Dev\VoxelRPG\build\_deps\glfw-src\include;C:\Dev\VoxelRPG\build\_deps\glm-src;C:\Dev\VoxelRPG\build\_deps\tomlplusplus-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -378,6 +382,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
   <ItemGroup>
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\Chunk.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\ChunkGenerator.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\ChunkManager.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\glad\include\KHR\khrplatform.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\glad\include\glad\glad.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\glad\src\glad\include\KHR\khrplatform.h" />
@@ -385,7 +390,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\Dev\VoxelRPG\src\glad\src\glad\src\glad.c" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\main.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Camera.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\Mesher.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\Shader.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\voxel\Voxel.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\voxel\VoxelRegistry.h" />
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>

@@ -1,40 +1,64 @@
 #pragma once
 #include <glad/glad.h>
 #include <vector>
+#include <functional>
 #include <glm/glm.hpp>
 #include "chunk/Chunk.h"
-#include <functional>
+#include "voxel/VoxelRegistry.h"
 
 struct Vertex {
     float x, y, z;
     float r, g, b;
 };
 
-static const float BLOCK_COLORS[][3] = {
-    {0.0f,  0.0f,  0.0f },  // 0 air
-    {0.5f,  0.5f,  0.5f },  // 1 stone
-    {0.6f,  0.4f,  0.2f },  // 2 dirt
-    {0.3f,  0.7f,  0.2f },  // 3 grass
-    {0.4f,  0.25f, 0.1f },  // 4 log
-    {0.8f,  0.6f,  0.3f },  // 5 planks
-};
-
 static const float FACE_SHADE[] = {
-    1.0f,  // top
-    0.6f,  // bottom
-    0.8f,  // north
-    0.8f,  // south
-    0.7f,  // west
-    0.7f,  // east
+    1.0f,   // top
+    0.6f,   // bottom
+    0.8f,   // north
+    0.8f,   // south
+    0.7f,   // west
+    0.7f,   // east
 };
 
-// Neighbour sampler — function that returns block type at any local coord
-// including coords outside this chunk (handled by caller)
 using NeighbourSampler = std::function<uint16_t(int, int, int)>;
 
 class Mesher {
 public:
-    // Build mesh with neighbour awareness for seam stitching
+    // Default constructor
+    Mesher() = default;
+
+    // Delete copy — OpenGL handles cannot be copied
+    Mesher(const Mesher&)            = delete;
+    Mesher& operator=(const Mesher&) = delete;
+
+    // Move constructor — transfers ownership of GPU handles
+    Mesher(Mesher&& other) noexcept
+        : vertices(std::move(other.vertices))
+        , vao(other.vao)
+        , vbo(other.vbo)
+        , vertexCount(other.vertexCount)
+        , offset(other.offset)
+    {
+        other.vao         = 0;
+        other.vbo         = 0;
+        other.vertexCount = 0;
+    }
+
+    Mesher& operator=(Mesher&& other) noexcept {
+        if (this != &other) {
+            cleanup();
+            vertices      = std::move(other.vertices);
+            vao           = other.vao;
+            vbo           = other.vbo;
+            vertexCount   = other.vertexCount;
+            offset        = other.offset;
+            other.vao         = 0;
+            other.vbo         = 0;
+            other.vertexCount = 0;
+        }
+        return *this;
+    }
+
     int buildMesh(const Chunk& chunk,
                   NeighbourSampler sampleNeighbour,
                   glm::vec3 worldOffset) {
@@ -47,9 +71,9 @@ public:
             uint16_t id = chunk.typeAt(x, y, z);
             if (id == BLOCK_AIR) continue;
 
-            const float* col = BLOCK_COLORS[id < 6 ? id : 1];
+            const VoxelTypeDef& def = gRegistry.get(id);
+            const float* col = def.color;
 
-            // Use neighbour sampler for edge faces
             if (sampleNeighbour(x, y+1, z) == BLOCK_AIR)
                 addFace(x, y, z, 0, col);
             if (sampleNeighbour(x, y-1, z) == BLOCK_AIR)
@@ -78,14 +102,15 @@ public:
     void cleanup() {
         if (vao) { glDeleteVertexArrays(1, &vao); vao = 0; }
         if (vbo) { glDeleteBuffers(1, &vbo);      vbo = 0; }
+        vertexCount = 0;
     }
 
 private:
     std::vector<Vertex> vertices;
-    GLuint vao = 0;
-    GLuint vbo = 0;
-    int vertexCount = 0;
-    glm::vec3 offset = {0, 0, 0};
+    GLuint vao         = 0;
+    GLuint vbo         = 0;
+    int vertexCount    = 0;
+    glm::vec3 offset   = {0, 0, 0};
 
     void addFace(int x, int y, int z, int face, const float* col) {
         float shade = FACE_SHADE[face];
@@ -93,7 +118,6 @@ private:
         float g = col[1] * shade;
         float b = col[2] * shade;
 
-        // Apply world offset so chunks sit at correct positions
         float fx = (float)x + offset.x;
         float fy = (float)y + offset.y;
         float fz = (float)z + offset.z;

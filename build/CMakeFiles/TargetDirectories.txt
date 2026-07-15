@@ -13,3 +13,5 @@ C:/Dev/VoxelRPG/build/_deps/glm-build/CMakeFiles/INSTALL.dir
 C:/Dev/VoxelRPG/build/_deps/glm-build/CMakeFiles/ALL_BUILD.dir
 C:/Dev/VoxelRPG/build/_deps/glm-build/glm/CMakeFiles/glm.dir
 C:/Dev/VoxelRPG/build/_deps/glm-build/glm/CMakeFiles/INSTALL.dir
+C:/Dev/VoxelRPG/build/_deps/tomlplusplus-build/CMakeFiles/INSTALL.dir
+C:/Dev/VoxelRPG/build/_deps/tomlplusplus-build/CMakeFiles/ALL_BUILD.dir
