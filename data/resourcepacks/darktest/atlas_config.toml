@@ -1,0 +1,167 @@
+# VoxelRPG Dark Medieval Resource Pack
+tile_size  = 16
+atlas_cols = 16
+atlas_rows = 16
+atlas_file = "data/resourcepacks/dark_medieval/atlas.png"
+
+[[face_map]]
+name    = "air"
+top     = [0, 0]
+side    = [0, 0]
+bottom  = [0, 0]
+
+[[face_map]]
+name    = "stone"
+top     = [1, 0]
+side    = [1, 0]
+bottom  = [1, 0]
+
+[[face_map]]
+name    = "cracked_stone"
+top     = [2, 0]
+side    = [2, 0]
+bottom  = [2, 0]
+
+[[face_map]]
+name    = "rubble"
+top     = [3, 0]
+side    = [3, 0]
+bottom  = [3, 0]
+
+[[face_map]]
+name    = "dirt"
+top     = [0, 1]
+side    = [0, 1]
+bottom  = [0, 1]
+
+[[face_map]]
+name    = "grass"
+top     = [1, 1]
+side    = [2, 1]
+bottom  = [0, 1]
+
+[[face_map]]
+name    = "farmland"
+top     = [3, 1]
+side    = [3, 1]
+bottom  = [0, 1]
+
+[[face_map]]
+name    = "log_y"
+top     = [1, 2]
+side    = [0, 2]
+bottom  = [1, 2]
+
+[[face_map]]
+name    = "log_x"
+top     = [0, 2]
+side    = [1, 2]
+bottom  = [0, 2]
+
+[[face_map]]
+name    = "log_z"
+top     = [0, 2]
+side    = [1, 2]
+bottom  = [0, 2]
+
+[[face_map]]
+name    = "planks"
+top     = [2, 2]
+side    = [2, 2]
+bottom  = [2, 2]
+
+[[face_map]]
+name    = "thatch"
+top     = [3, 2]
+side    = [3, 2]
+bottom  = [3, 2]
+
+[[face_map]]
+name    = "bricks"
+top     = [0, 3]
+side    = [0, 3]
+bottom  = [0, 3]
+
+[[face_map]]
+name    = "cracked_brick"
+top     = [1, 3]
+side    = [1, 3]
+bottom  = [1, 3]
+
+[[face_map]]
+name    = "leaves"
+top     = [4, 2]
+side    = [4, 2]
+bottom  = [4, 2]
+
+[[face_map]]
+name    = "glass"
+top     = [2, 3]
+side    = [2, 3]
+bottom  = [2, 3]
+
+[[face_map]]
+name    = "fire"
+top     = [2, 4]
+side    = [2, 4]
+bottom  = [2, 4]
+
+[[face_map]]
+name    = "water"
+top     = [0, 4]
+side    = [0, 4]
+bottom  = [0, 4]
+
+[[face_map]]
+name    = "lava"
+top     = [1, 4]
+side    = [1, 4]
+bottom  = [1, 4]
+
+[[face_map]]
+name    = "torch"
+top     = [3, 4]
+side    = [3, 4]
+bottom  = [3, 4]
+
+[[face_map]]
+name    = "snow"
+top     = [3, 3]
+side    = [3, 3]
+bottom  = [0, 1]
+
+[[face_map]]
+name    = "sand"
+top     = [5, 1]
+side    = [5, 1]
+bottom  = [5, 1]
+
+[[face_map]]
+name    = "cobblestone"
+top     = [4, 0]
+side    = [4, 0]
+bottom  = [4, 0]
+
+[[face_map]]
+name    = "moss_stone"
+top     = [5, 0]
+side    = [5, 0]
+bottom  = [5, 0]
+
+[[face_map]]
+name    = "mud"
+top     = [4, 1]
+side    = [4, 1]
+bottom  = [4, 1]
+
+[[face_map]]
+name    = "gravel"
+top     = [7, 0]
+side    = [7, 0]
+bottom  = [7, 0]
+
+[[face_map]]
+name    = "volcanic_rock"
+top     = [6, 0]
+side    = [6, 0]
+bottom  = [6, 0]

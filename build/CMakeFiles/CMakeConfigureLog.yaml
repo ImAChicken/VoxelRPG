@@ -95,7 +95,7 @@ events:
       The output was:
       0
       MSBuild version 18.7.1+024f5b037 for .NET Framework
-      Build started 6/12/2026 9:02:13 AM.
+      Build started 6/12/2026 4:30:00 PM.
       
       Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\4.3.3\\CompilerIdCXX\\CompilerIdCXX.vcxproj" on node 1 (default targets).
       PrepareForBuild:
@@ -124,7 +124,7 @@ events:
           0 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:01.70
+      Time Elapsed 00:00:00.85
       
       
       Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
@@ -895,8 +895,8 @@ events:
     checks:
       - "Detecting CXX compiler ABI info"
     directories:
-      source: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-n7w65w"
-      binary: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-n7w65w"
+      source: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-g1be24"
+      binary: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-g1be24"
     cmakeVariables:
       CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
       CMAKE_CXX_FLAGS_DEBUG: "/Ob0 /Od /RTC1"
@@ -907,39 +907,39 @@ events:
       variable: "CMAKE_CXX_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-n7w65w'
+        Change Dir: 'C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-g1be24'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_d4b33.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_eb07e.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
         MSBuild version 18.7.1+024f5b037 for .NET Framework
-        Build started 6/12/2026 9:02:16 AM.
+        Build started 6/12/2026 4:30:02 PM.
         
-        Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-n7w65w\\cmTC_d4b33.vcxproj" on node 1 (default targets).
+        Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-g1be24\\cmTC_eb07e.vcxproj" on node 1 (default targets).
         PrepareForBuild:
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-n7w65w\\Debug\\".
-          Creating directory "cmTC_d4b33.dir\\Debug\\cmTC_d4b33.tlog\\".
+          Creating directory "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-g1be24\\Debug\\".
+          Creating directory "cmTC_eb07e.dir\\Debug\\cmTC_eb07e.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_d4b33.dir\\Debug\\cmTC_d4b33.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_d4b33.dir\\Debug\\cmTC_d4b33.tlog\\unsuccessfulbuild".
+          Creating "cmTC_eb07e.dir\\Debug\\cmTC_eb07e.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_eb07e.dir\\Debug\\cmTC_eb07e.tlog\\unsuccessfulbuild".
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_d4b33.dir\\Debug\\\\" /Fd"cmTC_d4b33.dir\\Debug\\vc145.pdb" /external:W1 /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_eb07e.dir\\Debug\\\\" /Fd"cmTC_eb07e.dir\\Debug\\vc145.pdb" /external:W1 /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36247 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_d4b33.dir\\Debug\\\\" /Fd"cmTC_d4b33.dir\\Debug\\vc145.pdb" /external:W1 /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_eb07e.dir\\Debug\\\\" /Fd"cmTC_eb07e.dir\\Debug\\vc145.pdb" /external:W1 /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.3\\Modules\\CMakeCXXCompilerABI.cpp"
           CMakeCXXCompilerABI.cpp
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-n7w65w\\Debug\\cmTC_d4b33.exe" /INCREMENTAL /ILK:"cmTC_d4b33.dir\\Debug\\cmTC_d4b33.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-n7w65w/Debug/cmTC_d4b33.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-n7w65w/Debug/cmTC_d4b33.lib" /MACHINE:X64  /machine:x64 cmTC_d4b33.dir\\Debug\\CMakeCXXCompilerABI.obj
-          cmTC_d4b33.vcxproj -> C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-n7w65w\\Debug\\cmTC_d4b33.exe
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-g1be24\\Debug\\cmTC_eb07e.exe" /INCREMENTAL /ILK:"cmTC_eb07e.dir\\Debug\\cmTC_eb07e.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-g1be24/Debug/cmTC_eb07e.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-g1be24/Debug/cmTC_eb07e.lib" /MACHINE:X64  /machine:x64 cmTC_eb07e.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_eb07e.vcxproj -> C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-g1be24\\Debug\\cmTC_eb07e.exe
         FinalizeBuildStatus:
-          Deleting file "cmTC_d4b33.dir\\Debug\\cmTC_d4b33.tlog\\unsuccessfulbuild".
-          Touching "cmTC_d4b33.dir\\Debug\\cmTC_d4b33.tlog\\cmTC_d4b33.lastbuildstate".
-        Done Building Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-n7w65w\\cmTC_d4b33.vcxproj" (default targets).
+          Deleting file "cmTC_eb07e.dir\\Debug\\cmTC_eb07e.tlog\\unsuccessfulbuild".
+          Touching "cmTC_eb07e.dir\\Debug\\cmTC_eb07e.tlog\\cmTC_eb07e.lastbuildstate".
+        Done Building Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-g1be24\\cmTC_eb07e.vcxproj" (default targets).
         
         Build succeeded.
             0 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:01.09
+        Time Elapsed 00:00:00.87
         
       exitCode: 0
   -
@@ -979,7 +979,7 @@ events:
       - "C:/Program Files/CMake/share/cmake-4.3/Modules/FetchContent.cmake:2158:EVAL:2 (__FetchContent_doPopulation)"
       - "C:/Program Files/CMake/share/cmake-4.3/Modules/FetchContent.cmake:2158 (cmake_language)"
       - "C:/Program Files/CMake/share/cmake-4.3/Modules/FetchContent.cmake:2399 (__FetchContent_Populate)"
-      - "CMakeLists.txt:27 (FetchContent_MakeAvailable)"
+      - "CMakeLists.txt:36 (FetchContent_MakeAvailable)"
     mode: "program"
     variable: "GIT_EXECUTABLE"
     description: "Git command line client"
@@ -1410,7 +1410,7 @@ events:
       The output was:
       0
       MSBuild version 18.7.1+024f5b037 for .NET Framework
-      Build started 6/12/2026 9:02:29 AM.
+      Build started 6/12/2026 4:30:13 PM.
       
       Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\4.3.3\\CompilerIdC\\CompilerIdC.vcxproj" on node 1 (default targets).
       PrepareForBuild:
@@ -1439,7 +1439,7 @@ events:
           0 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:00.77
+      Time Elapsed 00:00:00.85
       
       
       Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.exe"
@@ -1717,50 +1717,51 @@ events:
     checks:
       - "Detecting C compiler ABI info"
     directories:
-      source: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-i4xnje"
-      binary: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-i4xnje"
+      source: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-ub4tro"
+      binary: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-ub4tro"
     cmakeVariables:
       CMAKE_CXX_STDLIB_MODULES_JSON: ""
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Ob0 /Od /RTC1"
       CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MSVC_RUNTIME_LIBRARY: "MultiThreaded$<$<CONFIG:Debug>:Debug>"
     buildResult:
       variable: "CMAKE_C_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-i4xnje'
+        Change Dir: 'C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-ub4tro'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_44f30.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_cb51c.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
         MSBuild version 18.7.1+024f5b037 for .NET Framework
-        Build started 6/12/2026 9:02:30 AM.
+        Build started 6/12/2026 4:30:15 PM.
         
-        Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-i4xnje\\cmTC_44f30.vcxproj" on node 1 (default targets).
+        Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ub4tro\\cmTC_cb51c.vcxproj" on node 1 (default targets).
         PrepareForBuild:
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-i4xnje\\Debug\\".
-          Creating directory "cmTC_44f30.dir\\Debug\\cmTC_44f30.tlog\\".
+          Creating directory "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ub4tro\\Debug\\".
+          Creating directory "cmTC_cb51c.dir\\Debug\\cmTC_cb51c.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_44f30.dir\\Debug\\cmTC_44f30.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_44f30.dir\\Debug\\cmTC_44f30.tlog\\unsuccessfulbuild".
+          Creating "cmTC_cb51c.dir\\Debug\\cmTC_cb51c.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_cb51c.dir\\Debug\\cmTC_cb51c.tlog\\unsuccessfulbuild".
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_44f30.dir\\Debug\\\\" /Fd"cmTC_44f30.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.3\\Modules\\CMakeCCompilerABI.c"
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_cb51c.dir\\Debug\\\\" /Fd"cmTC_cb51c.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.3\\Modules\\CMakeCCompilerABI.c"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36247 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_44f30.dir\\Debug\\\\" /Fd"cmTC_44f30.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.3\\Modules\\CMakeCCompilerABI.c"
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_cb51c.dir\\Debug\\\\" /Fd"cmTC_cb51c.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.3\\Modules\\CMakeCCompilerABI.c"
           CMakeCCompilerABI.c
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-i4xnje\\Debug\\cmTC_44f30.exe" /INCREMENTAL /ILK:"cmTC_44f30.dir\\Debug\\cmTC_44f30.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-i4xnje/Debug/cmTC_44f30.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-i4xnje/Debug/cmTC_44f30.lib" /MACHINE:X64  /machine:x64 cmTC_44f30.dir\\Debug\\CMakeCCompilerABI.obj
-          cmTC_44f30.vcxproj -> C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-i4xnje\\Debug\\cmTC_44f30.exe
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ub4tro\\Debug\\cmTC_cb51c.exe" /INCREMENTAL /ILK:"cmTC_cb51c.dir\\Debug\\cmTC_cb51c.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-ub4tro/Debug/cmTC_cb51c.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-ub4tro/Debug/cmTC_cb51c.lib" /MACHINE:X64  /machine:x64 cmTC_cb51c.dir\\Debug\\CMakeCCompilerABI.obj
+          cmTC_cb51c.vcxproj -> C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ub4tro\\Debug\\cmTC_cb51c.exe
         FinalizeBuildStatus:
-          Deleting file "cmTC_44f30.dir\\Debug\\cmTC_44f30.tlog\\unsuccessfulbuild".
-          Touching "cmTC_44f30.dir\\Debug\\cmTC_44f30.tlog\\cmTC_44f30.lastbuildstate".
-        Done Building Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-i4xnje\\cmTC_44f30.vcxproj" (default targets).
+          Deleting file "cmTC_cb51c.dir\\Debug\\cmTC_cb51c.tlog\\unsuccessfulbuild".
+          Touching "cmTC_cb51c.dir\\Debug\\cmTC_cb51c.tlog\\cmTC_cb51c.lastbuildstate".
+        Done Building Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ub4tro\\cmTC_cb51c.vcxproj" (default targets).
         
         Build succeeded.
             0 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:00.70
+        Time Elapsed 00:00:01.14
         
       exitCode: 0
   -
@@ -1802,51 +1803,52 @@ events:
     checks:
       - "Performing Test CMAKE_HAVE_LIBC_PTHREAD"
     directories:
-      source: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-w1m79g"
-      binary: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-w1m79g"
+      source: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-ip4zrp"
+      binary: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-ip4zrp"
     cmakeVariables:
       CMAKE_CXX_STDLIB_MODULES_JSON: ""
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Ob0 /Od /RTC1"
       CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
       CMAKE_MODULE_PATH: "C:/Dev/VoxelRPG/build/_deps/glfw-src/CMake/modules"
+      CMAKE_MSVC_RUNTIME_LIBRARY: "MultiThreaded$<$<CONFIG:Debug>:Debug>"
     buildResult:
       variable: "CMAKE_HAVE_LIBC_PTHREAD"
       cached: true
       stdout: |
-        Change Dir: 'C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-w1m79g'
+        Change Dir: 'C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-ip4zrp'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_14789.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_74966.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
         MSBuild version 18.7.1+024f5b037 for .NET Framework
-        Build started 6/12/2026 9:02:31 AM.
+        Build started 6/12/2026 4:30:17 PM.
         
-        Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-w1m79g\\cmTC_14789.vcxproj" on node 1 (default targets).
+        Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ip4zrp\\cmTC_74966.vcxproj" on node 1 (default targets).
         PrepareForBuild:
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-w1m79g\\Debug\\".
-          Creating directory "cmTC_14789.dir\\Debug\\cmTC_14789.tlog\\".
+          Creating directory "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ip4zrp\\Debug\\".
+          Creating directory "cmTC_74966.dir\\Debug\\cmTC_74966.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_14789.dir\\Debug\\cmTC_14789.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_14789.dir\\Debug\\cmTC_14789.tlog\\unsuccessfulbuild".
+          Creating "cmTC_74966.dir\\Debug\\cmTC_74966.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_74966.dir\\Debug\\cmTC_74966.tlog\\unsuccessfulbuild".
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_14789.dir\\Debug\\\\" /Fd"cmTC_14789.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-w1m79g\\src.c"
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_74966.dir\\Debug\\\\" /Fd"cmTC_74966.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ip4zrp\\src.c"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36247 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_14789.dir\\Debug\\\\" /Fd"cmTC_14789.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-w1m79g\\src.c"
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_74966.dir\\Debug\\\\" /Fd"cmTC_74966.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ip4zrp\\src.c"
           src.c
-        C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-w1m79g\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-w1m79g\\cmTC_14789.vcxproj]
-        Done Building Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-w1m79g\\cmTC_14789.vcxproj" (default targets) -- FAILED.
+        C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ip4zrp\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ip4zrp\\cmTC_74966.vcxproj]
+        Done Building Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ip4zrp\\cmTC_74966.vcxproj" (default targets) -- FAILED.
         
         Build FAILED.
         
-        "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-w1m79g\\cmTC_14789.vcxproj" (default target) (1) ->
+        "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ip4zrp\\cmTC_74966.vcxproj" (default target) (1) ->
         (ClCompile target) -> 
-          C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-w1m79g\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-w1m79g\\cmTC_14789.vcxproj]
+          C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ip4zrp\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ip4zrp\\cmTC_74966.vcxproj]
         
             0 Warning(s)
             1 Error(s)
         
-        Time Elapsed 00:00:00.58
+        Time Elapsed 00:00:00.75
         
       exitCode: 1
   -
@@ -1859,53 +1861,54 @@ events:
     checks:
       - "Looking for pthread_create in pthreads"
     directories:
-      source: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-oxaek7"
-      binary: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-oxaek7"
+      source: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-225bl8"
+      binary: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-225bl8"
     cmakeVariables:
       CMAKE_CXX_STDLIB_MODULES_JSON: ""
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Ob0 /Od /RTC1"
       CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
       CMAKE_MODULE_PATH: "C:/Dev/VoxelRPG/build/_deps/glfw-src/CMake/modules"
+      CMAKE_MSVC_RUNTIME_LIBRARY: "MultiThreaded$<$<CONFIG:Debug>:Debug>"
     buildResult:
       variable: "CMAKE_HAVE_PTHREADS_CREATE"
       cached: true
       stdout: |
-        Change Dir: 'C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-oxaek7'
+        Change Dir: 'C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-225bl8'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_20fca.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_ea3f1.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
         MSBuild version 18.7.1+024f5b037 for .NET Framework
-        Build started 6/12/2026 9:02:33 AM.
+        Build started 6/12/2026 4:30:19 PM.
         
-        Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-oxaek7\\cmTC_20fca.vcxproj" on node 1 (default targets).
+        Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-225bl8\\cmTC_ea3f1.vcxproj" on node 1 (default targets).
         PrepareForBuild:
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-oxaek7\\Debug\\".
-          Creating directory "cmTC_20fca.dir\\Debug\\cmTC_20fca.tlog\\".
+          Creating directory "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-225bl8\\Debug\\".
+          Creating directory "cmTC_ea3f1.dir\\Debug\\cmTC_ea3f1.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_20fca.dir\\Debug\\cmTC_20fca.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_20fca.dir\\Debug\\cmTC_20fca.tlog\\unsuccessfulbuild".
+          Creating "cmTC_ea3f1.dir\\Debug\\cmTC_ea3f1.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_ea3f1.dir\\Debug\\cmTC_ea3f1.tlog\\unsuccessfulbuild".
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_20fca.dir\\Debug\\\\" /Fd"cmTC_20fca.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-oxaek7\\CheckFunctionExists.c"
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_ea3f1.dir\\Debug\\\\" /Fd"cmTC_ea3f1.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-225bl8\\CheckFunctionExists.c"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36247 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_20fca.dir\\Debug\\\\" /Fd"cmTC_20fca.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-oxaek7\\CheckFunctionExists.c"
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_ea3f1.dir\\Debug\\\\" /Fd"cmTC_ea3f1.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-225bl8\\CheckFunctionExists.c"
           CheckFunctionExists.c
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-oxaek7\\Debug\\cmTC_20fca.exe" /INCREMENTAL /ILK:"cmTC_20fca.dir\\Debug\\cmTC_20fca.ilk" /NOLOGO pthreads.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-oxaek7/Debug/cmTC_20fca.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-oxaek7/Debug/cmTC_20fca.lib" /MACHINE:X64  /machine:x64 cmTC_20fca.dir\\Debug\\CheckFunctionExists.obj
-        LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-oxaek7\\cmTC_20fca.vcxproj]
-        Done Building Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-oxaek7\\cmTC_20fca.vcxproj" (default targets) -- FAILED.
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-225bl8\\Debug\\cmTC_ea3f1.exe" /INCREMENTAL /ILK:"cmTC_ea3f1.dir\\Debug\\cmTC_ea3f1.ilk" /NOLOGO pthreads.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-225bl8/Debug/cmTC_ea3f1.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-225bl8/Debug/cmTC_ea3f1.lib" /MACHINE:X64  /machine:x64 cmTC_ea3f1.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-225bl8\\cmTC_ea3f1.vcxproj]
+        Done Building Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-225bl8\\cmTC_ea3f1.vcxproj" (default targets) -- FAILED.
         
         Build FAILED.
         
-        "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-oxaek7\\cmTC_20fca.vcxproj" (default target) (1) ->
+        "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-225bl8\\cmTC_ea3f1.vcxproj" (default target) (1) ->
         (Link target) -> 
-          LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-oxaek7\\cmTC_20fca.vcxproj]
+          LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-225bl8\\cmTC_ea3f1.vcxproj]
         
             0 Warning(s)
             1 Error(s)
         
-        Time Elapsed 00:00:00.67
+        Time Elapsed 00:00:00.85
         
       exitCode: 1
   -
@@ -1918,53 +1921,54 @@ events:
     checks:
       - "Looking for pthread_create in pthread"
     directories:
-      source: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-txe44o"
-      binary: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-txe44o"
+      source: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-beg3lt"
+      binary: "C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-beg3lt"
     cmakeVariables:
       CMAKE_CXX_STDLIB_MODULES_JSON: ""
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Ob0 /Od /RTC1"
       CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
       CMAKE_MODULE_PATH: "C:/Dev/VoxelRPG/build/_deps/glfw-src/CMake/modules"
+      CMAKE_MSVC_RUNTIME_LIBRARY: "MultiThreaded$<$<CONFIG:Debug>:Debug>"
     buildResult:
       variable: "CMAKE_HAVE_PTHREAD_CREATE"
       cached: true
       stdout: |
-        Change Dir: 'C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-txe44o'
+        Change Dir: 'C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-beg3lt'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_8e596.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_b447b.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
         MSBuild version 18.7.1+024f5b037 for .NET Framework
-        Build started 6/12/2026 9:02:34 AM.
+        Build started 6/12/2026 4:30:20 PM.
         
-        Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-txe44o\\cmTC_8e596.vcxproj" on node 1 (default targets).
+        Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-beg3lt\\cmTC_b447b.vcxproj" on node 1 (default targets).
         PrepareForBuild:
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-txe44o\\Debug\\".
-          Creating directory "cmTC_8e596.dir\\Debug\\cmTC_8e596.tlog\\".
+          Creating directory "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-beg3lt\\Debug\\".
+          Creating directory "cmTC_b447b.dir\\Debug\\cmTC_b447b.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_8e596.dir\\Debug\\cmTC_8e596.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_8e596.dir\\Debug\\cmTC_8e596.tlog\\unsuccessfulbuild".
+          Creating "cmTC_b447b.dir\\Debug\\cmTC_b447b.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_b447b.dir\\Debug\\cmTC_b447b.tlog\\unsuccessfulbuild".
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_8e596.dir\\Debug\\\\" /Fd"cmTC_8e596.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-txe44o\\CheckFunctionExists.c"
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_b447b.dir\\Debug\\\\" /Fd"cmTC_b447b.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-beg3lt\\CheckFunctionExists.c"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36247 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_8e596.dir\\Debug\\\\" /Fd"cmTC_8e596.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-txe44o\\CheckFunctionExists.c"
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_b447b.dir\\Debug\\\\" /Fd"cmTC_b447b.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-beg3lt\\CheckFunctionExists.c"
           CheckFunctionExists.c
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-txe44o\\Debug\\cmTC_8e596.exe" /INCREMENTAL /ILK:"cmTC_8e596.dir\\Debug\\cmTC_8e596.ilk" /NOLOGO pthread.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-txe44o/Debug/cmTC_8e596.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-txe44o/Debug/cmTC_8e596.lib" /MACHINE:X64  /machine:x64 cmTC_8e596.dir\\Debug\\CheckFunctionExists.obj
-        LINK : fatal error LNK1104: cannot open file 'pthread.lib' [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-txe44o\\cmTC_8e596.vcxproj]
-        Done Building Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-txe44o\\cmTC_8e596.vcxproj" (default targets) -- FAILED.
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-beg3lt\\Debug\\cmTC_b447b.exe" /INCREMENTAL /ILK:"cmTC_b447b.dir\\Debug\\cmTC_b447b.ilk" /NOLOGO pthread.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-beg3lt/Debug/cmTC_b447b.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Dev/VoxelRPG/build/CMakeFiles/CMakeScratch/TryCompile-beg3lt/Debug/cmTC_b447b.lib" /MACHINE:X64  /machine:x64 cmTC_b447b.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: cannot open file 'pthread.lib' [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-beg3lt\\cmTC_b447b.vcxproj]
+        Done Building Project "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-beg3lt\\cmTC_b447b.vcxproj" (default targets) -- FAILED.
         
         Build FAILED.
         
-        "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-txe44o\\cmTC_8e596.vcxproj" (default target) (1) ->
+        "C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-beg3lt\\cmTC_b447b.vcxproj" (default target) (1) ->
         (Link target) -> 
-          LINK : fatal error LNK1104: cannot open file 'pthread.lib' [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-txe44o\\cmTC_8e596.vcxproj]
+          LINK : fatal error LNK1104: cannot open file 'pthread.lib' [C:\\Dev\\VoxelRPG\\build\\CMakeFiles\\CMakeScratch\\TryCompile-beg3lt\\cmTC_b447b.vcxproj]
         
             0 Warning(s)
             1 Error(s)
         
-        Time Elapsed 00:00:00.57
+        Time Elapsed 00:00:00.70
         
       exitCode: 1
   -

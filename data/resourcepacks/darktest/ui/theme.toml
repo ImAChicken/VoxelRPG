@@ -1,0 +1,28 @@
+# VoxelRPG UI Theme — Dark Medieval
+[colors]
+background          = [12,  8,   8,   220]
+background_hover    = [22,  14,  14,  240]
+border              = [80,  50,  40,  255]
+border_hover        = [140, 90,  60,  255]
+text                = [200, 185, 160, 255]
+text_hover          = [240, 220, 190, 255]
+text_dim            = [120, 100, 80,  255]
+accent              = [180, 100, 40,  255]
+accent_dark         = [120, 65,  25,  255]
+button_bg           = [50,  28,  18,  240]
+button_bg_hover     = [80,  45,  28,  255]
+button_border       = [120, 70,  40,  255]
+input_bg            = [10,  6,   4,   255]
+input_border        = [80,  48,  30,  255]
+input_cursor        = [200, 140, 80,  255]
+title               = [220, 170, 100, 255]
+overlay             = [0,   0,   0,   180]
+
+[sizing]
+button_w        = 200
+button_h        = 32
+button_padding  = 8
+panel_padding   = 16
+font_scale      = 2
+title_scale     = 3
+border_width    = 1

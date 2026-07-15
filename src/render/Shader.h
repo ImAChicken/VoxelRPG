@@ -54,6 +54,14 @@ public:
             1, GL_FALSE, glm::value_ptr(m));
     }
 
+    void setInt(const char* name, int value) const {
+        glUniform1i(glGetUniformLocation(id, name), value);
+    }
+
+    void setFloat(const char* name, float value) const {
+        glUniform1f(glGetUniformLocation(id, name), value);
+    }
+
 private:
     std::string readFile(const char* path) {
         std::ifstream f(path);

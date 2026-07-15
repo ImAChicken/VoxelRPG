@@ -89,18 +89,19 @@
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <MinimalRebuild></MinimalRebuild>
       <Optimization>Disabled</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
-      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
       <WarningLevel>Level3</WarningLevel>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;_GLFW_WIN32;UNICODE;_UNICODE;_CRT_SECURE_NO_WARNINGS;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
-      <ScanSourceForModuleDependencies>true</ScanSourceForModuleDependencies>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;_GLFW_WIN32;UNICODE;_UNICODE;_CRT_SECURE_NO_WARNINGS;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
@@ -130,11 +131,12 @@
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <MinimalRebuild></MinimalRebuild>
       <Optimization>MaxSpeed</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
@@ -143,7 +145,7 @@
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <DebugInformationFormat>
       </DebugInformationFormat>
-      <ScanSourceForModuleDependencies>true</ScanSourceForModuleDependencies>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_GLFW_WIN32;UNICODE;_UNICODE;_CRT_SECURE_NO_WARNINGS;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
@@ -173,11 +175,12 @@
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <MinimalRebuild></MinimalRebuild>
       <Optimization>MinSpace</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
@@ -186,7 +189,7 @@
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <DebugInformationFormat>
       </DebugInformationFormat>
-      <ScanSourceForModuleDependencies>true</ScanSourceForModuleDependencies>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_GLFW_WIN32;UNICODE;_UNICODE;_CRT_SECURE_NO_WARNINGS;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
@@ -217,18 +220,19 @@
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <MinimalRebuild></MinimalRebuild>
       <Optimization>MaxSpeed</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
       <WarningLevel>Level3</WarningLevel>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_GLFW_WIN32;UNICODE;_UNICODE;_CRT_SECURE_NO_WARNINGS;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
-      <ScanSourceForModuleDependencies>true</ScanSourceForModuleDependencies>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_GLFW_WIN32;UNICODE;_UNICODE;_CRT_SECURE_NO_WARNINGS;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
@@ -309,138 +313,33 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\internal.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\platform.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\mappings.h" />
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\context.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\init.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\input.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\monitor.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\platform.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\vulkan.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\window.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\egl_context.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\osmesa_context.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\context.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\init.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\input.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\monitor.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\platform.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\vulkan.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\window.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\egl_context.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\osmesa_context.c" />
     <ClInclude Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\null_platform.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\null_joystick.h" />
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\null_init.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\null_monitor.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\null_window.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\null_joystick.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\null_init.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\null_monitor.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\null_window.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\null_joystick.c" />
     <ClInclude Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_time.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_thread.h" />
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_module.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_time.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_thread.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_module.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_time.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_thread.c" />
     <ClInclude Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_platform.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_joystick.h" />
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_init.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_joystick.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_monitor.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_window.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
-    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\wgl_context.c">
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</ScanSourceForModuleDependencies>
-      <ScanSourceForModuleDependencies Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</ScanSourceForModuleDependencies>
-    </ClCompile>
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_init.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_joystick.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_monitor.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\win32_window.c" />
+    <ClCompile Include="C:\Dev\VoxelRPG\build\_deps\glfw-src\src\wgl_context.c" />
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>

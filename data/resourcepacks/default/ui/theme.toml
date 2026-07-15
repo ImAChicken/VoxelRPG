@@ -1,0 +1,30 @@
+# VoxelRPG UI Theme — Default
+# Colors are RGBA 0-255
+
+[colors]
+background          = [20,  20,  28,  220]   # dark panel background
+background_hover    = [30,  30,  42,  240]   # hovered panel
+border              = [80,  80,  100, 255]   # panel border
+border_hover        = [120, 140, 180, 255]   # hovered border
+text                = [220, 220, 220, 255]   # normal text
+text_hover          = [255, 255, 255, 255]   # hovered text
+text_dim            = [140, 140, 150, 255]   # dimmed / inactive text
+accent              = [80,  160, 220, 255]   # accent / highlight
+accent_dark         = [50,  110, 160, 255]   # darker accent
+button_bg           = [40,  60,  90,  240]   # button background
+button_bg_hover     = [60,  90,  140, 255]   # button hover
+button_border       = [80,  120, 180, 255]   # button border
+input_bg            = [15,  15,  22,  255]   # text input background
+input_border        = [60,  80,  120, 255]   # text input border
+input_cursor        = [180, 200, 255, 255]   # text cursor
+title               = [180, 220, 255, 255]   # title text
+overlay             = [0,   0,   0,   160]   # full screen overlay
+
+[sizing]
+button_w        = 200
+button_h        = 32
+button_padding  = 8
+panel_padding   = 16
+font_scale      = 2
+title_scale     = 3
+border_width    = 1

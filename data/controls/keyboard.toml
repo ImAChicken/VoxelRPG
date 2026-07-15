@@ -1,0 +1,51 @@
+# VoxelRPG Keyboard + Mouse Controls
+# Edit this file to rebind any action
+# Keys use names like W, A, S, D, SPACE, LEFT_SHIFT etc
+# Mouse: MOUSE_LEFT, MOUSE_RIGHT, MOUSE_MIDDLE
+# Scroll: MOUSE_SCROLL_UP, MOUSE_SCROLL_DOWN
+# No recompile needed after editing
+
+[movement]
+move_forward  = "W"
+move_backward = "S"
+strafe_left   = "A"
+strafe_right  = "D"
+jump          = "SPACE"
+crouch        = "LEFT_CONTROL"
+sprint        = "LEFT_SHIFT"
+roll          = "LEFT_SHIFT"        # tap = roll, hold = sprint
+
+[actions]
+use_left        = "MOUSE_LEFT"      # primary action / attack / place
+use_right       = "MOUSE_RIGHT"     # secondary action / remove
+block           = "Q"               # hold = guard, tap = timed block
+draw_weapon     = "R"               # toggle draw/sheathe
+                                    # switches survival <-> combat mode
+interact        = "E"               # use / open / talk
+ledge_grab      = "F"               # burst to face, hang, press again = lift
+inventory       = "TAB"             # open full inventory
+toolbar_next    = "MOUSE_SCROLL_DOWN"
+toolbar_prev    = "MOUSE_SCROLL_UP"
+toolbar_slot_1  = "1"
+toolbar_slot_2  = "2"
+toolbar_slot_3  = "3"
+toolbar_slot_4  = "4"
+toolbar_slot_5  = "5"
+toolbar_slot_6  = "6"
+toolbar_slot_7  = "7"
+toolbar_slot_8  = "8"
+
+[camera]
+camera_toggle  = "F5"              # first person <-> third person
+
+[dev]
+toggle_fly      = "V"              # fly mode on/off (dev mode only)
+toggle_debug    = "F3"             # debug overlay
+toggle_console  = "GRAVE"          # ` key — dev console
+gamemode_cycle  = "F4"             # cycle gamemodes
+reload_registry = "F6"             # hot reload blocks.toml
+reload_pack     = "F7"             # hot reload resource pack
+
+[system]
+pause           = "ESCAPE"
+screenshot      = "F2"

@@ -1,92 +1,140 @@
 #pragma once
 #include "Chunk.h"
+#include "StructureGenerator.h"
 #include "../noise/FastNoiseLite.h"
 
 class TerrainGenerator {
 public:
     TerrainGenerator(int seed = 42) {
-        // Base heightmap — gentle rolling hills
         heightNoise.SetSeed(seed);
-        heightNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+        heightNoise.SetNoiseType(
+            FastNoiseLite::NoiseType_Perlin);
         heightNoise.SetFrequency(0.008f);
-        heightNoise.SetFractalType(FastNoiseLite::FractalType_FBm);
+        heightNoise.SetFractalType(
+            FastNoiseLite::FractalType_FBm);
         heightNoise.SetFractalOctaves(4);
         heightNoise.SetFractalLacunarity(2.0f);
         heightNoise.SetFractalGain(0.5f);
 
-        // Detail noise — small surface variation
         detailNoise.SetSeed(seed + 1);
-        detailNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+        detailNoise.SetNoiseType(
+            FastNoiseLite::NoiseType_Perlin);
         detailNoise.SetFrequency(0.05f);
 
-        // Tree placement noise
         treeNoise.SetSeed(seed + 2);
-        treeNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+        treeNoise.SetNoiseType(
+            FastNoiseLite::NoiseType_Perlin);
         treeNoise.SetFrequency(0.08f);
+
+        // Generate tree structures once
+        oakTree  = generateOakTree();
+        pineTree = generatePineTree();
     }
 
-    // Generate a chunk at world chunk coordinates cx, cz
     ChunkPtr generateChunk(int cx, int cz) {
         ChunkPtr chunk = makeChunk();
 
+        // Step 1 — terrain
         for (int x = 0; x < VOXEL_DIM; x++)
         for (int z = 0; z < VOXEL_DIM; z++) {
-            // World voxel position
             float wx = (float)(cx * VOXEL_DIM + x);
             float wz = (float)(cz * VOXEL_DIM + z);
 
-            // Sample height — base + detail
             float h = heightNoise.GetNoise(wx, wz);
             float d = detailNoise.GetNoise(wx, wz) * 0.15f;
 
-            // Map noise (-1 to 1) to voxel height
-            // Base height 20, variation +/- 12
             int surfaceY = 20 + (int)((h + d) * 12.0f);
-            surfaceY = std::max(4, std::min(surfaceY, VOXEL_DIM - 8));
+            surfaceY = std::max(4,
+                std::min(surfaceY, VOXEL_DIM - 8));
 
-            // Fill layers
             for (int y = 0; y < VOXEL_DIM; y++) {
                 if (y == 0) {
-                    // Bedrock at bottom
                     chunk->setBlock(x, y, z, BLOCK_STONE);
-                }
-                else if (y < surfaceY - 3) {
-                    // Deep stone
+                } else if (y < surfaceY - 3) {
                     chunk->setBlock(x, y, z, BLOCK_STONE);
-                }
-                else if (y < surfaceY - 1) {
-                    // Dirt layer
+                } else if (y < surfaceY - 1) {
                     chunk->setBlock(x, y, z, BLOCK_DIRT);
-                }
-                else if (y == surfaceY - 1) {
-                    // Surface — grass
+                } else if (y == surfaceY - 1) {
                     chunk->setBlock(x, y, z, BLOCK_GRASS);
                 }
-                // Above surface stays air
+            }
+        }
+
+        // Step 2 — trees baked directly into chunk
+        for (int lx = 4; lx < VOXEL_DIM; lx += 8)
+        for (int lz = 4; lz < VOXEL_DIM; lz += 8) {
+            int wx = cx * VOXEL_DIM + lx;
+            int wz = cz * VOXEL_DIM + lz;
+
+            if (shouldPlaceTree(wx, wz)) {
+                int surfY = getSurfaceY(wx, wz);
+                bool isPine = ((wx + wz) % 3 == 0);
+
+                // Paste directly into this chunk
+                // Trees near chunk edges may be clipped
+                // — acceptable for now, fixed in M16
+                const Chunk& src = isPine
+                    ? *pineTree : *oakTree;
+
+                pasteIntoChunk(*chunk, src,
+                    lx, surfY, lz);
             }
         }
 
         return chunk;
     }
 
-    // Returns true if a tree should be placed at this world position
     bool shouldPlaceTree(int wx, int wz) {
-        float v = treeNoise.GetNoise((float)wx, (float)wz);
-        // Perlin noise returns -1 to 1
-        // Threshold 0.3 gives roughly 1 tree per 8x8 sample area
+        float v = treeNoise.GetNoise(
+            (float)wx, (float)wz);
         return v > 0.30f;
     }
 
-    // Get surface Y at a world voxel position
     int getSurfaceY(int wx, int wz) {
-        float h = heightNoise.GetNoise((float)wx, (float)wz);
-        float d = detailNoise.GetNoise((float)wx, (float)wz) * 0.15f;
+        float h = heightNoise.GetNoise(
+            (float)wx, (float)wz);
+        float d = detailNoise.GetNoise(
+            (float)wx, (float)wz) * 0.15f;
         int surfaceY = 20 + (int)((h + d) * 12.0f);
-        return std::max(4, std::min(surfaceY, VOXEL_DIM - 8));
+        return std::max(4,
+            std::min(surfaceY, VOXEL_DIM - 8));
     }
 
 private:
     FastNoiseLite heightNoise;
     FastNoiseLite detailNoise;
     FastNoiseLite treeNoise;
+
+    ChunkPtr oakTree;
+    ChunkPtr pineTree;
+
+    // Paste structure into a single chunk
+    // No cross-chunk overflow — trees near edges get clipped
+    void pasteIntoChunk(Chunk& dest,
+                        const Chunk& src,
+                        int lx, int ly, int lz) {
+        const int halfW  = 4;
+        const int height = 12;
+        const int ox     = 32; // source origin
+        const int oz     = 32;
+
+        for (int dy = 0; dy < height; dy++)
+        for (int dx = -halfW; dx <= halfW; dx++)
+        for (int dz = -halfW; dz <= halfW; dz++) {
+            uint16_t srcID = src.typeAt(
+                ox + dx, dy, oz + dz);
+            if (srcID == BLOCK_AIR) continue;
+
+            int wx = lx + dx;
+            int wy = ly + dy;
+            int wz = lz + dz;
+
+            // Clamp to chunk bounds
+            if (wx < 0 || wx >= VOXEL_DIM) continue;
+            if (wz < 0 || wz >= VOXEL_DIM) continue;
+            if (wy < 0 || wy >= VOXEL_DIM) continue;
+
+            dest.setBlock(wx, wy, wz, srcID);
+        }
+    }
 };

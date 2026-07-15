@@ -1,4 +1,10 @@
 C:\Dev\VoxelRPG\src\chunk\ChunkLoader.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\ChunkLoader.obj
 C:\Dev\VoxelRPG\src\glad\src\glad\src\glad.c;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\glad.obj
+C:\Dev\VoxelRPG\src\input\InputManager.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\InputManager.obj
 C:\Dev\VoxelRPG\src\lz4\lz4.c;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\lz4.obj
 C:\Dev\VoxelRPG\src\main.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\main.obj
+C:\Dev\VoxelRPG\src\noise\FastNoiseLite.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\FastNoiseLite.obj
+C:\Dev\VoxelRPG\src\render\ResourcePack.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\ResourcePack.obj
+C:\Dev\VoxelRPG\src\vendor\stb_image.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\stb_image.obj
+C:\Dev\VoxelRPG\src\voxel\VoxelRegistry.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\VoxelRegistry.obj
+C:\Dev\VoxelRPG\src\world\WorldSaveManage.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\WorldSaveManage.obj

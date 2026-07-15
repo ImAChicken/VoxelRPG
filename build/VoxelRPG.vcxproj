@@ -98,13 +98,13 @@
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
-      <LanguageStandard>stdcpp20</LanguageStandard>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <MinimalRebuild></MinimalRebuild>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <Optimization>Disabled</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
-      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
@@ -156,13 +156,13 @@
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
-      <LanguageStandard>stdcpp20</LanguageStandard>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <MinimalRebuild></MinimalRebuild>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <Optimization>MaxSpeed</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
@@ -216,13 +216,13 @@
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
-      <LanguageStandard>stdcpp20</LanguageStandard>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <MinimalRebuild></MinimalRebuild>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <Optimization>MinSpace</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
@@ -277,13 +277,13 @@
       <FloatingPointModel></FloatingPointModel>
       <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
-      <LanguageStandard>stdcpp20</LanguageStandard>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <MinimalRebuild></MinimalRebuild>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <Optimization>MaxSpeed</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
@@ -393,15 +393,37 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\glad\src\glad\include\KHR\khrplatform.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\glad\src\glad\include\glad\glad.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\glad\src\glad\src\glad.c" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\input\InputAction.h" />
+    <ClCompile Include="C:\Dev\VoxelRPG\src\input\InputManager.cpp" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\input\InputManager.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\lz4\lz4.c" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\lz4\lz4.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\main.cpp" />
+    <ClCompile Include="C:\Dev\VoxelRPG\src\noise\FastNoiseLite.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\noise\FastNoiseLite.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\physics\IPhysics.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\physics\VoxelPhysics.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\player\Player.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\AtlasTexture.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Camera.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Mesher.h" />
+    <ClCompile Include="C:\Dev\VoxelRPG\src\render\ResourcePack.cpp" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\ResourcePack.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Shader.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\IRenderer.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\OpenGLRenderer.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\RaytracingRenderer.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\ui\MainMenuScreen.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\ui\PauseMenuScreen.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\ui\UIRenderer.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\ui\UIScreen.h" />
+    <ClCompile Include="C:\Dev\VoxelRPG\src\vendor\stb_image.cpp" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\vendor\stb_image.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\voxel\Voxel.h" />
+    <ClCompile Include="C:\Dev\VoxelRPG\src\voxel\VoxelRegistry.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\voxel\VoxelRegistry.h" />
+    <ClCompile Include="C:\Dev\VoxelRPG\src\world\WorldSaveManage.cpp" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldSaveManager.h" />
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>

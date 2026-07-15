@@ -1,213 +1,444 @@
 #include <iostream>
 #include <vector>
+#include <memory>
 #include <functional>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 
+// Interfaces
+#include "renderer/IRenderer.h"
+#include "renderer/OpenGLRenderer.h"
+#include "physics/IPhysics.h"
+#include "physics/VoxelPhysics.h"
+#include "input/InputAction.h"
+#include "input/InputManager.h"
+#include "player/Player.h"
+
+// Game systems
 #include "render/Camera.h"
-#include "render/Shader.h"
 #include "render/Mesher.h"
+#include "render/AtlasTexture.h"
 #include "chunk/Chunk.h"
 #include "chunk/ChunkManager.h"
 #include "chunk/ChunkLoader.h"
-#include "chunk/StructureGenerator.h"
-#include "chunk/PasteSystem.h"
 #include "chunk/TerrainGenerator.h"
 #include "voxel/VoxelRegistry.h"
+#include "render/ResourcePack.h"
+#include "ui/UIRenderer.h"
+#include "ui/MainMenuScreen.h"
+#include "ui/PauseMenuScreen.h"
+#include "world/WorldSaveManager.h"
 
-Camera* gCamera = nullptr;
-float lastFrame = 0.0f;
+constexpr int WIN_W = 1280;
+constexpr int WIN_H = 720;
 
-void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
+enum class GameState {
+    MainMenu,
+    Playing,
+    Paused,
+};
+
+enum class GameMode {
+    Spectator = 0,
+    Dev       = 1,
+    Survival  = 2,
+    Combat    = 3,
+};
+
+GameState gState    = GameState::MainMenu;
+GameMode  gGameMode = GameMode::Spectator;
+
+std::unique_ptr<IRenderer> gRenderer;
+std::unique_ptr<IPhysics>  gPhysics;
+
+MainMenuScreen* gMainMenu = nullptr;
+
+void mouseCallback(GLFWwindow* window,
+                   double xpos, double ypos) {
+    (void)window; (void)xpos; (void)ypos;
+}
+
+void scrollCallback(GLFWwindow* window,
+                    double xoffset, double yoffset) {
+    (void)window; (void)xoffset;
+    gInput.onScroll((float)yoffset);
+}
+
+void charCallback(GLFWwindow* window,
+                  unsigned int codepoint) {
     (void)window;
-    if (gCamera) gCamera->processMouse((float)xpos, (float)ypos);
+    gInput.onChar(codepoint);
+    if (gState == GameState::MainMenu && gMainMenu)
+        gMainMenu->onChar(codepoint);
+}
+
+void keyCallback(GLFWwindow* window, int key,
+                 int scancode, int action, int mods) {
+    (void)window; (void)scancode; (void)mods;
+    if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+        if (gState == GameState::MainMenu && gMainMenu)
+            gMainMenu->onKey(key);
+    }
+}
+
+void framebufferCallback(GLFWwindow* window,
+                         int w, int h) {
+    (void)window;
+    if (gRenderer) gRenderer->resize(w, h);
+}
+
+void buildAllMeshes(ChunkManager& world,
+                    std::vector<Mesher>& meshers,
+                    AtlasTexture& atlas) {
+    for (int cx = 0; cx < WORLD_SIZE_X; cx++)
+    for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
+        Chunk* chunk = world.getChunk(cx, cz);
+        if (!chunk) continue;
+
+        glm::vec3 origin = world.chunkOrigin(cx, cz);
+        auto sampler = [&](int x, int y, int z) -> uint16_t {
+            return world.typeAtWorld(cx, cz, x, y, z);
+        };
+
+        int idx = world.index(cx, cz);
+        meshers[idx].cleanup();
+        meshers[idx].buildMesh(*chunk, sampler, origin, atlas);
+        world.clearDirty(cx, cz);
+    }
 }
 
 int main() {
     std::cout << "Starting VoxelRPG...\n";
     std::cout.flush();
 
-    Camera camera;
-    gCamera = &camera;
-
-    camera.position = glm::vec3(
-        WORLD_SIZE_X * VOXEL_DIM * 0.5f,
-        60.0f,
-        WORLD_SIZE_Z * VOXEL_DIM * 0.5f
-    );
-
+    // ── GLFW ─────────────────────────────────────────────
     if (!glfwInit()) {
-        std::cout << "GLFW init failed\n";
+        std::cerr << "GLFW init failed\n";
         return -1;
     }
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_PROFILE,
+                   GLFW_OPENGL_CORE_PROFILE);
 
     GLFWwindow* window = glfwCreateWindow(
-        1280, 720, "VoxelRPG", nullptr, nullptr);
-
+        WIN_W, WIN_H, "VoxelRPG", nullptr, nullptr);
     if (!window) {
-        std::cout << "Window failed\n";
+        std::cerr << "Window creation failed\n";
         glfwTerminate();
         return -1;
     }
 
     glfwMakeContextCurrent(window);
 
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cout << "GLAD failed\n";
+    if (!gladLoadGLLoader(
+            (GLADloadproc)glfwGetProcAddress)) {
+        std::cerr << "GLAD init failed\n";
         glfwTerminate();
         return -1;
     }
 
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-    glfwSetCursorPosCallback(window, mouseCallback);
+    glfwSetCursorPosCallback(window,       mouseCallback);
+    glfwSetScrollCallback(window,          scrollCallback);
+    glfwSetCharCallback(window,            charCallback);
+    glfwSetKeyCallback(window,             keyCallback);
+    glfwSetFramebufferSizeCallback(window, framebufferCallback);
 
-    glViewport(0, 0, 1280, 720);
-    glEnable(GL_DEPTH_TEST);
+    // ── Input ─────────────────────────────────────────────
+    gInput.loadKeyboard("data/controls/keyboard.toml");
 
-    // Load registry
+    // ── Data — load BEFORE renderer so font path is ready
     if (!gRegistry.load("data/registry/blocks.toml")) {
-        std::cout << "Registry load failed\n";
+        std::cerr << "Registry load failed\n";
         glfwTerminate();
         return -1;
     }
 
-    // Load shaders
-    Shader shader;
-    if (!shader.load("shaders/chunk.vert", "shaders/chunk.frag")) {
-        std::cout << "Shader load failed\n";
+    if (!gResourcePacks.load("data/resourcepacks")) {
+        std::cerr << "Resource pack load failed\n";
         glfwTerminate();
         return -1;
     }
 
-    // Generate world with seed
-    const int SEED = 42;
-    std::cout << "Generating world (seed " << SEED << ")...\n";
-    std::cout.flush();
-
-    ChunkManager world(SEED);
-    TerrainGenerator gen(SEED);
-
-    // Generate tree structure files
-    ChunkPtr oakTree  = generateOakTree();
-    ChunkPtr pineTree = generatePineTree();
-
-    ChunkLoader::save(*oakTree,
-        "data/structures/oak_tree.vxrp",
-        0, 0, 0, ChunkRole::Structure);
-    ChunkLoader::save(*pineTree,
-        "data/structures/pine_tree.vxrp",
-        0, 0, 0, ChunkRole::Structure);
-
-    // Scatter trees based on noise
-    std::cout << "Placing trees...\n";
-    std::cout.flush();
-
-    int treeCount = 0;
-    for (int cx = 0; cx < WORLD_SIZE_X; cx++)
-    for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
-        // Sample every 8 voxels within the chunk
-        for (int lx = 4; lx < VOXEL_DIM; lx += 8)
-        for (int lz = 4; lz < VOXEL_DIM; lz += 8) {
-            int wx = cx * VOXEL_DIM + lx;
-            int wz = cz * VOXEL_DIM + lz;
-
-            if (gen.shouldPlaceTree(wx, wz)) {
-                int surfY = gen.getSurfaceY(wx, wz);
-
-                // Pick oak or pine based on position
-                bool isPine = ((wx + wz) % 3 == 0);
-                const Chunk& src = isPine ? *pineTree : *oakTree;
-
-                PasteSystem::paste(
-                    world, src,
-                    cx, cz,
-                    lx, surfY, lz,
-                    32, 32,
-                    PasteMode::AirIsTransparent
-                );
-
-                // Mark this chunk and neighbours dirty
-                world.markDirty(cx,     cz);
-                world.markDirty(cx - 1, cz);
-                world.markDirty(cx + 1, cz);
-                world.markDirty(cx,     cz - 1);
-                world.markDirty(cx,     cz + 1);
-
-                treeCount++;
-            }
-        }
+    // ── Renderer — init AFTER resource packs loaded
+    gRenderer = std::make_unique<OpenGLRenderer>();
+    if (!gRenderer->init(WIN_W, WIN_H)) {
+        std::cerr << "Renderer init failed\n";
+        glfwTerminate();
+        return -1;
     }
 
-    std::cout << "Placed " << treeCount << " trees\n";
-    std::cout.flush();
-
-    // Build all meshes
-    std::vector<Mesher> meshers(WORLD_SIZE_X * WORLD_SIZE_Z);
-
-    int totalVerts = 0;
-    for (int cx = 0; cx < WORLD_SIZE_X; cx++)
-    for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
-        Chunk* chunk = world.getChunk(cx, cz);
-        glm::vec3 origin = world.chunkOrigin(cx, cz);
-
-        auto sampler = [&](int x, int y, int z) -> uint16_t {
-            return world.typeAtWorld(cx, cz, x, y, z);
-        };
-
-        int verts = meshers[world.index(cx, cz)]
-            .buildMesh(*chunk, sampler, origin);
-        totalVerts += verts;
-        world.clearDirty(cx, cz);
+    // ── Atlas
+    AtlasTexture atlas;
+    if (!atlas.load(
+            gResourcePacks.getAtlasPath().string(),
+            gResourcePacks.getTileSize(),
+            gResourcePacks.getAtlasCols())) {
+        std::cerr << "Atlas load failed\n";
+        glfwTerminate();
+        return -1;
     }
 
-    std::cout << "World built: " << totalVerts
-              << " vertices across "
-              << WORLD_SIZE_X * WORLD_SIZE_Z << " chunks\n";
-    std::cout << "WASD to move, Space/Ctrl up/down, ESC to quit\n";
-    std::cout.flush();
+    // Also register atlas with renderer
+    gRenderer->loadAtlas(
+        gResourcePacks.getAtlasPath().string(),
+        gResourcePacks.getTileSize(),
+        gResourcePacks.getAtlasCols());
 
+    // ── Screens ───────────────────────────────────────────
+    MainMenuScreen  mainMenu(window);
+    PauseMenuScreen pauseMenu(window);
+    gMainMenu = &mainMenu;
+
+    // ── Game objects ──────────────────────────────────────
+    Camera camera;
+    std::unique_ptr<ChunkManager>     world;
+    std::unique_ptr<TerrainGenerator> gen;
+    std::vector<Mesher>               meshers;
+    Player                            player;
+
+    gState = GameState::MainMenu;
+    glfwSetInputMode(window, GLFW_CURSOR,
+                     GLFW_CURSOR_NORMAL);
+
+    float lastFrame = 0.0f;
+    std::cout << "Entering main loop\n";
+
+    // ── Main loop ─────────────────────────────────────────
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = (float)glfwGetTime();
-        float deltaTime    = currentFrame - lastFrame;
+        float dt           = currentFrame - lastFrame;
         lastFrame          = currentFrame;
 
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-            glfwSetWindowShouldClose(window, true);
+        glfwPollEvents();
+        gInput.poll(window);
 
-        camera.processKeyboard(
-            glfwGetKey(window, GLFW_KEY_W)            == GLFW_PRESS,
-            glfwGetKey(window, GLFW_KEY_S)            == GLFW_PRESS,
-            glfwGetKey(window, GLFW_KEY_A)            == GLFW_PRESS,
-            glfwGetKey(window, GLFW_KEY_D)            == GLFW_PRESS,
-            glfwGetKey(window, GLFW_KEY_SPACE)        == GLFW_PRESS,
-            glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS,
-            deltaTime
-        );
-
-        glClearColor(0.4f, 0.6f, 0.9f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        shader.use();
-        shader.setMat4("uView",
-            camera.getViewMatrix());
-        shader.setMat4("uProjection",
-            camera.getProjectionMatrix(1280.0f / 720.0f));
-
-        for (int cx = 0; cx < WORLD_SIZE_X; cx++)
-        for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
-            meshers[world.index(cx, cz)].draw();
+        // ESC
+        if (gInput.isPressed(InputAction::Pause)) {
+            if (gState == GameState::Playing) {
+                gState = GameState::Paused;
+                glfwSetInputMode(window, GLFW_CURSOR,
+                                 GLFW_CURSOR_NORMAL);
+                pauseMenu.onEnter();
+            } else if (gState == GameState::MainMenu) {
+                glfwSetWindowShouldClose(window, true);
+            }
         }
 
+        // Playing shortcuts
+        if (gState == GameState::Playing) {
+            if (gInput.isPressed(
+                    InputAction::GamemodeCycle)) {
+                int m = ((int)gGameMode + 1) % 2;
+                gGameMode = (GameMode)m;
+                std::cout << "GameMode: "
+                          << (int)gGameMode << "\n";
+            }
+            if (gInput.isPressed(InputAction::ToggleFly) &&
+                gGameMode == GameMode::Dev) {
+                player.isFlying = !player.isFlying;
+                std::cout << "Fly: "
+                          << (player.isFlying
+                              ? "ON" : "OFF") << "\n";
+            }
+            if (gInput.isPressed(InputAction::ReloadPack)) {
+                gResourcePacks.load("data/resourcepacks");
+                atlas.load(
+                    gResourcePacks.getAtlasPath().string(),
+                    gResourcePacks.getTileSize(),
+                    gResourcePacks.getAtlasCols());
+                gRenderer->loadAtlas(
+                    gResourcePacks.getAtlasPath().string(),
+                    gResourcePacks.getTileSize(),
+                    gResourcePacks.getAtlasCols());
+                std::cout << "Pack reloaded\n";
+            }
+        }
+
+        gRenderer->beginFrame();
+
+        // ── State machine ─────────────────────────────────
+        if (gState == GameState::MainMenu) {
+
+            UIRenderer* ui = gRenderer->getUIRenderer();
+            ScreenResult r = mainMenu.update(*ui, dt);
+
+            if (r == ScreenResult::NewWorld) {
+                std::string name = mainMenu.getNewWorldName();
+                uint64_t    seed = mainMenu.getNewWorldSeed();
+
+                std::cout << "Creating world: "
+                          << name << " seed=" << seed << "\n";
+
+                gWorldSave.createWorld(name, seed);
+                gen   = std::make_unique<TerrainGenerator>(
+                            (int)seed);
+                world = std::make_unique<ChunkManager>(
+                            (int)seed);
+
+                gPhysics = std::make_unique<VoxelPhysics>();
+                gPhysics->init(*world);
+
+                // Mark all dirty so trees save
+                for (int cx = 0; cx < WORLD_SIZE_X; cx++)
+                for (int cz = 0; cz < WORLD_SIZE_Z; cz++)
+                    world->markDirty(cx, cz);
+
+                meshers.clear();
+                meshers.resize(
+                    WORLD_SIZE_X * WORLD_SIZE_Z);
+                buildAllMeshes(*world, meshers, atlas);
+
+                player = Player();
+                player.position = glm::vec3(
+                    WORLD_SIZE_X * VOXEL_DIM * 0.5f,
+                    80.0f,
+                    WORLD_SIZE_Z * VOXEL_DIM * 0.5f);
+
+                camera.position   = player.getEyePosition();
+                gState    = GameState::Playing;
+                gGameMode = GameMode::Spectator;
+                glfwSetInputMode(window, GLFW_CURSOR,
+                                GLFW_CURSOR_DISABLED);
+                camera.firstMouse = true;
+                gInput.resetMouseDelta(window);
+
+            } else if (r == ScreenResult::LoadWorld) {
+                std::string name = mainMenu.getLoadWorldName();
+                std::cout << "Loading world: " << name << "\n";
+
+                gWorldSave.loadWorld(name);
+                uint64_t seed = gWorldSave.getSeed();
+
+                gen   = std::make_unique<TerrainGenerator>(
+                            (int)seed);
+                world = std::make_unique<ChunkManager>(
+                            (int)seed);
+                gWorldSave.initChunks(*world, *gen);
+
+                gPhysics = std::make_unique<VoxelPhysics>();
+                gPhysics->init(*world);
+
+                meshers.clear();
+                meshers.resize(
+                    WORLD_SIZE_X * WORLD_SIZE_Z);
+                buildAllMeshes(*world, meshers, atlas);
+
+                player = Player();
+                player.position = glm::vec3(
+                    WORLD_SIZE_X * VOXEL_DIM * 0.5f,
+                    80.0f,
+                    WORLD_SIZE_Z * VOXEL_DIM * 0.5f);
+
+                camera.position   = player.getEyePosition();
+                gState    = GameState::Playing;
+                gGameMode = GameMode::Spectator;
+                glfwSetInputMode(window, GLFW_CURSOR,
+                                GLFW_CURSOR_DISABLED);
+                camera.firstMouse = true;
+                gInput.resetMouseDelta(window);
+
+            } else if (r == ScreenResult::Quit) {
+                glfwSetWindowShouldClose(window, true);
+            }
+
+        } else if (gState == GameState::Playing) {
+
+            glm::vec2 mouseDelta = gInput.getMouseDelta();
+
+            if (gGameMode == GameMode::Spectator) {
+                camera.processMouse(
+                    mouseDelta.x, mouseDelta.y);
+
+                float speed = 30.0f;
+                if (gInput.isHeld(InputAction::Sprint))
+                    speed = 80.0f;
+
+                glm::vec3 right = glm::normalize(
+                    glm::cross(camera.front, camera.up));
+
+                if (gInput.isHeld(InputAction::MoveForward))
+                    camera.position +=
+                        camera.front * speed * dt;
+                if (gInput.isHeld(InputAction::MoveBackward))
+                    camera.position -=
+                        camera.front * speed * dt;
+                if (gInput.isHeld(InputAction::StrafeLeft))
+                    camera.position -= right * speed * dt;
+                if (gInput.isHeld(InputAction::StrafeRight))
+                    camera.position += right * speed * dt;
+                if (gInput.isHeld(InputAction::Jump))
+                    camera.position +=
+                        camera.up * speed * dt;
+                if (gInput.isHeld(InputAction::Crouch))
+                    camera.position -=
+                        camera.up * speed * dt;
+
+            } else if (gGameMode == GameMode::Dev) {
+                camera.processMouse(
+                    mouseDelta.x, mouseDelta.y);
+                // TODO D2 — gPhysics->movePlayer(player, dt)
+                camera.position = player.getEyePosition();
+            }
+
+            gRenderer->setCamera(
+                camera, (float)WIN_W / (float)WIN_H);
+
+            auto* glr = static_cast<OpenGLRenderer*>(
+                gRenderer.get());
+            for (int cx = 0; cx < WORLD_SIZE_X; cx++)
+            for (int cz = 0; cz < WORLD_SIZE_Z; cz++)
+                glr->drawMesh(
+                    meshers[world->index(cx, cz)]);
+
+        } else if (gState == GameState::Paused) {
+
+            gRenderer->setCamera(
+                camera, (float)WIN_W / (float)WIN_H);
+
+            auto* glr = static_cast<OpenGLRenderer*>(
+                gRenderer.get());
+            for (int cx = 0; cx < WORLD_SIZE_X; cx++)
+            for (int cz = 0; cz < WORLD_SIZE_Z; cz++)
+                glr->drawMesh(
+                    meshers[world->index(cx, cz)]);
+
+            UIRenderer* ui = gRenderer->getUIRenderer();
+            ScreenResult r = pauseMenu.update(*ui, dt);
+
+            if (r == ScreenResult::ResumeGame) {
+                gState = GameState::Playing;
+                glfwSetInputMode(window, GLFW_CURSOR,
+                                GLFW_CURSOR_DISABLED);
+                camera.firstMouse = true;
+                gInput.resetMouseDelta(window);
+
+            } else if (r == ScreenResult::SaveAndQuit) {
+                if (world)
+                    gWorldSave.saveDirtyChunks(*world);
+                world.reset();
+                meshers.clear();
+                gPhysics.reset();
+                gState = GameState::MainMenu;
+                glfwSetInputMode(window, GLFW_CURSOR,
+                                 GLFW_CURSOR_NORMAL);
+                mainMenu.onEnter();
+            }
+        }
+
+        gRenderer->endFrame();
         glfwSwapBuffers(window);
-        glfwPollEvents();
     }
 
+    // Cleanup
+    if (gState == GameState::Playing && world)
+        gWorldSave.saveDirtyChunks(*world);
+
     for (auto& m : meshers) m.cleanup();
+    atlas.cleanup();
+    gRenderer->shutdown();
     glfwTerminate();
     return 0;
 }

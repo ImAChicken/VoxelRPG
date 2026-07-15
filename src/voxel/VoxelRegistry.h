@@ -147,5 +147,4 @@ private:
     }
 };
 
-// Global registry — accessed everywhere
-inline VoxelRegistry gRegistry;
+extern VoxelRegistry gRegistry;
