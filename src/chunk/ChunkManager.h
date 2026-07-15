@@ -3,17 +3,21 @@
 #include "ChunkGenerator.h"
 #include <array>
 #include <memory>
+#include <vector>
+#include <glm/glm.hpp>
 
 constexpr int WORLD_SIZE_X = 8;
 constexpr int WORLD_SIZE_Z = 8;
 
 class ChunkManager {
 public:
-    // 8x8 flat grid of chunks — Y is always 0 for now
-    std::array<ChunkPtr, WORLD_SIZE_X * WORLD_SIZE_Z> chunks;
+    std::vector<ChunkPtr> chunks;
+    std::vector<bool>     dirty;   // true = mesh needs rebuild
 
     ChunkManager() {
-        // Generate all 64 chunks on startup
+        chunks.resize(WORLD_SIZE_X * WORLD_SIZE_Z);
+        dirty.resize(WORLD_SIZE_X * WORLD_SIZE_Z, false);
+
         for (int cx = 0; cx < WORLD_SIZE_X; cx++)
         for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
             chunks[index(cx, cz)] = generateTestChunk();
@@ -27,10 +31,28 @@ public:
         return chunks[index(cx, cz)].get();
     }
 
-    // World-space voxel query across chunk boundaries
-    // cx,cz = chunk coords, x,y,z = local voxel coords (can be out of bounds)
+    void markDirty(int cx, int cz) {
+        if (cx < 0 || cx >= WORLD_SIZE_X ||
+            cz < 0 || cz >= WORLD_SIZE_Z)
+            return;
+        dirty[index(cx, cz)] = true;
+    }
+
+    bool isDirty(int cx, int cz) const {
+        if (cx < 0 || cx >= WORLD_SIZE_X ||
+            cz < 0 || cz >= WORLD_SIZE_Z)
+            return false;
+        return dirty[index(cx, cz)];
+    }
+
+    void clearDirty(int cx, int cz) {
+        if (cx < 0 || cx >= WORLD_SIZE_X ||
+            cz < 0 || cz >= WORLD_SIZE_Z)
+            return;
+        dirty[index(cx, cz)] = false;
+    }
+
     uint16_t typeAtWorld(int cx, int cz, int x, int y, int z) {
-        // Handle overflow into neighbour chunks
         int ncx = cx, ncz = cz;
         int nx = x,   nz = z;
 
@@ -48,7 +70,6 @@ public:
         return cx * WORLD_SIZE_Z + cz;
     }
 
-    // World position of a chunk's origin in voxel space
     glm::vec3 chunkOrigin(int cx, int cz) const {
         return glm::vec3(
             cx * VOXEL_DIM,

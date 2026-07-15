@@ -382,6 +382,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
   <ItemGroup>
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\Chunk.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\ChunkGenerator.h" />
+    <ClCompile Include="C:\Dev\VoxelRPG\src\chunk\ChunkLoader.cpp" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\ChunkLoader.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\ChunkManager.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\glad\include\KHR\khrplatform.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\glad\include\glad\glad.h" />

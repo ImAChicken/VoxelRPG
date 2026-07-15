@@ -10,8 +10,10 @@
 #include "render/Mesher.h"
 #include "chunk/Chunk.h"
 #include "chunk/ChunkManager.h"
+#include "chunk/ChunkLoader.h"
+#include "chunk/StructureGenerator.h"
+#include "chunk/PasteSystem.h"
 #include "voxel/VoxelRegistry.h"
-#include "lz4/lz4.h"
 
 Camera* gCamera = nullptr;
 float lastFrame = 0.0f;
@@ -21,6 +23,23 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
     if (gCamera) gCamera->processMouse((float)xpos, (float)ypos);
 }
 
+// Rebuild mesh for a single chunk
+void rebuildMesh(ChunkManager& world,
+                 std::vector<Mesher>& meshers,
+                 int cx, int cz) {
+    Chunk* chunk = world.getChunk(cx, cz);
+    if (!chunk) return;
+
+    glm::vec3 origin = world.chunkOrigin(cx, cz);
+    auto sampler = [&](int x, int y, int z) -> uint16_t {
+        return world.typeAtWorld(cx, cz, x, y, z);
+    };
+
+    meshers[world.index(cx, cz)].cleanup();
+    meshers[world.index(cx, cz)].buildMesh(*chunk, sampler, origin);
+    world.clearDirty(cx, cz);
+}
+
 int main() {
     std::cout << "Starting VoxelRPG...\n";
     std::cout.flush();
@@ -28,7 +47,6 @@ int main() {
     Camera camera;
     gCamera = &camera;
 
-    // Start above center of 8x8 grid
     camera.position = glm::vec3(
         WORLD_SIZE_X * VOXEL_DIM * 0.5f,
         80.0f,
@@ -67,7 +85,7 @@ int main() {
     glViewport(0, 0, 1280, 720);
     glEnable(GL_DEPTH_TEST);
 
-    // Load block registry
+    // Load registry
     if (!gRegistry.load("data/registry/blocks.toml")) {
         std::cout << "Registry load failed\n";
         glfwTerminate();
@@ -88,7 +106,65 @@ int main() {
 
     ChunkManager world;
 
-    // Build one mesh per chunk
+    // Generate and save tree structure files
+    std::cout << "Generating tree structures...\n";
+    std::cout.flush();
+
+    ChunkPtr oakTree  = generateOakTree();
+    ChunkPtr pineTree = generatePineTree();
+
+    ChunkLoader::save(*oakTree,
+        "data/structures/oak_tree.vxrp",
+        0, 0, 0, ChunkRole::Structure);
+    ChunkLoader::save(*pineTree,
+        "data/structures/pine_tree.vxrp",
+        0, 0, 0, ChunkRole::Structure);
+
+    std::cout << "Tree structures saved\n";
+
+    // Scatter trees across the world
+    // Place on top of grass layer (y=32 is first air above grass at y=31)
+    struct TreePlacement {
+        int cx, cz;     // which chunk
+        int lx, lz;     // local position within chunk
+        bool isPine;
+    };
+
+    TreePlacement trees[] = {
+        { 1, 1,  10, 10, false },
+        { 1, 1,  40, 40, true  },
+        { 2, 2,  15, 20, false },
+        { 2, 3,  50, 15, true  },
+        { 3, 1,  25, 45, false },
+        { 4, 4,  10, 50, false },
+        { 4, 2,  55, 30, true  },
+        { 5, 5,  20, 20, false },
+        { 6, 3,  35, 10, true  },
+        { 3, 6,  45, 35, false },
+    };
+
+    for (auto& t : trees) {
+        const Chunk& src = t.isPine ? *pineTree : *oakTree;
+        PasteSystem::paste(
+            world, src,
+            t.cx, t.cz,
+            t.lx, 32, t.lz,  // y=32 = on top of grass
+            32, 32,           // source origin = center of structure chunk
+            PasteMode::AirIsTransparent
+        );
+
+        // Mark affected chunks dirty for mesh rebuild
+        world.markDirty(t.cx,     t.cz);
+        world.markDirty(t.cx - 1, t.cz);
+        world.markDirty(t.cx + 1, t.cz);
+        world.markDirty(t.cx,     t.cz - 1);
+        world.markDirty(t.cx,     t.cz + 1);
+    }
+
+    std::cout << "Trees pasted into world\n";
+    std::cout.flush();
+
+    // Build all meshes
     std::vector<Mesher> meshers(WORLD_SIZE_X * WORLD_SIZE_Z);
 
     int totalVerts = 0;
@@ -97,7 +173,6 @@ int main() {
         Chunk* chunk = world.getChunk(cx, cz);
         glm::vec3 origin = world.chunkOrigin(cx, cz);
 
-        // Neighbour sampler for seam stitching
         auto sampler = [&](int x, int y, int z) -> uint16_t {
             return world.typeAtWorld(cx, cz, x, y, z);
         };
@@ -105,10 +180,11 @@ int main() {
         int verts = meshers[world.index(cx, cz)]
             .buildMesh(*chunk, sampler, origin);
         totalVerts += verts;
+        world.clearDirty(cx, cz);
     }
 
     std::cout << "World built: " << totalVerts
-              << " total vertices across "
+              << " vertices across "
               << WORLD_SIZE_X * WORLD_SIZE_Z << " chunks\n";
     std::cout << "WASD to move, Space/Ctrl up/down, ESC to quit\n";
     std::cout.flush();
@@ -140,7 +216,6 @@ int main() {
         shader.setMat4("uProjection",
             camera.getProjectionMatrix(1280.0f / 720.0f));
 
-        // Draw all chunk meshes
         for (int cx = 0; cx < WORLD_SIZE_X; cx++)
         for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
             meshers[world.index(cx, cz)].draw();
