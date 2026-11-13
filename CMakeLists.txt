@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
-project(VoxelRPG VERSION 0.1.0 LANGUAGES CXX)
+project(VoxelRPG VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-add_compile_options(/std:c++17)
+if(MSVC)
+    add_compile_options(/std:c++17)
+endif()
 
 # C++17
 set(CMAKE_CXX_STANDARD 17)
@@ -38,6 +40,9 @@ FetchContent_MakeAvailable(glfw glm tomlplusplus)
 # Find OpenGL
 find_package(OpenGL REQUIRED)
 
+# Threads — chunk generation and meshing run on worker threads
+find_package(Threads REQUIRED)
+
 # Collect all source files
 file(GLOB_RECURSE SOURCES
     "src/*.cpp"
@@ -56,6 +61,7 @@ target_link_libraries(VoxelRPG PRIVATE
     glfw
     glm::glm
     OpenGL::GL
+    Threads::Threads
     tomlplusplus::tomlplusplus
 )
 

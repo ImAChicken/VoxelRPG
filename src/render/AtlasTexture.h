@@ -12,6 +12,10 @@ public:
     int    tileSize   = 16;
     int    atlasCols  = 16;
 
+    // How many pixels of a tile one voxel face shows.
+    // 4 → a 16px tile stretches over 4 voxels, then repeats.
+    static constexpr int VOXEL_SAMPLE = 4;
+
     bool load(const std::string& path, int tileSize = 16, int cols = 16) {
         this->tileSize  = tileSize;
         this->atlasCols = cols;
@@ -28,10 +32,17 @@ public:
             return false;
         }
 
+        // Reloading (resource pack hot-swap) replaces the old
+        // texture instead of leaking it
+        cleanup();
+
         glGenTextures(1, &id);
         glBindTexture(GL_TEXTURE_2D, id);
 
         // Nearest neighbor — crisp pixel art look
+        // NOTE: the MIN filter line is required. OpenGL's default
+        // MIN filter expects mipmaps; without them the texture is
+        // "incomplete" and every sample comes back solid black.
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -62,6 +73,19 @@ public:
         v0 = (float)(ty * tileSize)           * invH;
         u1 = (float)((tx + 1) * tileSize - 1) * invW;
         v1 = (float)((ty + 1) * tileSize - 1) * invH;
+    }
+
+    // Size of one tile in UV space
+    float tileU() const {
+        return width  > 0 ? (float)tileSize / (float)width  : 0.0f;
+    }
+    float tileV() const {
+        return height > 0 ? (float)tileSize / (float)height : 0.0f;
+    }
+
+    // How many voxels one full tile stretches across
+    float voxelsPerTile() const {
+        return (float)tileSize / (float)VOXEL_SAMPLE;
     }
 
     void bind(int unit = 0) const {

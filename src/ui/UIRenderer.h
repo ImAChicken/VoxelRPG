@@ -122,6 +122,9 @@ public:
 
     void begin() {
         glDisable(GL_DEPTH_TEST);
+        // UI quads are not wound for back-face culling —
+        // the world pass may have left it switched on
+        glDisable(GL_CULL_FACE);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glUseProgram(program);

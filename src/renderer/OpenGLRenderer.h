@@ -3,10 +3,11 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <vector>
 #include <iostream>
 #include "../render/Shader.h"
-#include "../render/Mesher.h"
+#include "../render/ChunkMesh.h"
 #include "../render/AtlasTexture.h"
 #include "../ui/UIRenderer.h"
 #include "../render/Camera.h"
@@ -33,6 +34,15 @@ public:
             std::cerr << "OpenGLRenderer: shader load failed\n";
             return false;
         }
+
+        // Look the uniforms up once instead of every draw call
+        locView        = glGetUniformLocation(shader.id, "uView");
+        locProjection  = glGetUniformLocation(shader.id, "uProjection");
+        locChunkOrigin = glGetUniformLocation(shader.id, "uChunkOrigin");
+        locAtlas       = glGetUniformLocation(shader.id, "uAtlas");
+        locTileUV      = glGetUniformLocation(shader.id, "uTileUV");
+        locVoxelsPerTile =
+            glGetUniformLocation(shader.id, "uVoxelsPerTile");
 
         if (!uiRenderer.init(screenW, screenH)) {
             std::cerr << "OpenGLRenderer: UI init failed\n";
@@ -88,28 +98,71 @@ public:
 
     void drawChunk(const Chunk& chunk,
                    glm::vec3 worldPos) override {
-        // Mesher lookup handled externally via
-        // getMesherForChunk — renderer draws
-        // pre-built meshes passed to it
-        // This signature kept for interface compliance
-        // See drawMesh below for actual draw path
+        // Kept for interface compliance. Chunks are drawn
+        // from pre-built meshes — see drawMesh below.
         (void)chunk; (void)worldPos;
     }
 
-    // Draw a pre-built mesher directly
-    // This is the actual draw path used by main loop
-    void drawMesh(Mesher& mesher) {
-        if (!atlasLoaded) return;
+    // ── World pass ────────────────────────────────────────
+    // Call once per frame before drawing chunk meshes.
+    // Sets everything that is the same for every chunk:
+    // shader, camera matrices, atlas, depth test and
+    // back-face culling.
+    void beginWorldDraw() {
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LESS);
+
+        // Chunk meshes are wound counter-clockwise when seen
+        // from outside, so the inside faces can be skipped.
+        // Roughly halves the pixels the GPU has to fill.
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+        glFrontFace(GL_CCW);
 
         shader.use();
-        shader.setMat4("uView",       viewMatrix);
-        shader.setMat4("uProjection", projMatrix);
-        shader.setInt("uAtlas",       0);
-        shader.setInt("uUseTexture",  1);
+        glUniformMatrix4fv(locView, 1, GL_FALSE,
+                           glm::value_ptr(viewMatrix));
+        glUniformMatrix4fv(locProjection, 1, GL_FALSE,
+                           glm::value_ptr(projMatrix));
+
+        // Texture tiling: how big one atlas tile is in UVs,
+        // and how many voxels it stretches over
+        glUniform1i(locAtlas, 0);
+        glUniform2f(locTileUV, atlas.tileU(), atlas.tileV());
+        glUniform1f(locVoxelsPerTile, atlas.voxelsPerTile());
         atlas.bind(0);
 
-        mesher.draw();
+        extractFrustum(projMatrix * viewMatrix);
+    }
+
+    // Draw one chunk mesh whose corner sits at 'origin'.
+    // Chunks completely outside the camera's view are skipped.
+    void drawMesh(const ChunkMesh& mesh, glm::vec3 origin) {
+        if (!atlasLoaded || mesh.isEmpty()) return;
+
+        glm::vec3 size((float)VOXEL_DIM);
+        if (!boxInFrustum(origin, origin + size)) return;
+
+        glUniform3f(locChunkOrigin, origin.x, origin.y, origin.z);
+
+        mesh.drawOpaque();
+
+        // Leaves: two-sided, so the far side of a canopy
+        // shows through the gaps in the near side
+        if (mesh.hasCutout()) {
+            glDisable(GL_CULL_FACE);
+            mesh.drawCutout();
+            glEnable(GL_CULL_FACE);
+        }
+
         drawCallCount++;
+        vertexCount += (int)mesh.vertexCount();
+    }
+
+    // Call after the last chunk, before any UI
+    void endWorldDraw() {
+        glBindVertexArray(0);
+        glDisable(GL_CULL_FACE);
     }
 
     UIRenderer* getUIRenderer() override {
@@ -155,8 +208,42 @@ private:
     AtlasTexture atlas;
     UIRenderer  uiRenderer;
 
-    glm::mat4   viewMatrix;
-    glm::mat4   projMatrix;
+    glm::mat4   viewMatrix = glm::mat4(1.0f);
+    glm::mat4   projMatrix = glm::mat4(1.0f);
+
+    GLint locView = -1, locProjection = -1, locChunkOrigin = -1;
+    GLint locAtlas = -1, locTileUV = -1, locVoxelsPerTile = -1;
+
+    // The six planes of the camera's view volume, each stored
+    // as (normal, distance). A point is inside when
+    // dot(normal, point) + distance >= 0 for all six.
+    glm::vec4 frustum[6];
+
+    void extractFrustum(const glm::mat4& m) {
+        glm::vec4 r0(m[0][0], m[1][0], m[2][0], m[3][0]);
+        glm::vec4 r1(m[0][1], m[1][1], m[2][1], m[3][1]);
+        glm::vec4 r2(m[0][2], m[1][2], m[2][2], m[3][2]);
+        glm::vec4 r3(m[0][3], m[1][3], m[2][3], m[3][3]);
+        frustum[0] = r3 + r0;   // left
+        frustum[1] = r3 - r0;   // right
+        frustum[2] = r3 + r1;   // bottom
+        frustum[3] = r3 - r1;   // top
+        frustum[4] = r3 + r2;   // near
+        frustum[5] = r3 - r2;   // far
+    }
+
+    // True unless the box is entirely behind one of the planes
+    bool boxInFrustum(glm::vec3 lo, glm::vec3 hi) const {
+        for (const glm::vec4& p : frustum) {
+            // The box corner furthest along the plane normal
+            glm::vec3 v(p.x >= 0 ? hi.x : lo.x,
+                        p.y >= 0 ? hi.y : lo.y,
+                        p.z >= 0 ? hi.z : lo.z);
+            if (p.x * v.x + p.y * v.y + p.z * v.z + p.w < 0)
+                return false;
+        }
+        return true;
+    }
 
     int  width         = 1280;
     int  height        = 720;

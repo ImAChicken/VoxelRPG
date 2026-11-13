@@ -1,323 +1,644 @@
 #pragma once
 #include "IPhysics.h"
 #include "../chunk/ChunkManager.h"
-#include "../player/Player.h"
-#include <iostream>
+#include "../entity/Human.h"
+#include "../voxel/VoxelRegistry.h"
+#include <algorithm>
 #include <cmath>
+#include <iostream>
+#include <vector>
 
-// Voxel-based physics implementation
-// Custom capsule collision against voxel world
-// Deterministic — same inputs = same outputs
-// Safe to run on both client (prediction) and server (authority)
-
+// ══════════════════════════════════════════════════════════
+// VoxelPhysics — moves humans through the voxel world
+// ══════════════════════════════════════════════════════════
+// Deterministic: (state, intent, dt) always gives the same
+// next state. Safe to run on a client and a server alike.
+//
+// The body is an upright cylinder (RADIUS wide, 'height'
+// tall) standing on 'position'. Round, so it slides around
+// corners instead of catching on them.
 class VoxelPhysics : public IPhysics {
 public:
+    bool init(ChunkManager& w) override {
+        world = &w;
 
-    bool init(ChunkManager& world) override {
-        this->world = &world;
+        // Which blocks stop a body. Comes from the "solid"
+        // flag in blocks.toml — leaves, water, fire and
+        // torches are not solid, so you pass through them.
+        solid.assign(std::max<size_t>(gRegistry.size(), 1), 0);
+        for (size_t id = 1; id < gRegistry.size(); id++)
+            solid[id] = gRegistry.get((uint16_t)id).isSolid()
+                        ? 1 : 0;
+
         std::cout << "VoxelPhysics initialized\n";
         return true;
     }
 
-    void shutdown() override {}
+    void shutdown() override { world = nullptr; }
 
-    void setWorld(ChunkManager& world) override {
-        this->world = &world;
-    }
+    void setWorld(ChunkManager& w) override { world = &w; }
 
-    void movePlayer(Player& player, float dt) override {
+    // ── One tick of movement ──────────────────────────────
+    void moveHuman(Human& h, const HumanIntent& in,
+                   float dt) override {
         if (!world) return;
+        h.waitingForWorld = false;
 
-        // Apply gravity if not grounded and not flying
-        if (!player.isFlying && !player.isGrounded) {
-            player.velocity.y -= GRAVITY * dt;
-            // Terminal velocity
-            if (player.velocity.y < -MAX_FALL_SPEED)
-                player.velocity.y = -MAX_FALL_SPEED;
+        // ── Fly mode: no gravity, no collision ────────────
+        if (in.fly) {
+            flyTick(h, in, dt);
+            return;
+        }
+        if (h.flying) {
+            // Just left fly mode — start from a standstill
+            h.flying = false;
+            h.resetMotion();
         }
 
-        // Handle freeze states (double jump / aerial dodge)
-        if (player.freezeTimer > 0.0f) {
-            player.freezeTimer -= dt;
-            if (player.freezeTimer <= 0.0f) {
-                player.freezeTimer = 0.0f;
-                applyFreezeRelease(player);
+        // ── Wait for the ground to exist ──────────────────
+        // Chunks stream in on background threads. Until the
+        // ones under the body arrive they read as empty air,
+        // and moving now would mean falling through the world.
+        if (!groundLoaded(h)) {
+            h.waitingForWorld = true;
+            return;
+        }
+
+        // ── Below the bottom of the world ─────────────────
+        if (h.position.y < KILL_Y) {
+            h.fellOutOfWorld = true;
+            return;
+        }
+
+        // Inside solid ground (noclip flight, mode switch,
+        // a block placed on top of you) → pop up and out
+        unstick(h);
+
+        updateCrouch(h, in, dt);
+
+        // ── Freeze: hang in the air, momentum stored ──────
+        if (h.freeze != Human::Freeze::None) {
+            h.freezeTimer -= dt;
+            if (h.freezeTimer > TIMER_EPSILON) return;
+            releaseFreeze(h);
+        }
+
+        // ── One-shot requests ─────────────────────────────
+        bool busy = (h.move == Human::Move::Roll ||
+                     h.move == Human::Move::Backstep);
+
+        if (in.jump && !busy) {
+            if (h.grounded) {
+                h.velocity.y = launchSpeed(Human::JUMP_HEIGHT);
+                h.grounded   = false;
+            } else if (h.hasDoubleJump) {
+                h.hasDoubleJump = false;
+                startFreeze(h, Human::Freeze::DoubleJump,
+                            Human::DOUBLE_JUMP_FREEZE);
+                return;
             }
-            return; // no movement during freeze
         }
 
-        // Move and collide
-        glm::vec3 delta = player.velocity * dt;
-        resolveCollision(player, delta);
+        if (in.dodge && h.move == Human::Move::None) {
+            glm::vec2 wish = wishDir(in);
+            bool moving = (wish.x != 0.0f || wish.y != 0.0f);
 
-        // Step up
-        if (!player.isFlying)
-            tryStepUp(player, dt);
+            if (h.grounded) {
+                if (moving) {
+                    // Roll the way you are moving
+                    h.move      = Human::Move::Roll;
+                    h.moveTimer = Human::ROLL_TIME;
+                    h.moveDir   = glm::vec3(wish.x, 0, wish.y);
+                } else {
+                    // Standing still → hop straight back
+                    glm::vec2 back = -horizontal(h.facing);
+                    h.move      = Human::Move::Backstep;
+                    h.moveTimer = Human::BACKSTEP_TIME;
+                    h.moveDir   = glm::vec3(back.x, 0, back.y);
+                }
+            } else if (h.hasAirDodge) {
+                // Aerial dodge: freeze first, burst after.
+                // No direction held → straight up.
+                h.hasAirDodge = false;
+                h.moveDir = moving
+                    ? glm::vec3(wish.x, 0, wish.y)
+                    : glm::vec3(0, 1, 0);
+                startFreeze(h, Human::Freeze::AirDodge,
+                            Human::AIR_DODGE_FREEZE);
+                return;
+            }
+        }
 
-        // Ground check
-        player.isGrounded = checkGrounded(player);
-        if (player.isGrounded) {
-            if (player.velocity.y < 0.0f)
-                player.velocity.y = 0.0f;
-            // Reset air mechanics on landing
-            player.hasDoubleJump  = true;
-            player.hasAerialDodge = true;
+        // ── Horizontal velocity ───────────────────────────
+        glm::vec2 wish  = wishDir(in);
+        bool moving     = (wish.x != 0.0f || wish.y != 0.0f);
+        float speed     = h.crouching ? Human::CROUCH_SPEED
+                        : in.sprint   ? Human::SPRINT_SPEED
+                                      : Human::WALK_SPEED;
+        h.sprinting = in.sprint && moving && !h.crouching;
+
+        glm::vec2 vh(h.velocity.x, h.velocity.z);
+
+        if (h.move == Human::Move::Roll ||
+            h.move == Human::Move::Backstep) {
+            // Committed: fixed speed, fixed direction
+            float moveSpeed = (h.move == Human::Move::Roll)
+                ? Human::ROLL_DISTANCE     / Human::ROLL_TIME
+                : Human::BACKSTEP_DISTANCE / Human::BACKSTEP_TIME;
+            vh = glm::vec2(h.moveDir.x, h.moveDir.z) * moveSpeed;
+
+        } else if (h.grounded) {
+            // On the ground: head for the wanted velocity,
+            // quickly. Also what brings you to a stop.
+            glm::vec2 target = wish * speed;
+            glm::vec2 diff   = target - vh;
+            float len  = glm::length(diff);
+            float step = Human::GROUND_ACCEL * dt;
+            vh = (len <= step) ? target
+                               : vh + diff * (step / len);
+
+        } else if (moving) {
+            // In the air: input can add speed in a direction
+            // but never takes momentum away, so a dodge burst
+            // or a running jump carries.
+            float along = glm::dot(vh, wish);
+            float add   = speed - along;
+            if (add > 0.0f)
+                vh += wish * std::min(Human::AIR_ACCEL * dt, add);
+        }
+
+        // ── Vertical velocity ─────────────────────────────
+        // Exact for constant gravity, so a jump peaks at
+        // exactly JUMP_HEIGHT whatever the tick rate
+        float dy = 0.0f;
+        if (h.grounded) {
+            h.velocity.y = 0.0f;
+        } else {
+            dy = h.velocity.y * dt
+               - 0.5f * Human::GRAVITY * dt * dt;
+            h.velocity.y -= Human::GRAVITY * dt;
+            if (h.velocity.y < -Human::MAX_FALL_SPEED)
+                h.velocity.y = -Human::MAX_FALL_SPEED;
+        }
+
+        glm::vec3 delta(vh.x * dt, dy, vh.y * dt);
+
+        // Aerial dodge burst rides on top of normal motion
+        if (h.move == Human::Move::AirDodge) {
+            delta += h.moveDir * (Human::AIR_DODGE_DISTANCE /
+                                  Human::AIR_DODGE_TIME * dt);
+        }
+
+        // ── Move, colliding with the world ────────────────
+        bool wasGrounded = h.grounded;
+        h.velocity.x = vh.x;
+        h.velocity.z = vh.y;
+        moveAndCollide(h, delta);
+
+        // ── Stay on the ground going down small steps ─────
+        if (wasGrounded && h.grounded) followGround(h);
+
+        // ── Landing refills the air moves ─────────────────
+        if (h.grounded) {
+            h.hasDoubleJump = true;
+            h.hasAirDodge   = true;
+        }
+
+        // ── Finish a committed move ───────────────────────
+        if (h.move != Human::Move::None) {
+            h.moveTimer -= dt;
+            if (h.moveTimer <= TIMER_EPSILON) {
+                if (h.move != Human::Move::AirDodge) {
+                    // Come out of a roll at normal speed, so
+                    // it covers its distance and no more
+                    h.velocity.x = wish.x * speed;
+                    h.velocity.z = wish.y * speed;
+                }
+                h.move      = Human::Move::None;
+                h.moveTimer = 0.0f;
+            }
         }
     }
 
-    bool isGrounded(const Player& player) const override {
-        return checkGrounded(player);
+    bool isGrounded(const Human& h) const override {
+        return world && supported(h.position, h.height);
     }
 
-    bool isOnWall(const Player& player) const override {
-        // TODO J1 — ledge grab phase
-        (void)player;
+    bool isOnWall(const Human& h) const override {
+        // TODO — ledge grab phase
+        (void)h;
         return false;
     }
 
+    // ── Raycast ───────────────────────────────────────────
+    // Walks the ray voxel by voxel (no voxel can be skipped,
+    // however thin), stopping at the first non-air block.
     RaycastResult raycast(glm::vec3 origin,
                           glm::vec3 direction,
                           float maxDist) const override {
         RaycastResult result;
         if (!world) return result;
+        float len = glm::length(direction);
+        if (len < 1e-6f) return result;
+        glm::vec3 dir = direction / len;
 
-        // DDA raycast through voxel grid
-        glm::vec3 pos = origin;
-        glm::vec3 dir = glm::normalize(direction);
+        glm::ivec3 cell((int)std::floor(origin.x),
+                        (int)std::floor(origin.y),
+                        (int)std::floor(origin.z));
+        glm::ivec3 step(0);
+        glm::vec3  tMax(1e30f), tDelta(1e30f);
 
-        float dist = 0.0f;
-        float step = 0.1f; // voxel fraction
-
-        while (dist < maxDist) {
-            pos  += dir * step;
-            dist += step;
-
-            int bx = (int)std::floor(pos.x);
-            int by = (int)std::floor(pos.y);
-            int bz = (int)std::floor(pos.z);
-
-            // Convert world voxel to chunk + local
-            int cx = bx / VOXEL_DIM;
-            int lx = bx % VOXEL_DIM;
-            int cz = bz / VOXEL_DIM;
-            int lz = bz % VOXEL_DIM;
-
-            if (lx < 0) { cx--; lx += VOXEL_DIM; }
-            if (lz < 0) { cz--; lz += VOXEL_DIM; }
-
-            uint16_t id = world->typeAtWorld(
-                cx, cz, lx, by, lz);
-
-            if (id != BLOCK_AIR) {
-                result.hit      = true;
-                result.position = pos;
-                result.blockPos = {bx, by, bz};
-                result.distance = dist;
-                result.blockID  = id;
-
-                // Approximate face normal
-                glm::vec3 prev = pos - dir * step;
-                glm::vec3 diff = pos - prev;
-                if (std::abs(diff.x) > std::abs(diff.y) &&
-                    std::abs(diff.x) > std::abs(diff.z))
-                    result.normal = {diff.x > 0 ? -1.f : 1.f,
-                                     0, 0};
-                else if (std::abs(diff.y) > std::abs(diff.z))
-                    result.normal = {0,
-                                     diff.y > 0 ? -1.f : 1.f,
-                                     0};
-                else
-                    result.normal = {0, 0,
-                                     diff.z > 0 ? -1.f : 1.f};
-                return result;
+        for (int a = 0; a < 3; a++) {
+            if (dir[a] > 0.0f) {
+                step[a]   = 1;
+                tDelta[a] = 1.0f / dir[a];
+                tMax[a]   = ((float)cell[a] + 1.0f - origin[a])
+                            / dir[a];
+            } else if (dir[a] < 0.0f) {
+                step[a]   = -1;
+                tDelta[a] = -1.0f / dir[a];
+                tMax[a]   = ((float)cell[a] - origin[a])
+                            / dir[a];
             }
         }
 
+        float     t = 0.0f;
+        glm::vec3 normal(0.0f);
+        while (t <= maxDist) {
+            uint16_t id = world->typeAtVoxel(
+                cell.x, cell.y, cell.z);
+            if (id != BLOCK_AIR) {
+                result.hit      = true;
+                result.blockPos = cell;
+                result.blockID  = id;
+                result.distance = t;
+                result.position = origin + dir * t;
+                result.normal   = normal;
+                return result;
+            }
+            // Step into whichever neighbour the ray reaches first
+            int a = (tMax.x < tMax.y)
+                  ? (tMax.x < tMax.z ? 0 : 2)
+                  : (tMax.y < tMax.z ? 1 : 2);
+            t        = tMax[a];
+            tMax[a] += tDelta[a];
+            cell[a] += step[a];
+            normal   = glm::vec3(0.0f);
+            normal[a] = (float)-step[a];
+        }
         return result;
     }
 
     bool capsuleIsClear(glm::vec3 position,
                         float radius,
                         float height) const override {
+        return world && !overlaps(position, radius, height);
+    }
+
+    // Tries the spot itself and a ring of spots around it,
+    // and picks the lowest — so asking for a spot that is
+    // inside a tree gives the ground beside it, not the top
+    // of the trunk.
+    bool findStandingSpot(float x, float z,
+                          float radius, float height,
+                          glm::vec3& out) const override {
         if (!world) return false;
+        static const float OFFSETS[9][2] = {
+            {0,0}, {8,0}, {-8,0}, {0,8}, {0,-8},
+            {8,8}, {-8,8}, {8,-8}, {-8,-8} };
 
-        // Check a grid of points inside capsule
-        for (float dy = 0; dy < height; dy += 1.0f) {
-            for (float dx = -radius; dx <= radius;
-                 dx += radius) {
-                for (float dz = -radius; dz <= radius;
-                     dz += radius) {
-                    glm::vec3 p = position +
-                        glm::vec3(dx, dy, dz);
+        bool  found = false;
+        for (const auto& o : OFFSETS) {
+            float px = x + o[0], pz = z + o[1];
+            int   vx = (int)std::floor(px);
+            int   vz = (int)std::floor(pz);
+            if (!world->isColumnLoaded(vx, vz)) continue;
 
-                    int bx = (int)std::floor(p.x);
-                    int by = (int)std::floor(p.y);
-                    int bz = (int)std::floor(p.z);
+            // Climb from the bottom of the world to the top
+            // of the ground
+            int y = 0;
+            while (y < VOXEL_DIM && isSolid(vx, y, vz)) y++;
+            if (y == 0) continue;   // nothing to stand on
 
-                    int cx = bx / VOXEL_DIM;
-                    int lx = bx % VOXEL_DIM;
-                    int cz = bz / VOXEL_DIM;
-                    int lz = bz % VOXEL_DIM;
+            // Then up until the whole body fits
+            glm::vec3 p(px, (float)y, pz);
+            while (p.y < (float)VOXEL_DIM &&
+                   overlaps(p, radius, height)) p.y += 1.0f;
 
-                    if (lx < 0) { cx--; lx += VOXEL_DIM; }
-                    if (lz < 0) { cz--; lz += VOXEL_DIM; }
-
-                    uint16_t id = world->typeAtWorld(
-                        cx, cz, lx, by, lz);
-                    if (id != BLOCK_AIR) return false;
-                }
+            if (!found || p.y < out.y) {
+                out   = p;
+                found = true;
             }
         }
-        return true;
+        return found;
     }
 
     void applyExplosion(glm::vec3 center,
                         float radius,
                         float force) override {
-        // TODO K1 — combat phase
+        // TODO — combat phase
         (void)center; (void)radius; (void)force;
     }
 
 private:
-    ChunkManager* world = nullptr;
+    ChunkManager*        world = nullptr;
+    std::vector<uint8_t> solid;   // indexed by block ID
 
-    // Physics constants
-    static constexpr float GRAVITY       = 40.0f;
-    static constexpr float MAX_FALL_SPEED= 80.0f;
-    static constexpr float STEP_UP_MAX   = 5.0f;
+    // Body fell this far below the world → respawn
+    static constexpr float KILL_Y = -64.0f;
 
-    // Check if voxel at world position is solid
-    bool isSolid(float wx, float wy, float wz) const {
-        int bx = (int)std::floor(wx);
-        int by = (int)std::floor(wy);
-        int bz = (int)std::floor(wz);
+    // Largest move tested in one go. Smaller than a voxel so
+    // a fast body cannot pass through a one-voxel wall.
+    static constexpr float MAX_SUBSTEP = 0.4f;
 
-        int cx = bx / VOXEL_DIM;
-        int lx = bx % VOXEL_DIM;
-        int cz = bz / VOXEL_DIM;
-        int lz = bz % VOXEL_DIM;
+    // Bodies rest this far from a surface at most
+    static constexpr float SKIN = 0.001f;
 
-        if (lx < 0) { cx--; lx += VOXEL_DIM; }
-        if (lz < 0) { cz--; lz += VOXEL_DIM; }
-        if (by < 0 || by >= VOXEL_DIM) return false;
+    // How close below the feet counts as "standing on it"
+    static constexpr float GROUND_PROBE = 0.05f;
 
-        uint16_t id = world->typeAtWorld(
-            cx, cz, lx, by, lz);
-        return id != BLOCK_AIR;
+    // Timers count down in float seconds; this absorbs the
+    // rounding so 0.15 s is always the same number of ticks
+    static constexpr float TIMER_EPSILON = 1e-4f;
+
+    // ── Helpers ───────────────────────────────────────────
+    static glm::vec2 horizontal(glm::vec3 v) {
+        glm::vec2 h(v.x, v.z);
+        float len = glm::length(h);
+        return (len > 1e-6f) ? h / len : glm::vec2(0, -1);
     }
 
-    // Resolve capsule collision for a movement delta
-    void resolveCollision(Player& player,
-                          glm::vec3 delta) {
-        float r = player.capsuleRadius;
-        float h = player.capsuleHeight;
-
-        // Move X
-        glm::vec3 tryX = player.position +
-            glm::vec3(delta.x, 0, 0);
-        if (!capsuleOverlapsWorld(tryX, r, h))
-            player.position.x = tryX.x;
-        else
-            player.velocity.x = 0;
-
-        // Move Z
-        glm::vec3 tryZ = player.position +
-            glm::vec3(0, 0, delta.z);
-        if (!capsuleOverlapsWorld(tryZ, r, h))
-            player.position.z = tryZ.z;
-        else
-            player.velocity.z = 0;
-
-        // Move Y
-        glm::vec3 tryY = player.position +
-            glm::vec3(0, delta.y, 0);
-        if (!capsuleOverlapsWorld(tryY, r, h))
-            player.position.y = tryY.y;
-        else
-            player.velocity.y = 0;
+    static glm::vec2 wishDir(const HumanIntent& in) {
+        float len = glm::length(in.move);
+        return (len > 1e-6f) ? in.move / len : glm::vec2(0);
     }
 
-    // Check if capsule at position overlaps any solid voxel
-    bool capsuleOverlapsWorld(glm::vec3 pos,
-                              float r, float h) const {
-        // Sample points around capsule cylinder
-        float checkR = r + 0.1f; // small margin
-        for (float dy = 0.1f; dy < h - 0.1f; dy += 0.5f) {
-            float cy = pos.y + dy;
-            // Check 8 points around circumference
-            for (int i = 0; i < 8; i++) {
-                float angle = (float)i / 8.0f *
-                              6.28318f;
-                float cx = pos.x + std::cos(angle) * checkR;
-                float cz = pos.z + std::sin(angle) * checkR;
-                if (isSolid(cx, cy, cz)) return true;
-            }
+    // Upward speed that peaks exactly 'height' voxels higher
+    static float launchSpeed(float height) {
+        return std::sqrt(2.0f * Human::GRAVITY * height);
+    }
+
+    bool isSolid(int wx, int wy, int wz) const {
+        uint16_t id = world->typeAtVoxel(wx, wy, wz);
+        if (id == BLOCK_AIR) return false;
+        return id < solid.size() ? solid[id] != 0 : true;
+    }
+
+    // Does an upright cylinder at 'pos' touch a solid voxel?
+    // Exact test: for every voxel column the cylinder's
+    // square bounds cover, measure from the cylinder's axis
+    // to the nearest point of that column.
+    bool overlaps(glm::vec3 pos, float radius,
+                  float height) const {
+        int x0 = (int)std::floor(pos.x - radius);
+        int x1 = (int)std::floor(pos.x + radius);
+        int z0 = (int)std::floor(pos.z - radius);
+        int z1 = (int)std::floor(pos.z + radius);
+        int y0 = (int)std::floor(pos.y + SKIN);
+        int y1 = (int)std::floor(pos.y + height - SKIN);
+        float r2 = (radius - SKIN) * (radius - SKIN);
+
+        for (int x = x0; x <= x1; x++)
+        for (int z = z0; z <= z1; z++) {
+            float nx = std::max((float)x,
+                       std::min(pos.x, (float)x + 1.0f));
+            float nz = std::max((float)z,
+                       std::min(pos.z, (float)z + 1.0f));
+            float dx = pos.x - nx, dz = pos.z - nz;
+            if (dx * dx + dz * dz >= r2) continue;
+
+            for (int y = y0; y <= y1; y++)
+                if (isSolid(x, y, z)) return true;
         }
         return false;
     }
 
-    // Auto step up small ledges
-    void tryStepUp(Player& player, float dt) {
-        if (player.velocity.x == 0.0f &&
-            player.velocity.z == 0.0f) return;
+    bool overlaps(const Human& h, glm::vec3 pos) const {
+        return overlaps(pos, Human::RADIUS, h.height);
+    }
 
-        float r = player.capsuleRadius;
-        float h = player.capsuleHeight;
+    // Is there solid ground directly under the feet?
+    bool supported(glm::vec3 pos, float height) const {
+        return overlaps(pos - glm::vec3(0, GROUND_PROBE, 0),
+                        Human::RADIUS, height);
+    }
 
-        // Try lifting player by up to STEP_UP_MAX voxels
-        for (float step = 1.0f;
-             step <= STEP_UP_MAX; step += 1.0f) {
-            glm::vec3 raised = player.position +
-                glm::vec3(0, step, 0);
-            if (!capsuleOverlapsWorld(raised, r, h)) {
-                player.position.y += step;
+    // Are the chunks under and around the body loaded?
+    bool groundLoaded(const Human& h) const {
+        float m  = Human::RADIUS + 2.0f;
+        int   x0 = (int)std::floor(h.position.x - m);
+        int   x1 = (int)std::floor(h.position.x + m);
+        int   z0 = (int)std::floor(h.position.z - m);
+        int   z1 = (int)std::floor(h.position.z + m);
+        return world->isColumnLoaded(x0, z0) &&
+               world->isColumnLoaded(x1, z0) &&
+               world->isColumnLoaded(x0, z1) &&
+               world->isColumnLoaded(x1, z1);
+    }
+
+    void flyTick(Human& h, const HumanIntent& in, float dt) {
+        if (!h.flying) {
+            h.flying = true;
+            h.resetMotion();
+        }
+        float speed = in.flyFast ? Human::FLY_SPEED_FAST
+                                 : Human::FLY_SPEED;
+        float len = glm::length(in.flyMove);
+        h.velocity = (len > 1e-6f)
+            ? in.flyMove * (speed / len) : glm::vec3(0.0f);
+        h.position += h.velocity * dt;
+        h.grounded  = false;
+        h.crouching = false;
+        h.height    = Human::STAND_HEIGHT;
+        easeEye(h, dt);
+    }
+
+    // If the body is inside something solid, lift it to the
+    // first free space above
+    void unstick(Human& h) {
+        if (!overlaps(h, h.position)) return;
+        glm::vec3 p = h.position;
+        p.y = std::floor(p.y);
+        for (int i = 0; i < VOXEL_DIM * 2; i++) {
+            p.y += 1.0f;
+            if (!overlaps(h, p)) {
+                h.position = p;
+                h.resetMotion();
                 return;
             }
         }
     }
 
-    // Check if player is standing on solid ground
-    bool checkGrounded(const Player& player) const {
-        float r = player.capsuleRadius * 0.8f;
-        float groundY = player.position.y - 0.2f;
-
-        // Check points under feet
-        for (int i = 0; i < 4; i++) {
-            float angle = (float)i / 4.0f * 6.28318f;
-            float cx = player.position.x +
-                       std::cos(angle) * r;
-            float cz = player.position.z +
-                       std::sin(angle) * r;
-            if (isSolid(cx, groundY, cz)) return true;
+    void updateCrouch(Human& h, const HumanIntent& in,
+                      float dt) {
+        if (in.crouch) {
+            h.crouching = true;
+            h.height    = Human::CROUCH_HEIGHT;
+        } else if (h.crouching) {
+            // Only stand up if there is headroom
+            if (!overlaps(h.position, Human::RADIUS,
+                          Human::STAND_HEIGHT)) {
+                h.crouching = false;
+                h.height    = Human::STAND_HEIGHT;
+            }
         }
-        // Check center
-        return isSolid(player.position.x,
-                       groundY,
-                       player.position.z);
+        easeEye(h, dt);
     }
 
-    // Apply stored momentum after freeze ends
-    void applyFreezeRelease(Player& player) {
-        switch (player.freezeType) {
-            case Player::FreezeType::DoubleJump:
-                // Restore stored momentum + upward boost
-                player.velocity = player.storedVelocity;
-                player.velocity.y +=
-                    player.DOUBLE_JUMP_BOOST;
-                break;
+    // The eye glides between standing and crouching height
+    static void easeEye(Human& h, float dt) {
+        float target = h.crouching ? Human::CROUCH_EYE
+                                   : Human::STAND_EYE;
+        float step = 40.0f * dt;
+        float diff = target - h.eyeHeight;
+        h.eyeHeight = (std::fabs(diff) <= step)
+            ? target
+            : h.eyeHeight + (diff > 0 ? step : -step);
+    }
 
-            case Player::FreezeType::AerialDodge:
-                // Restore stored momentum + directional burst
-                player.velocity = player.storedVelocity;
-                player.velocity +=
-                    player.dodgeBurstDirection *
-                    player.AERIAL_DODGE_BURST;
-                break;
+    void startFreeze(Human& h, Human::Freeze kind,
+                     float seconds) {
+        h.freeze         = kind;
+        h.freezeTimer    = seconds;
+        h.storedVelocity = h.velocity;
+        h.velocity       = glm::vec3(0.0f);
+    }
 
-            case Player::FreezeType::None:
-            default:
-                break;
+    void releaseFreeze(Human& h) {
+        h.velocity = h.storedVelocity;
+
+        if (h.freeze == Human::Freeze::DoubleJump) {
+            // The boost REPLACES vertical speed, so the best
+            // moment to press is the top of the jump (15 + 20
+            // = 35 voxels). Horizontal momentum carries on.
+            // Exception: already rising faster than the boost
+            // (launched by something) → the boost is added.
+            float boost = launchSpeed(Human::DOUBLE_JUMP_HEIGHT);
+            if (h.storedVelocity.y > boost)
+                h.velocity.y = h.storedVelocity.y + boost;
+            else
+                h.velocity.y = boost;
+
+        } else if (h.freeze == Human::Freeze::AirDodge) {
+            // Stored momentum resumes; the burst runs on top
+            // of it for AIR_DODGE_TIME (moveDir already set)
+            h.move      = Human::Move::AirDodge;
+            h.moveTimer = Human::AIR_DODGE_TIME;
         }
-        player.freezeType = Player::FreezeType::None;
+
+        h.freeze      = Human::Freeze::None;
+        h.freezeTimer = 0.0f;
+    }
+
+    // ── Collision ─────────────────────────────────────────
+    // Move by 'delta', one axis at a time, in pieces small
+    // enough that nothing can be skipped over.
+    void moveAndCollide(Human& h, glm::vec3 delta) {
+        float biggest = std::max(std::fabs(delta.x),
+                        std::max(std::fabs(delta.y),
+                                 std::fabs(delta.z)));
+        int steps = std::max(1,
+            (int)std::ceil(biggest / MAX_SUBSTEP));
+        glm::vec3 part = delta / (float)steps;
+
+        for (int i = 0; i < steps; i++) {
+            if (part.x != 0.0f) moveHorizontal(h, 0, part.x);
+            if (part.z != 0.0f) moveHorizontal(h, 2, part.z);
+            if (part.y != 0.0f) moveVertical(h, part.y);
+        }
+    }
+
+    // Slide along X (axis 0) or Z (axis 2)
+    void moveHorizontal(Human& h, int axis, float amount) {
+        glm::vec3 target = h.position;
+        target[axis] += amount;
+
+        if (!overlaps(h, target)) {
+            h.position = target;
+            return;
+        }
+
+        // Blocked. On the ground, try stepping up onto it:
+        // rise one voxel at a time until the way is clear.
+        if (h.grounded) {
+            for (float rise = 1.0f; rise <= Human::STEP_UP;
+                 rise += 1.0f) {
+                glm::vec3 up = h.position;
+                up.y += rise;
+                if (overlaps(h, up)) break;   // ceiling in the way
+
+                glm::vec3 over = up;
+                over[axis] += amount;
+                if (!overlaps(h, over)) {
+                    h.position  = over;
+                    h.stepJolt += rise;
+                    return;
+                }
+            }
+        }
+
+        // A wall. Close the remaining gap, then stop.
+        h.position = closest(h, h.position, target);
+        h.velocity[axis] = 0.0f;
+    }
+
+    void moveVertical(Human& h, float amount) {
+        glm::vec3 target = h.position;
+        target.y += amount;
+
+        if (!overlaps(h, target)) {
+            h.position = target;
+            if (amount > 0.0f) h.grounded = false;
+            return;
+        }
+
+        h.position   = closest(h, h.position, target);
+        h.velocity.y = 0.0f;
+
+        if (amount < 0.0f) {
+            // Landed. Voxel tops are whole numbers — rest
+            // exactly on one.
+            glm::vec3 snapped = h.position;
+            snapped.y = std::floor(snapped.y + 0.5f);
+            if (std::fabs(snapped.y - h.position.y) < 0.1f &&
+                !overlaps(h, snapped))
+                h.position = snapped;
+            h.grounded = true;
+        }
+        // amount > 0: bumped your head — velocity is zeroed,
+        // gravity takes over next tick
+    }
+
+    // Furthest free point on the way from 'from' (free) to
+    // 'to' (blocked), found by halving the gap
+    glm::vec3 closest(const Human& h, glm::vec3 from,
+                      glm::vec3 to) const {
+        for (int i = 0; i < 6; i++) {
+            glm::vec3 mid = (from + to) * 0.5f;
+            if (overlaps(h, mid)) to = mid;
+            else                  from = mid;
+        }
+        return from;
+    }
+
+    // Walked off an edge? If the ground is only a small step
+    // below, drop onto it and stay grounded — this is what
+    // makes walking down terraced hills smooth. Otherwise the
+    // body is airborne.
+    void followGround(Human& h) {
+        if (supported(h.position, h.height)) return;
+
+        for (float drop = 1.0f; drop <= Human::STEP_DOWN;
+             drop += 1.0f) {
+            glm::vec3 lower = h.position;
+            lower.y -= drop;
+            if (overlaps(h, lower)) break;
+            if (supported(lower, h.height)) {
+                h.position  = lower;
+                h.stepJolt -= drop;
+                return;
+            }
+        }
+        h.grounded = false;
     }
 };

@@ -11,19 +11,17 @@ bool ChunkLoader::save(const Chunk&                 chunk,
                         int32_t worldZ,
                         ChunkRole role)
 {
-    // --- Flatten voxel array into raw bytes ---
-    constexpr int VOXEL_COUNT    = VOXEL_DIM * VOXEL_DIM * VOXEL_DIM;
-    constexpr int RAW_SIZE_BYTES = VOXEL_COUNT * sizeof(uint16_t);
+    // --- Flatten voxels into raw little-endian bytes ---
+    // Voxel order is Y-major, identical to Chunk::index()
+    constexpr int RAW_SIZE_BYTES = VOXEL_COUNT * (int)sizeof(uint16_t);
+
+    std::vector<uint16_t> voxels(VOXEL_COUNT);
+    chunk.copyTo(voxels.data());
 
     std::vector<uint8_t> raw(RAW_SIZE_BYTES);
-
-    int i = 0;
-    for (int x = 0; x < VOXEL_DIM; x++)
-    for (int y = 0; y < VOXEL_DIM; y++)
-    for (int z = 0; z < VOXEL_DIM; z++) {
-        uint16_t id = chunk.voxels[x][y][z].typeID;
-        raw[i++] = (uint8_t)(id & 0xFF);
-        raw[i++] = (uint8_t)(id >> 8);
+    for (int i = 0; i < VOXEL_COUNT; i++) {
+        raw[i * 2]     = (uint8_t)(voxels[i] & 0xFF);
+        raw[i * 2 + 1] = (uint8_t)(voxels[i] >> 8);
     }
 
     // --- LZ4 compress ---
@@ -97,8 +95,12 @@ bool ChunkLoader::load(const std::filesystem::path& path,
         std::cerr << "Invalid magic number: " << path << "\n";
         return false;
     }
-    if (header.version > CHUNK_VERSION) {
-        std::cerr << "Chunk version too new: " << path << "\n";
+    if (header.version != CHUNK_VERSION ||
+        header.dimX != VOXEL_DIM ||
+        header.dimY != VOXEL_DIM ||
+        header.dimZ != VOXEL_DIM) {
+        // Saved by an older build with a different chunk
+        // layout — caller regenerates the chunk instead
         return false;
     }
 
@@ -120,8 +122,7 @@ bool ChunkLoader::load(const std::filesystem::path& path,
     }
 
     // --- Decompress ---
-    constexpr int VOXEL_COUNT    = VOXEL_DIM * VOXEL_DIM * VOXEL_DIM;
-    constexpr int RAW_SIZE_BYTES = VOXEL_COUNT * sizeof(uint16_t);
+    constexpr int RAW_SIZE_BYTES = VOXEL_COUNT * (int)sizeof(uint16_t);
 
     std::vector<uint8_t> raw(RAW_SIZE_BYTES);
     int decompSize = LZ4_decompress_safe(
@@ -135,15 +136,14 @@ bool ChunkLoader::load(const std::filesystem::path& path,
         return false;
     }
 
-    // --- Unpack into chunk ---
-    int idx = 0;
-    for (int x = 0; x < VOXEL_DIM; x++)
-    for (int y = 0; y < VOXEL_DIM; y++)
-    for (int z = 0; z < VOXEL_DIM; z++) {
-        uint16_t lo = raw[idx++];
-        uint16_t hi = raw[idx++];
-        outChunk.voxels[x][y][z].typeID = lo | (hi << 8);
+    // --- Unpack into chunk, then drop back to RLE ---
+    uint16_t* out = outChunk.rawData();
+    for (int i = 0; i < VOXEL_COUNT; i++) {
+        uint16_t lo = raw[i * 2];
+        uint16_t hi = raw[i * 2 + 1];
+        out[i] = (uint16_t)(lo | (hi << 8));
     }
+    outChunk.compress();
 
     return true;
 }
@@ -154,7 +154,7 @@ uint32_t ChunkLoader::crc32(const uint8_t* data, size_t size) {
     for (size_t i = 0; i < size; i++) {
         crc ^= data[i];
         for (int j = 0; j < 8; j++)
-            crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
     }
     return ~crc;
 }

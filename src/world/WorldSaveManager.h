@@ -3,19 +3,35 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <vector>
 #include "../chunk/Chunk.h"
 #include "../chunk/ChunkManager.h"
 #include "../chunk/ChunkLoader.h"
-#include "../chunk/TerrainGenerator.h"
 
 class WorldSaveManager {
 public:
+    // Start a brand new world. If a save with this name
+    // already exists its chunk files are removed — they
+    // belong to the old world and would otherwise be loaded
+    // into the new one.
     bool createWorld(const std::string& name, uint64_t seed) {
         worldName = name;
         worldSeed = seed;
         worldPath = "saves/" + name;
-        std::filesystem::create_directories(
-            worldPath + "/chunks");
+        std::error_code ec;
+        std::filesystem::path chunkDir = worldPath + "/chunks";
+        std::filesystem::create_directories(chunkDir, ec);
+
+        // Remove only chunk files (*.vxrp) — nothing else
+        std::vector<std::filesystem::path> stale;
+        for (auto& e : std::filesystem::directory_iterator(
+                           chunkDir, ec)) {
+            if (e.is_regular_file() &&
+                e.path().extension() == ".vxrp")
+                stale.push_back(e.path());
+        }
+        for (auto& f : stale) std::filesystem::remove(f, ec);
+
         return saveDescriptor();
     }
 
@@ -25,24 +41,9 @@ public:
         return loadDescriptor();
     }
 
-    void initChunks(ChunkManager& world,
-                    TerrainGenerator& gen) {
-        for (int cx = 0; cx < WORLD_SIZE_X; cx++)
-        for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
-            auto path = chunkPath(cx, cz);
-            if (std::filesystem::exists(path)) {
-                ChunkPtr loaded = makeChunk();
-                if (ChunkLoader::load(path, *loaded)) {
-                    world.chunks[world.index(cx,cz)]
-                        = std::move(loaded);
-                    continue;
-                }
-            }
-            world.chunks[world.index(cx,cz)]
-                = gen.generateChunk(cx, cz);
-        }
-    }
-
+    // Only chunks the player has changed are written. Every
+    // other chunk is rebuilt from the seed on load, so a save
+    // stays small no matter how much of the world was visited.
     void saveDirtyChunks(ChunkManager& world) {
         int saved = 0;
         for (int cx = 0; cx < WORLD_SIZE_X; cx++)
@@ -51,12 +52,24 @@ public:
             Chunk* chunk = world.getChunk(cx, cz);
             if (!chunk) continue;
             ChunkLoader::save(*chunk,
-                chunkPath(cx, cz), cx, 0, cz);
+                chunkPath(worldPath, cx, cz), cx, 0, cz);
             world.clearDirty(cx, cz);
             saved++;
         }
         if (saved > 0)
             std::cout << "Saved " << saved << " chunks\n";
+    }
+
+    // Folder of the open world, e.g. "saves/myworld"
+    const std::string& getWorldPath() const { return worldPath; }
+
+    // Where a chunk's save file lives. Static and takes the
+    // world folder by value so worker threads can call it.
+    static std::filesystem::path chunkPath(
+            const std::string& worldFolder, int cx, int cz) {
+        return worldFolder + "/chunks/c_"
+            + std::to_string(cx) + "_0_"
+            + std::to_string(cz) + ".vxrp";
     }
 
     uint64_t    getSeed()  const { return worldSeed; }
@@ -68,18 +81,12 @@ private:
     std::string worldName;
     uint64_t    worldSeed = 42;
 
-    std::filesystem::path chunkPath(int cx, int cz) const {
-        return worldPath + "/chunks/c_"
-            + std::to_string(cx) + "_0_"
-            + std::to_string(cz) + ".vxrp";
-    }
-
     bool saveDescriptor() {
         std::ofstream f(worldPath + "/world.vxrp");
         if (!f) return false;
         f << "name="    << worldName << "\n";
         f << "seed="    << worldSeed << "\n";
-        f << "version=" << 1        << "\n";
+        f << "version=" << 2        << "\n";
         return true;
     }
 

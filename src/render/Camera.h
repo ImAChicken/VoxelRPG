@@ -14,6 +14,12 @@ public:
     float sensitivity   =   0.1f;
     bool  firstMouse    = true;
 
+    // Clip planes in voxels. The far plane has to reach past
+    // the furthest drawn chunk (view distance × 128 voxels,
+    // measured corner to corner).
+    static constexpr float NEAR_PLANE = 0.2f;
+    static constexpr float FAR_PLANE  = 2048.0f;
+
     glm::mat4 getViewMatrix() const {
         return glm::lookAt(position,
                            position + front, up);
@@ -23,7 +29,7 @@ public:
             float aspectRatio) const {
         return glm::perspective(
             glm::radians(70.0f),
-            aspectRatio, 0.1f, 500.0f);
+            aspectRatio, NEAR_PLANE, FAR_PLANE);
     }
 
     // Called with pre-computed delta from InputManager
@@ -35,7 +41,7 @@ public:
         }
 
         yaw   += xoffset * sensitivity;
-        pitch -= yoffset * sensitivity;  // ← change += to -=
+        pitch -= yoffset * sensitivity;  // mouse up = look up
 
         if (pitch >  89.0f) pitch =  89.0f;
         if (pitch < -89.0f) pitch = -89.0f;

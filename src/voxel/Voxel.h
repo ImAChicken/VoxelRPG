@@ -1,7 +1,13 @@
 #pragma once
 #include <cstdint>
 
-constexpr int VOXEL_DIM = 64;
+// ── World scale ───────────────────────────────────────────
+// 4 inches per voxel, 128 voxels per chunk side
+//   chunk  = 128 voxels = 512 inches = 42.7 ft per side
+//   player = 17 voxels  = 68 inches  = 5'8"
+constexpr int   VOXEL_DIM       = 128;
+constexpr int   VOXEL_COUNT     = VOXEL_DIM * VOXEL_DIM * VOXEL_DIM;
+constexpr float VOXEL_SIZE_IN   = 4.0f;
 
 // Block IDs — must match data/registry/blocks.toml exactly
 constexpr uint16_t BLOCK_AIR          = 0;

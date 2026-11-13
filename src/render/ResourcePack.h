@@ -161,6 +161,14 @@ public:
     bool load(const std::filesystem::path& packsRoot) {
         root = packsRoot;
 
+        // Start clean so a reload (F7) can switch back from a
+        // custom pack to the default one
+        hasActivePack  = false;
+        activePackName = "default";
+        activeAtlas    = AtlasConfig();
+        activeTheme    = UITheme();
+        activeFont     = FontConfig();
+
         if (!loadPack("default", defaultAtlas,
                       defaultTheme, defaultFont)) {
             std::cerr << "Default resource pack missing\n";

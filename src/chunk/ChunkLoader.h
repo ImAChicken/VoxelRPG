@@ -6,7 +6,10 @@
 // Magic number identifies valid .vxrp files
 // Spells VXRP in little-endian bytes
 constexpr uint32_t CHUNK_MAGIC   = 0x50525856;
-constexpr uint16_t CHUNK_VERSION = 1;
+// Version 2: 128³ chunks, voxels stored Y-major
+// (same order as Chunk::index). Version 1 files (64³) are
+// rejected on load and the chunk is regenerated from the seed.
+constexpr uint16_t CHUNK_VERSION = 2;
 
 enum class ChunkRole : uint8_t {
     World     = 0,
@@ -48,7 +51,8 @@ public:
                      ChunkRole role = ChunkRole::World);
 
     // Load chunk from disk into outChunk
-    // Returns false if file missing, corrupt, or wrong version
+    // Returns false if file missing, corrupt, wrong version,
+    // or saved at a different chunk size
     static bool load(const std::filesystem::path& path,
                      Chunk& outChunk);
 

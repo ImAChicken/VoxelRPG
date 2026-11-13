@@ -1,81 +1,170 @@
 #pragma once
 #include "Chunk.h"
-#include "TerrainGenerator.h"
-#include <memory>
+#include <cmath>
+#include <cstdlib>
 #include <vector>
 #include <glm/glm.hpp>
 
-constexpr int WORLD_SIZE_X = 8;
-constexpr int WORLD_SIZE_Z = 8;
+// ── World size ────────────────────────────────────────────
+// 32 × 32 chunks of 128 voxels = 4096 × 4096 voxels
+// = 1365 ft per side at 4 inches per voxel
+constexpr int WORLD_SIZE_X = 32;
+constexpr int WORLD_SIZE_Z = 32;
 
+// ── View distance (in chunks, measured from the player) ───
+// Chunks inside MESH_DISTANCE are drawn.
+// Chunk data is kept one ring further out, because a chunk
+// can only be meshed once all four neighbours exist.
+constexpr int MESH_DISTANCE = 4;
+constexpr int LOAD_DISTANCE = MESH_DISTANCE + 1;
+
+// ── ChunkManager ──────────────────────────────────────────
+// Owns the voxel data for the whole world. Pure data — no
+// generation, no rendering. Chunks start out empty (nullptr)
+// and are filled in by WorldStreamer as the player moves.
 class ChunkManager {
 public:
-    std::vector<ChunkPtr> chunks;
-    std::vector<bool>     dirty;
-
-    ChunkManager(int seed = 42) {
-        chunks.resize(WORLD_SIZE_X * WORLD_SIZE_Z);
-        dirty.resize(WORLD_SIZE_X * WORLD_SIZE_Z, false);
-
-        TerrainGenerator gen(seed);
-
-        for (int cx = 0; cx < WORLD_SIZE_X; cx++)
-        for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
-            chunks[index(cx, cz)] = gen.generateChunk(cx, cz);
-        }
+    ChunkManager() {
+        int total = WORLD_SIZE_X * WORLD_SIZE_Z;
+        chunks.resize(total);
+        dirty.assign(total, 0);
+        meshDirty.assign(total, 0);
     }
 
-    Chunk* getChunk(int cx, int cz) {
-        if (cx < 0 || cx >= WORLD_SIZE_X ||
-            cz < 0 || cz >= WORLD_SIZE_Z)
-            return nullptr;
-        return chunks[index(cx, cz)].get();
-    }
-
-    void markDirty(int cx, int cz) {
-        if (cx < 0 || cx >= WORLD_SIZE_X ||
-            cz < 0 || cz >= WORLD_SIZE_Z)
-            return;
-        dirty[index(cx, cz)] = true;
-    }
-
-    bool isDirty(int cx, int cz) const {
-        if (cx < 0 || cx >= WORLD_SIZE_X ||
-            cz < 0 || cz >= WORLD_SIZE_Z)
-            return false;
-        return dirty[index(cx, cz)];
-    }
-
-    void clearDirty(int cx, int cz) {
-        if (cx < 0 || cx >= WORLD_SIZE_X ||
-            cz < 0 || cz >= WORLD_SIZE_Z)
-            return;
-        dirty[index(cx, cz)] = false;
-    }
-
-    uint16_t typeAtWorld(int cx, int cz, int x, int y, int z) {
-        int ncx = cx, ncz = cz;
-        int nx = x,   nz = z;
-
-        if (x < 0)          { ncx--; nx = x + VOXEL_DIM; }
-        if (x >= VOXEL_DIM) { ncx++; nx = x - VOXEL_DIM; }
-        if (z < 0)          { ncz--; nz = z + VOXEL_DIM; }
-        if (z >= VOXEL_DIM) { ncz++; nz = z - VOXEL_DIM; }
-
-        Chunk* c = getChunk(ncx, ncz);
-        if (!c) return BLOCK_AIR;
-        return c->typeAt(nx, y, nz);
+    static bool inWorld(int cx, int cz) {
+        return cx >= 0 && cx < WORLD_SIZE_X &&
+               cz >= 0 && cz < WORLD_SIZE_Z;
     }
 
     int index(int cx, int cz) const {
         return cx * WORLD_SIZE_Z + cz;
     }
 
-    glm::vec3 chunkOrigin(int cx, int cz) const {
-        return glm::vec3(
-            (float)(cx * VOXEL_DIM),
-            0.0f,
-            (float)(cz * VOXEL_DIM)
-        );
+    Chunk* getChunk(int cx, int cz) {
+        if (!inWorld(cx, cz)) return nullptr;
+        return chunks[index(cx, cz)].get();
     }
+
+    const Chunk* getChunk(int cx, int cz) const {
+        if (!inWorld(cx, cz)) return nullptr;
+        return chunks[index(cx, cz)].get();
+    }
+
+    bool isLoaded(int cx, int cz) const {
+        return getChunk(cx, cz) != nullptr;
+    }
+
+    void setChunk(int cx, int cz, ChunkPtr chunk) {
+        if (!inWorld(cx, cz)) return;
+        chunks[index(cx, cz)] = std::move(chunk);
+    }
+
+    // ── Dirty tracking ────────────────────────────────────
+    // dirty     = changed since last save  → written on Save and Quit
+    // meshDirty = changed since last mesh  → remeshed by WorldStreamer
+    // Editing a block on a chunk border also remeshes the
+    // neighbour, because its border faces may have changed.
+    void markDirty(int cx, int cz) {
+        if (!inWorld(cx, cz)) return;
+        dirty[index(cx, cz)] = 1;
+        markMeshDirty(cx,     cz);
+        markMeshDirty(cx - 1, cz);
+        markMeshDirty(cx + 1, cz);
+        markMeshDirty(cx, cz - 1);
+        markMeshDirty(cx, cz + 1);
+    }
+
+    void markMeshDirty(int cx, int cz) {
+        if (inWorld(cx, cz)) meshDirty[index(cx, cz)] = 1;
+    }
+
+    bool isDirty(int cx, int cz) const {
+        return inWorld(cx, cz) && dirty[index(cx, cz)];
+    }
+
+    bool isMeshDirty(int cx, int cz) const {
+        return inWorld(cx, cz) && meshDirty[index(cx, cz)];
+    }
+
+    void clearDirty(int cx, int cz) {
+        if (inWorld(cx, cz)) dirty[index(cx, cz)] = 0;
+    }
+
+    void clearMeshDirty(int cx, int cz) {
+        if (inWorld(cx, cz)) meshDirty[index(cx, cz)] = 0;
+    }
+
+    // Voxel lookup relative to chunk (cx, cz). x and z may run
+    // past the chunk edge — the lookup follows them into the
+    // neighbouring chunk. Unloaded chunks read as air.
+    uint16_t typeAtWorld(int cx, int cz,
+                         int x, int y, int z) const {
+        if (y < 0 || y >= VOXEL_DIM) return BLOCK_AIR;
+
+        while (x < 0)          { cx--; x += VOXEL_DIM; }
+        while (x >= VOXEL_DIM) { cx++; x -= VOXEL_DIM; }
+        while (z < 0)          { cz--; z += VOXEL_DIM; }
+        while (z >= VOXEL_DIM) { cz++; z -= VOXEL_DIM; }
+
+        const Chunk* c = getChunk(cx, cz);
+        if (!c) return BLOCK_AIR;
+        return c->typeAt(x, y, z);
+    }
+
+    // ── Lookups by world voxel coordinate ─────────────────
+    // (0, 0, 0) is the corner of chunk (0, 0). Used by physics,
+    // which thinks in world positions rather than chunks.
+    static int chunkCoord(int w) {
+        return (w >= 0) ? w / VOXEL_DIM
+                        : -((-w + VOXEL_DIM - 1) / VOXEL_DIM);
+    }
+
+    uint16_t typeAtVoxel(int wx, int wy, int wz) const {
+        if (wy < 0 || wy >= VOXEL_DIM) return BLOCK_AIR;
+        int cx = chunkCoord(wx), cz = chunkCoord(wz);
+        const Chunk* c = getChunk(cx, cz);
+        if (!c) return BLOCK_AIR;
+        return c->typeAt(wx - cx * VOXEL_DIM, wy,
+                         wz - cz * VOXEL_DIM);
+    }
+
+    // True if the chunk holding this voxel column has its data.
+    // Columns outside the world count as loaded — there is
+    // nothing there to wait for, just open air.
+    bool isColumnLoaded(int wx, int wz) const {
+        int cx = chunkCoord(wx), cz = chunkCoord(wz);
+        if (!inWorld(cx, cz)) return true;
+        return isLoaded(cx, cz);
+    }
+
+    glm::vec3 chunkOrigin(int cx, int cz) const {
+        return glm::vec3((float)(cx * VOXEL_DIM),
+                         0.0f,
+                         (float)(cz * VOXEL_DIM));
+    }
+
+    // Which chunk a world position is in (may be outside the world)
+    glm::ivec2 worldToChunk(glm::vec3 pos) const {
+        return glm::ivec2(
+            (int)std::floor(pos.x / (float)VOXEL_DIM),
+            (int)std::floor(pos.z / (float)VOXEL_DIM));
+    }
+
+    int loadedCount() const {
+        int n = 0;
+        for (auto& c : chunks) if (c) n++;
+        return n;
+    }
+
+    size_t compressedBytes() const {
+        size_t total = 0;
+        for (auto& c : chunks)
+            if (c) total += c->compressedBytes();
+        return total;
+    }
+
+private:
+    std::vector<ChunkPtr> chunks;
+    std::vector<uint8_t>  dirty;
+    std::vector<uint8_t>  meshDirty;
 };
