@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -37,6 +38,8 @@
 #include "chunk/ChunkManager.h"
 #include "chunk/ChunkLoader.h"
 #include "render/FarTerrain.h"
+#include "render/CharacterRenderer.h"
+#include "ui/CharacterScreen.h"
 #include "chunk/TerrainGenerator.h"
 #include "voxel/VoxelRegistry.h"
 #include "render/ResourcePack.h"
@@ -78,6 +81,7 @@ enum class GameState {
     Controls,
     Settings,
     BuildMenu,
+    Character,      // character creator
 };
 
 // Seconds between automatic saves while in a world
@@ -96,6 +100,7 @@ std::unique_ptr<IPhysics>  gPhysics;
 MainMenuScreen* gMainMenu = nullptr;
 Console*        gConsole  = nullptr;
 ControlsScreen* gControls = nullptr;
+CharacterScreen* gCharScreen = nullptr;
 
 // Lines typed into the console, waiting to be run by the
 // main loop (the key callback only collects them)
@@ -118,6 +123,8 @@ void charCallback(GLFWwindow* window,
         gMainMenu->onChar(codepoint);
     if (gState == GameState::Console && gConsole)
         gConsole->onChar(codepoint);
+    if (gState == GameState::Character && gCharScreen)
+        gCharScreen->onChar(codepoint);
 }
 
 void keyCallback(GLFWwindow* window, int key,
@@ -129,6 +136,8 @@ void keyCallback(GLFWwindow* window, int key,
         if (gState == GameState::Controls && gControls &&
             action == GLFW_PRESS)
             gControls->onKey(key);
+        if (gState == GameState::Character && gCharScreen)
+            gCharScreen->onKey(key);
         if (gState == GameState::Console && gConsole) {
             std::string line;
             if (gConsole->onKey(key, action == GLFW_REPEAT, mods, line))
@@ -235,18 +244,62 @@ int main() {
     std::shared_ptr<const BlockRenderTable> blockTable =
         BlockRenderTable::build(gRegistry, gResourcePacks);
 
+    // ── Characters ────────────────────────────────────────
+    // The player's body (drawn in third person) and the one
+    // shown in the character creator. Freed before the GL
+    // context goes, at the end of main.
+    // Swatches (a pack may bring its own) and painted faces
+    auto loadCharacterArt = [&]() {
+        gPalettes.setDefaults();
+        gPalettes.load("data/characters/palettes.toml");
+        auto packPal = gResourcePacks.findFile("characters/palettes.toml");
+        if (std::filesystem::exists(packPal)) gPalettes.load(packPal);
+        if (!gFaces.load()) std::cerr << "Character face art missing\n";
+    };
+    loadCharacterArt();
+    auto hairMesh = []() { return (HairMesh)gSettings.charHairMesh; };
+    auto edgeStyle = []() { EdgeStyle e; e.mode = gSettings.charEdges; e.color = gSettings.charLineColor; return e; };
+
+    CharacterRenderer charRenderer;
+    if (!charRenderer.init()) std::cerr << "Character renderer failed to start\n";
+    auto playerBody  = std::make_unique<Character>();
+    auto previewBody = std::make_unique<Character>();
+
+    // The look a new world's player starts with: whatever was
+    // last chosen in the character creator
+    const char* DEFAULT_CHARACTER = "saves/default_character.txt";
+    auto loadDefaultCharacter = [&]() {
+        Appearance a;
+        std::ifstream f(DEFAULT_CHARACTER);
+        std::string line;
+        while (std::getline(f, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            size_t eq = line.find('=');
+            if (eq != std::string::npos) a.read(line.substr(0, eq), line.substr(eq + 1));
+        }
+        return a;
+    };
+    auto saveDefaultCharacter = [&](const Appearance& a) {
+        std::filesystem::create_directories("saves");
+        std::ofstream f(DEFAULT_CHARACTER);
+        a.write(f);
+    };
+    float frameDt = 0.016f;    // last frame's length, for animation
+
     // ── Screens ───────────────────────────────────────────
     MainMenuScreen  mainMenu(window);
     PauseMenuScreen pauseMenu(window);
     DevMenuScreen   devMenu(window);
     ControlsScreen  controlsScreen(window);
     SettingsScreen  settingsScreen(window);
+    CharacterScreen characterScreen(window);
     BuildMenuScreen buildMenu(window);
     Hud             hud;
     Console         console;
     gMainMenu = &mainMenu;
     gConsole  = &console;
     gControls = &controlsScreen;
+    gCharScreen = &characterScreen;
 
     // Messages from commands, tools and saving go to the
     // console (and the terminal)
@@ -443,6 +496,8 @@ int main() {
         int spawnX = sp.x, spawnZ = sp.z, ground = sp.y;
 
         player.resetForNewWorld();
+        player.appearance = loadDefaultCharacter();   // a saved player overrides it below
+        playerBody->resetAnimation();
         player.spawnPoint = glm::vec3(
             (float)spawnX, (float)ground, (float)spawnZ);
         camera = Camera();
@@ -550,30 +605,47 @@ int main() {
         // Culling OFF again so the UI draws normally
         glr->endWorldDraw();
 
-        // Third person: there is no player model yet, so a
-        // plain box stands in for the body — torso in the
-        // stance colour, with a lighter block for the face
-        // so you can tell which way it is looking.
+        // Third person: the player's body, posed from what
+        // it is doing this frame
         const GameModeRules rules = player.rules();
         if (rules.hasBody &&
             controller.usingThirdPerson(rules) &&
             controller.bodyVisible()) {
-            float yaw = glm::degrees(std::atan2(
-                player.facing.z, player.facing.x));
-            glm::vec3 feet = controller.renderPosition;
-            glm::vec3 tint = player.combatStance
-                ? glm::vec3(0.80f, 0.30f, 0.25f)
-                : glm::vec3(0.25f, 0.45f, 0.80f);
-            glr->drawBox(feet,
-                glm::vec3(Human::RADIUS * 2.0f, player.height,
-                          Human::RADIUS * 2.0f),
-                yaw, tint);
-            glm::vec3 ahead = glm::normalize(player.facing);
-            glr->drawBox(
-                feet + glm::vec3(0.0f, player.eyeHeight - 1.0f, 0.0f)
-                     + ahead * Human::RADIUS,
-                glm::vec3(1.0f, 2.0f, 2.0f), yaw,
-                glm::vec3(0.95f, 0.85f, 0.70f));
+            playerBody->setAppearance(player.appearance, hairMesh());
+            AnimInput in;
+            in.velocity     = player.velocity;
+            in.facingYawDeg = glm::degrees(std::atan2(player.facing.z, player.facing.x));
+            in.lookPitchDeg = camera.pitch;
+            in.grounded     = player.grounded;
+            in.crouching    = player.crouching;
+            in.sprinting    = player.sprinting;
+            in.flying       = player.flying;
+            in.combat       = player.combatStance;
+            in.frozen       = player.freeze != Human::Freeze::None;
+            in.walkSpeed    = Human::WALK_SPEED;
+            in.sprintSpeed  = Human::SPRINT_SPEED;
+            switch (player.move) {
+            case Human::Move::Roll:
+                in.move = AnimInput::Move::Roll;
+                in.moveProgress = 1.0f - player.moveTimer / Human::ROLL_TIME; break;
+            case Human::Move::Backstep:
+                in.move = AnimInput::Move::Backstep;
+                in.moveProgress = 1.0f - player.moveTimer / Human::BACKSTEP_TIME; break;
+            case Human::Move::AirDodge:
+                in.move = AnimInput::Move::AirDodge;
+                in.moveProgress = 1.0f - player.moveTimer / Human::AIR_DODGE_TIME; break;
+            default: break;
+            }
+            playerBody->animate(in, frameDt);
+            glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
+                                              Camera::NEAR_PLANE, Camera::FAR_PLANE);
+            glm::mat4 view = glr->getViewMatrix();
+            charRenderer.draw(*playerBody, proj * view, controller.renderPosition, camera.position,
+                              OpenGLRenderer::FOG_COLOR, OpenGLRenderer::FOG_DENSITY);
+            // toon edge lines (hidden behind anything in front)
+            int fw = gRenderer->getScreenWidth(), fh = gRenderer->getScreenHeight();
+            charRenderer.drawEdges({ { playerBody.get(), controller.renderPosition } }, view, proj,
+                                   0, 0, fw, fh, fw, fh, edgeStyle());
         }
 
         // ── Outlines: target block, selection, paste ──────
@@ -704,6 +776,7 @@ int main() {
         // Movement uses a capped delta so one slow frame
         // cannot fling the camera across the map
         float dt = std::min(frameTime, 0.1f);
+        frameDt = dt;
 
         // Events first, then input — poll() must run before
         // any isPressed / isHeld check this frame
@@ -773,6 +846,9 @@ int main() {
                     gRegistry, gResourcePacks);
                 if (streamer)
                     streamer->setRenderTable(blockTable);
+                // Faces and swatches may have changed too
+                loadCharacterArt();
+                playerBody->setAppearance(player.appearance, hairMesh(), true);
                 std::cout << "Pack reloaded\n";
             }
         }
@@ -1022,6 +1098,40 @@ int main() {
                 pauseMenu.onEnter();
             }
 
+        } else if (gState == GameState::Character) {
+
+            drawWorld();
+            UIRenderer* ui = gRenderer->getUIRenderer();
+            // Esc while typing a favorite's name only leaves the box
+            bool typing = characterScreen.escLeftTyping();
+            ScreenResult r = characterScreen.update(*ui, dt);
+            bool esc = gInput.isPressed(InputAction::Pause) && !typing;
+            if (esc) characterScreen.cancel();
+
+            // The turning preview, drawn into the screen's
+            // empty right-hand panel
+            CharacterScreen::Rect pr = characterScreen.previewRect();
+            if (pr.w > 0) {
+                previewBody->setAppearance(characterScreen.look(), hairMesh());
+                AnimInput idle;
+                idle.facingYawDeg = 90.0f;     // model faces +Z, toward the preview camera
+                previewBody->animate(idle, dt);
+                charRenderer.drawPreview(*previewBody, pr.x, pr.y, pr.w, pr.h,
+                                         gRenderer->getScreenWidth(), gRenderer->getScreenHeight(),
+                                         characterScreen.previewTurn(), edgeStyle(),
+                                         characterScreen.previewFocus());
+            }
+
+            if (r == ScreenResult::CloseMenu || esc) {
+                if (characterScreen.wasAccepted()) {
+                    player.appearance = characterScreen.look();
+                    saveDefaultCharacter(player.appearance);
+                    say("character saved");
+                }
+                gState = GameState::Paused;
+                pauseMenu.onEnter();
+            }
+
         } else if (gState == GameState::DevMenu) {
 
             drawWorld();
@@ -1054,6 +1164,11 @@ int main() {
             } else if (r == ScreenResult::OpenSettings) {
                 settingsScreen.onEnter();
                 gState = GameState::Settings;
+
+            } else if (r == ScreenResult::OpenCharacter) {
+                characterScreen.begin(player.appearance);
+                previewBody->resetAnimation();
+                gState = GameState::Character;
 
             } else if (r == ScreenResult::ResumeGame) {
                 gState = GameState::Playing;
@@ -1132,6 +1247,9 @@ int main() {
     // glfwTerminate() destroys the context
     streamer.reset();
     farView.reset();
+    playerBody.reset();
+    previewBody.reset();
+    charRenderer.cleanup();
     editor.reset();
     gPhysics.reset();
     world.reset();

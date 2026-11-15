@@ -37,6 +37,7 @@ public:
         std::vector<Btn> list = { { "Resume", ScreenResult::ResumeGame } };
         if (devMenuAllowed)
             list.push_back({ "Dev Menu", ScreenResult::OpenDevMenu });
+        list.push_back({ "Character",     ScreenResult::OpenCharacter });
         list.push_back({ "Controls",      ScreenResult::OpenControls });
         list.push_back({ "Settings",      ScreenResult::OpenSettings });
         list.push_back({ "Save and Quit", ScreenResult::SaveAndQuit });

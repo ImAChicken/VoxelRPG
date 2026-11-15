@@ -13,6 +13,7 @@ enum class ScreenResult {
     CloseMenu,      // a sub-menu → back to the pause menu
     OpenControls,   // pause menu → key bindings
     OpenSettings,   // pause menu → settings
+    OpenCharacter,  // pause menu → character creator
 };
 
 class UIScreen {

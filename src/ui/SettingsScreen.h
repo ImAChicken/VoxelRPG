@@ -26,6 +26,9 @@ public:
                   [](float v) { return outOf100(v); });
         addSlider("Mouse sensitivity", &gSettings.mouseSensitivity, 0.02f, 0.4f,
                   [](float v) { return times(v / GameSettings::DEF_SENSITIVITY); });
+        addChoice("Character edges", &gSettings.charEdges, { "Off", "Lines", "Lines + echo" });
+        addChoice("Edge line colour", &gSettings.charLineColor, { "Black", "Tinted" });
+        addChoice("Hair mesh", &gSettings.charHairMesh, { "Voxels", "Shards", "Soft shards" });
     }
 
     void onEnter() override {
@@ -46,7 +49,7 @@ public:
         // behind stays visible while you adjust it
         float dim[4] = {0, 0, 0, 90};
         ui.drawRect(0, 0, sw, sh, dim);
-        float pw = 620.0f, ph = 120.0f + sliders.size() * 64.0f;
+        float pw = 620.0f, ph = 120.0f + sliders.size() * 64.0f + choices.size() * 44.0f;
         float px = (sw - pw) * 0.5f, py = std::max(20.0f, (sh - ph) * 0.5f - 80.0f);
         drawPanel(ui, px, py, pw, ph);
         ui.drawText("Settings", px + 16, py + 14, theme.title, 2);
@@ -76,6 +79,25 @@ public:
             }
             y += 64;
         }
+        // Choice rows: click the value (or the arrows) to cycle
+        for (Choice& c : choices) {
+            ui.drawText(c.label, px + 20, y + 8, theme.text, 2);
+            const std::string& val = c.names[*c.value];
+            float vw = 230.0f, vx = px + pw - 20 - vw, vh = 32.0f;
+            bool hov = hovered(vx, y, vw, vh);
+            ui.drawRect(vx, y, vw, vh, hov ? theme.buttonBgHover : theme.inputBg);
+            ui.drawBorder(vx, y, vw, vh, hov ? theme.accent : theme.border, 1.0f);
+            ui.drawText("<", vx + 8, y + 8, theme.textDim, 2);
+            ui.drawText(">", vx + vw - 8 - ui.textWidth(">", 2), y + 8, theme.textDim, 2);
+            ui.drawTextCentered(val, vx, y, vw, vh, hov ? theme.textHover : theme.accent, 2);
+            if (hov && clicked()) {
+                int n = (int)c.names.size();
+                *c.value = (mx < vx + vw * 0.3f) ? (*c.value + n - 1) % n : (*c.value + 1) % n;
+                gSettings.save();
+            }
+            y += 44;
+        }
+
         if (!mouseDown && dragging >= 0) {     // let go → save
             dragging = -1;
             gSettings.clamp();
@@ -114,6 +136,15 @@ private:
         std::function<std::string(float)> format;
     };
     std::vector<Slider> sliders;
+    struct Choice {
+        std::string label;
+        int* value;
+        std::vector<std::string> names;
+    };
+    std::vector<Choice> choices;
+    void addChoice(const std::string& label, int* v, std::vector<std::string> names) {
+        choices.push_back({ label, v, std::move(names) });
+    }
     GLFWwindow* window;
     int dragging = -1;
     double mx = 0, my = 0;

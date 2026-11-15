@@ -380,6 +380,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\character\Appearance.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\character\CharacterAnimator.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\character\CharacterModel.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\character\FaceComposer.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\Chunk.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\ChunkGenerator.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\chunk\ChunkLoader.cpp" />
@@ -421,6 +425,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\AtlasTexture.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\BoxRenderer.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Camera.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\CharacterRenderer.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\ChunkMesh.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\FarTerrain.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Mesher.h" />
@@ -431,6 +436,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\OpenGLRenderer.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\RaytracingRenderer.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\ui\BuildMenuScreen.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\ui\CharacterScreen.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\ui\ConsoleScreen.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\ui\ControlsScreen.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\ui\DevMenuScreen.h" />

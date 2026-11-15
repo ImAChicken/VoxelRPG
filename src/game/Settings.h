@@ -21,18 +21,27 @@ struct GameSettings {
     float toolbarOpacity   = DEF_TOOLBAR_OPACITY;   // 0.1 .. 1.0
     float mouseSensitivity = DEF_SENSITIVITY;       // degrees per pixel
 
+    // Characters
+    int charEdges     = 1;   // 0 off, 1 lines, 2 lines + colour echo
+    int charLineColor = 0;   // 0 black, 1 tinted by the surface
+    int charHairMesh  = 1;   // 0 voxels, 1 shards, 2 soft shards
+
     std::filesystem::path path = "data/settings.toml";
 
     void resetToDefaults() {
         toolbarScale     = DEF_TOOLBAR_SCALE;
         toolbarOpacity   = DEF_TOOLBAR_OPACITY;
         mouseSensitivity = DEF_SENSITIVITY;
+        charEdges = 1; charLineColor = 0; charHairMesh = 1;
     }
 
     void clamp() {
         toolbarScale     = std::clamp(toolbarScale,     0.5f,  2.0f);
         toolbarOpacity   = std::clamp(toolbarOpacity,   0.1f,  1.0f);
         mouseSensitivity = std::clamp(mouseSensitivity, 0.02f, 0.4f);
+        charEdges     = std::clamp(charEdges, 0, 2);
+        charLineColor = std::clamp(charLineColor, 0, 1);
+        charHairMesh  = std::clamp(charHairMesh, 0, 2);
     }
 
     bool load() {
@@ -42,6 +51,9 @@ struct GameSettings {
             toolbarScale     = (float)t["hud"]["toolbar_scale"].value_or((double)toolbarScale);
             toolbarOpacity   = (float)t["hud"]["toolbar_opacity"].value_or((double)toolbarOpacity);
             mouseSensitivity = (float)t["controls"]["mouse_sensitivity"].value_or((double)mouseSensitivity);
+            charEdges     = (int)t["characters"]["edges"].value_or((int64_t)charEdges);
+            charLineColor = (int)t["characters"]["line_color"].value_or((int64_t)charLineColor);
+            charHairMesh  = (int)t["characters"]["hair_mesh"].value_or((int64_t)charHairMesh);
             clamp();
             return true;
         } catch (const std::exception& e) {
@@ -58,7 +70,11 @@ struct GameSettings {
           << "toolbar_scale   = " << toolbarScale   << "   # 0.5 - 2.0\n"
           << "toolbar_opacity = " << toolbarOpacity << "   # 0.1 - 1.0\n\n"
           << "[controls]\n"
-          << "mouse_sensitivity = " << mouseSensitivity << "   # 0.02 - 0.4\n";
+          << "mouse_sensitivity = " << mouseSensitivity << "   # 0.02 - 0.4\n\n"
+          << "[characters]\n"
+          << "edges      = " << charEdges     << "   # 0 off, 1 lines, 2 lines + colour echo\n"
+          << "line_color = " << charLineColor << "   # 0 black, 1 tinted\n"
+          << "hair_mesh  = " << charHairMesh  << "   # 0 voxels, 1 shards, 2 soft shards\n";
         return (bool)f;
     }
 };

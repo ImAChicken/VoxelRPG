@@ -2,6 +2,7 @@
 #include "Human.h"
 #include "../game/GameMode.h"
 #include "../game/Inventory.h"
+#include "../character/Appearance.h"
 #include <cstdio>
 #include <cstdlib>
 #include <ostream>
@@ -34,6 +35,10 @@ public:
     // but Survival cannot reach it.
     Inventory inventory;
     Inventory devInventory = makeDevInventory();
+
+    // How the body looks (the collision body is the same
+    // for everyone — see Human.h)
+    Appearance appearance;
 
     // What this player may do right now
     GameModeRules rules() const {
@@ -71,6 +76,7 @@ public:
         out << "health=" << health << "\n";
         inventory.write(out, "inv");
         devInventory.write(out, "dev");
+        appearance.write(out);
     }
 
     bool read(const std::string& key, const std::string& value) {
@@ -85,7 +91,8 @@ public:
         } else if (key == "health") {
             health = (float)std::atof(value.c_str());
         } else {
-            return inventory.read(key, value, "inv") ||
+            return appearance.read(key, value) ||
+                   inventory.read(key, value, "inv") ||
                    devInventory.read(key, value, "dev");
         }
         return true;

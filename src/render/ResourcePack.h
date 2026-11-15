@@ -217,6 +217,16 @@ public:
         return FaceUV{0,0,0,0,0,0};
     }
 
+    // Any file in the active pack, falling back to the default
+    // pack's copy (e.g. "characters/face_eyes.png")
+    std::filesystem::path findFile(const std::string& rel) const {
+        if (hasActivePack) {
+            auto p = root / activePackName / rel;
+            if (std::filesystem::exists(p)) return p;
+        }
+        return root / "default" / rel;
+    }
+
     std::filesystem::path getAtlasPath() const {
         if (hasActivePack) {
             auto p = root / activePackName / "atlas.png";
