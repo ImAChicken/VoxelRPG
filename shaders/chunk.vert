@@ -17,6 +17,10 @@ out      vec2  vFacePos;       // position across the face, in voxels
 flat out vec2  vTile;          // atlas tile (column, row)
 flat out float vShade;
 out      float vDist;          // distance from the camera
+out      vec3  vLocal;         // position in the section, voxels (for the light texture)
+out      vec3  vWorld;
+flat out vec3  vNormal;
+flat out float vGlow;          // 1 for blocks that give off light: drawn at full brightness
 
 // Fake directional light: top brightest, bottom darkest
 // Order matches enum Face: +Y, -Y, +Z, -Z, -X, +X
@@ -39,8 +43,13 @@ void main() {
 
     vTile  = vec2(aTile.xy);
     vShade = FACE_SHADE[min(face, 5u)];
+    vGlow  = float(aTile.z & 1u);
+    const vec3 NORMALS[6] = vec3[6](vec3(0,1,0), vec3(0,-1,0), vec3(0,0,1), vec3(0,0,-1), vec3(-1,0,0), vec3(1,0,0));
+    vNormal = NORMALS[min(face, 5u)];
+    vLocal = local;
 
     vec3 world = local + uChunkOrigin;
+    vWorld = world;
     vDist = length(world - uCamPos);
     gl_Position = uProjection * uView * vec4(world, 1.0);
 }

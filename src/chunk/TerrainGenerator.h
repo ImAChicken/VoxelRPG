@@ -189,6 +189,36 @@ public:
             placed.push_back({ &trees[type], wx - x0, gy, wz - z0 });
             treeTop = std::max(treeTop, gy + trees[type].height);
         }
+        // ── Rock formations (world types that have them) ──
+        // Same idea as trees: one possible rock per ROCK_CELL
+        // square of the world, stamped into every chunk it reaches
+        if (!rockShapes.empty()) {
+            int RR = maxRockRadius;
+            int rx0 = floorDiv(x0 - RR, ROCK_CELL), rx1 = floorDiv(x0 + D - 1 + RR, ROCK_CELL);
+            int rz0 = floorDiv(z0 - RR, ROCK_CELL), rz1 = floorDiv(z0 + D - 1 + RR, ROCK_CELL);
+            for (int cellX = rx0; cellX <= rx1; cellX++)
+            for (int cellZ = rz0; cellZ <= rz1; cellZ++) {
+                RockPlace rp;
+                if (!rockInCell(cellX, cellZ, rp)) continue;
+                const TreeShape& sh = rockShapes[(size_t)rp.shape];
+                placed.push_back({ &sh, rp.wx - x0, rp.wy, rp.wz - z0 });
+                treeTop = std::max(treeTop, rp.wy + sh.height);
+            }
+        }
+        // ── Small decorations: bushes, fallen logs, stones ─
+        if (!decorShapes.empty()) {
+            int RR = maxDecorRadius;
+            int dx0 = floorDiv(x0 - RR, DECOR_CELL), dx1 = floorDiv(x0 + D - 1 + RR, DECOR_CELL);
+            int dz0 = floorDiv(z0 - RR, DECOR_CELL), dz1 = floorDiv(z0 + D - 1 + RR, DECOR_CELL);
+            for (int cellX = dx0; cellX <= dx1; cellX++)
+            for (int cellZ = dz0; cellZ <= dz1; cellZ++) {
+                RockPlace rp;
+                if (!decorInCell(cellX, cellZ, rp)) continue;
+                const TreeShape& sh = decorShapes[(size_t)rp.shape];
+                placed.push_back({ &sh, rp.wx - x0, rp.wy, rp.wz - z0 });
+                treeTop = std::max(treeTop, rp.wy + sh.height);
+            }
+        }
         int contentTop = std::max(highest, treeTop);
 
         // ── Step 2 — each section ─────────────────────────
@@ -234,6 +264,7 @@ public:
                     slice[x * D + z] = id;
                 }
             }
+            carveSection(vox, x0, z0, y0, cols);
             for (const Placed& p : placed)
                 stampTree(vox, *p.shape, p.lx, p.ly - y0, p.lz);
             sec.setRle(RleData::build(vox));
@@ -301,6 +332,36 @@ protected:
     FastNoiseLite typeNoise;
 
     TreeShape trees[TREE_COUNT];
+
+    // Rock formations: shapes made by the world type, placed by
+    // rockInCell() on a grid of ROCK_CELL voxels. Stamped like
+    // trees, filling only air, so a rock's base can sit sunk in
+    // the ground and a ledge can jut out over a drop.
+    static constexpr int ROCK_CELL = 20;
+    std::vector<TreeShape> rockShapes;
+    int maxRockRadius = 0;
+    struct RockPlace { int shape = 0; int wx = 0, wy = 0, wz = 0; };
+    // A world type may hollow out the filled terrain of a section
+    // (overhangs, alcoves) before trees and rocks go in.
+    //   vox  the section, Y-major (Chunk::index)   y0  its bottom
+    virtual void carveSection(uint16_t* vox, int x0, int z0, int y0,
+                              const std::vector<TerrainColumn>& cols) const {
+        (void)vox; (void)x0; (void)z0; (void)y0; (void)cols;
+    }
+
+    // Decorations: like rocks, on a finer grid
+    static constexpr int DECOR_CELL = 10;
+    std::vector<TreeShape> decorShapes;
+    int maxDecorRadius = 0;
+    virtual bool decorInCell(int cellX, int cellZ, RockPlace& out) const {
+        (void)cellX; (void)cellZ; (void)out;
+        return false;
+    }
+
+    virtual bool rockInCell(int cellX, int cellZ, RockPlace& out) const {
+        (void)cellX; (void)cellZ; (void)out;
+        return false;
+    }
     std::unordered_set<uint32_t> woodAt[TREE_COUNT];
 
     static uint32_t packOffset(int dx, int dy, int dz) {

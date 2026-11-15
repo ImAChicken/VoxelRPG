@@ -171,6 +171,9 @@
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Shader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\Sky.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\IRenderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -222,6 +225,9 @@
     <ClInclude Include="C:\Dev\VoxelRPG\src\voxel\VoxelRegistry.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\world\LightBake.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\StructureCatalog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -232,6 +238,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldEditor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldMemory.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldSaveManager.h">
@@ -253,6 +262,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\TerrainBake.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\WorldGenParams.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\WorldType.h">

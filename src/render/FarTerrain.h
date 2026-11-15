@@ -14,6 +14,9 @@
 #include <vector>
 #include "Shader.h"
 #include "../chunk/TerrainGenerator.h"
+#include "Sky.h"
+#include "../world/LightBake.h"
+#include <unordered_map>
 
 // ══════════════════════════════════════════════════════════
 // FarTerrain — the distant view
@@ -139,7 +142,7 @@ public:
             Region& reg = regions[(size_t)r.index];
             reg.building = false;
             inFlight--;
-            if (r.step != reg.wanted) continue;      // camera moved on
+            if (r.step != reg.wanted && !reg.dirty) continue;      // camera moved on
             reg.gpu.upload(r.verts, r.indices);
             reg.step = r.step;
             reg.minY = r.minY;
@@ -165,7 +168,7 @@ public:
             if (reg.step > 0 && reg.step >= stepFor(d - 150.0f) && reg.step <= stepFor(d + 150.0f))
                 want = reg.step;
             reg.wanted = want;
-            if (want != reg.step && !reg.building) cands.push_back({ d, i, want });
+            if ((want != reg.step || reg.dirty) && !reg.building) { reg.dirty = false; cands.push_back({ d, i, want }); }
         }
         std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d < b.d; });
 
@@ -185,6 +188,25 @@ public:
 
     // Draw everything. The caller clears the depth buffer
     // afterwards and draws the voxel chunks on top.
+    // ── Real ground for chunks that have been loaded ──────
+    // Low-res copies (top voxel of every 4 × 4) of chunks the
+    // player has been near. Where one exists the far view draws
+    // it instead of the generator's ground, so edits show in the
+    // distance. 'changed' lists the chunks (cz * chunksX + cx)
+    // whose copy is new, so their regions are rebuilt.
+    using Summaries = std::unordered_map<int, std::shared_ptr<const light::ColumnLight>>;
+    void setSummaries(std::shared_ptr<const Summaries> sums, const std::vector<int>& changed) {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            summaries = std::move(sums);
+        }
+        for (int c : changed) {
+            int cx = c % chunksX, cz = c / chunksX;
+            int rx = cx / REGION_CHUNKS, rz = cz / REGION_CHUNKS;
+            if (rx >= 0 && rz >= 0 && rx < regionsX && rz < regionsZ) regions[(size_t)(rz * regionsX + rx)].dirty = true;
+        }
+    }
+
     void draw(const glm::mat4& view, float fovDeg, float aspect, glm::vec3 cam,
               glm::vec3 fogColor, float fogDensity) {
         if (!shader.id) return;
@@ -202,8 +224,17 @@ public:
         glUniformMatrix4fv(locViewProj, 1, GL_FALSE, glm::value_ptr(vp));
         glUniform3f(locCamPos, cam.x, cam.y, cam.z);
         glUniform2i(locWorld, chunksX, chunksZ);
-        glUniform3f(locFogColor, fogColor.r, fogColor.g, fogColor.b);
-        glUniform1f(locFogDensity, fogDensity);
+        (void)fogColor; (void)fogDensity;
+        {
+            const FrameLight& fl = gFrameLight;
+            GLuint p = shader.id;
+            auto v3 = [&](const char* n, glm::vec3 v) { glUniform3f(glGetUniformLocation(p, n), v.x, v.y, v.z); };
+            auto f1 = [&](const char* n, float v) { glUniform1f(glGetUniformLocation(p, n), v); };
+            v3("uSkyLight", fl.sky.skyLight); v3("uAmbient", fl.sky.ambient);
+            v3("uFogHorizon", fl.sky.horizon); v3("uFogSunGlow", fl.sky.sunGlow); v3("uSunDir", fl.sky.sunDir);
+            f1("uFogDensity", fl.fogDensity); f1("uSeamStart", fl.seamStart); f1("uSeamEnd", fl.seamEnd);
+            f1("uSeamHaze", fl.seamHaze); f1("uNight", fl.sky.night);
+        }
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, maskTex);
         glUniform1i(locMask, 1);
@@ -232,6 +263,7 @@ public:
 
 private:
     static constexpr int MAX_IN_FLIGHT = 4;
+    std::shared_ptr<const Summaries> summaries;
     float maxDistance = 0.0f;
 
     struct Vertex {
@@ -279,6 +311,7 @@ private:
     struct Region {
         GpuMesh gpu;
         int   step = 0;         // detail on screen (0 = nothing yet)
+        bool  dirty = false;    // its chunks' real ground changed
         int   wanted = 0;
         bool  building = false;
         float minY = 0, maxY = 0;
@@ -307,7 +340,7 @@ private:
     glm::vec4 frustum[6];
 
     std::vector<std::thread> workers;
-    std::mutex               mutex;
+    mutable std::mutex               mutex;
     std::condition_variable  wake;
     std::deque<Job>          jobs;
     std::vector<Result>      results;
@@ -369,6 +402,12 @@ private:
 
         std::vector<float>       h((size_t)G * G);
         std::vector<glm::u8vec3> col((size_t)G * G);
+        std::vector<uint8_t>     glow((size_t)G * G, 0);
+        std::shared_ptr<const Summaries> sums;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            sums = summaries;
+        }
         const glm::u8vec3 leaf  = colorOf(BLOCK_LEAVES);
         const glm::u8vec3 water = colorOf(BLOCK_WATER);
         const glm::u8vec3 lava  = colorOf(BLOCK_LAVA);
@@ -379,6 +418,24 @@ private:
             TerrainColumn c = gen.column(wx, wz);
             float y;
             glm::vec3 rgb;
+            // a loaded chunk's real ground, where we have it
+            if (sums && wx >= 0 && wz >= 0 && wx < chunksX * VOXEL_DIM && wz < chunksZ * VOXEL_DIM) {
+                int ccx = wx / VOXEL_DIM, ccz = wz / VOXEL_DIM;
+                auto it = sums->find(ccz * chunksX + ccx);
+                if (it != sums->end()) {
+                    int lx = (wx - ccx * VOXEL_DIM) / 4, lz = (wz - ccz * VOXEL_DIM) / 4;
+                    int k = lz * light::ColumnLight::SUM + lx;
+                    uint16_t ty = it->second->topY[(size_t)k], tid = it->second->topId[(size_t)k];
+                    if (ty > 0) {
+                        bool fluid = tid == BLOCK_WATER || tid == BLOCK_LAVA;
+                        c.ground = fluid ? std::min(c.ground, (int)ty - 1) : (int)ty;
+                        c.waterLevel = fluid ? (int)ty : 0;
+                        c.fluid = tid;
+                        if (!fluid) c.top = tid;
+                    }
+                }
+            }
+            if (c.top == BLOCK_LAVA || (c.waterLevel > c.ground && c.fluid == BLOCK_LAVA)) glow[(size_t)j * G + i] = 1;
             if (c.waterLevel > c.ground) {
                 y = (float)c.waterLevel;
                 glm::u8vec3 w = c.fluid == BLOCK_LAVA ? lava : water;
@@ -430,7 +487,7 @@ private:
             float y = H(gi, gj);
             out.verts.push_back({ (float)(x0 + i * step), y, (float)(z0 + j * step),
                                   (uint8_t)std::min(255.0f, c.r), (uint8_t)std::min(255.0f, c.g),
-                                  (uint8_t)std::min(255.0f, c.b), 255 });
+                                  (uint8_t)std::min(255.0f, c.b), (uint8_t)(glow[(size_t)(j + 1) * G + (i + 1)] ? 0 : 255) });
             out.minY = std::min(out.minY, y);
             out.maxY = std::max(out.maxY, y);
         }

@@ -21,6 +21,8 @@ uniform ivec2 uWorldChunks;
 
 out vec3 vColor;
 out float vDist;
+out vec3 vWorld;
+out float vGlow;
 
 const float SINK = 120.0;
 
@@ -38,6 +40,8 @@ void main() {
         p.y -= SINK;
 
     vColor = aColor.rgb;
+    vGlow  = aColor.a < 0.5 ? 1.0 : 0.0;      // alpha 0 marks glowing ground (lava)
     vDist  = length(p - uCamPos);
+    vWorld = p;
     gl_Position = uViewProj * vec4(p, 1.0);
 }

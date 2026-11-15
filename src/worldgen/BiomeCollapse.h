@@ -1,6 +1,7 @@
 #pragma once
 #include "BiomeTable.h"
 #include "IslandChart.h"
+#include "WorldGenParams.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -228,7 +229,7 @@ inline float levelToHeight(float L) {
 } // namespace collapse_detail
 
 // ══════════════════════════════════════════════════════════
-inline Chart collapseIsland(int seed, int S) {
+inline Chart collapseIsland(int seed, int S, const WorldGenParams& gp = WorldGenParams()) {
     using namespace collapse_detail;
     const auto& T = tiles();
     const int NT = (int)T.size(), n = S * S;
@@ -353,6 +354,7 @@ inline Chart collapseIsland(int seed, int S) {
             double w = std::exp(-d * d / (isSeaBiome(tl.biome) ? 0.08 : 0.5));
             w *= std::exp(5.0 * (noise(x * 0.11 + t * 17.3, y * 0.11 - t * 9.1, seed + 50 + t) - 0.5));
             w *= r[0] * tl.aff[0] + r[1] * tl.aff[1] + r[2] * tl.aff[2] + r[3] * tl.aff[3];
+            w *= std::max(gp.weight(tl.biome), 0.001f);   // the player's biome weights
             if (tl.biome == Beach || tl.biome == SeaCliffs) w *= landDist[i] <= 1 ? 1.0 : 0.005;
             if (tl.biome == RockyShallows) w *= waterDist[i] <= 1 ? 1.0 : 0.02;
             if (isSwampy(tl.biome)) w *= sd < swampR + 4 ? 1.5 : 0.002;

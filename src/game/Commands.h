@@ -6,6 +6,7 @@
 #include "ItemRegistry.h"
 #include "../entity/Player.h"
 #include "../physics/IPhysics.h"
+#include "../render/Sky.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -317,6 +318,28 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
         [](C& c, const Args& a) {
             if (!a.empty()) c.dev.setBrush((float)std::atof(a[0].c_str()));
             c.log("brush radius " + std::to_string((int)c.dev.brushRadius));
+        });
+    reg.add("time", "time [day|noon|dusk|night|midnight|0-24|freeze|run|length <min>]",
+            "show or set the time of day",
+        [](C& c, const Args& a) {
+            if (!a.empty()) {
+                const std::string& w = a[0];
+                if (w == "day" || w == "morning") gClock.time = 0.32f;
+                else if (w == "noon")     gClock.time = 0.5f;
+                else if (w == "dusk" || w == "sunset") gClock.time = 0.745f;
+                else if (w == "night")    gClock.time = 0.88f;
+                else if (w == "midnight") gClock.time = 0.0f;
+                else if (w == "dawn" || w == "sunrise") gClock.time = 0.255f;
+                else if (w == "freeze")   gClock.frozen = true;
+                else if (w == "run")      gClock.frozen = false;
+                else if (w == "length" && a.size() > 1) gClock.dayLengthSeconds = std::max(0.5f, (float)std::atof(a[1].c_str())) * 60.0f;
+                else gClock.time = std::fmod(std::fabs((float)std::atof(w.c_str())) / 24.0f, 1.0f);
+            }
+            int mins = (int)(gClock.time * 24.0f * 60.0f);
+            char b[64];
+            std::snprintf(b, sizeof(b), "time %02d:%02d%s (day %d min)", mins / 60, mins % 60,
+                          gClock.frozen ? " frozen" : "", (int)(gClock.dayLengthSeconds / 60.0f));
+            c.log(b);
         });
     reg.add("cube", "cube <size>", "width of the Cube Tool's cube, in voxels",
         [](C& c, const Args& a) {

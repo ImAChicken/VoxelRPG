@@ -68,9 +68,14 @@ inline TerrainStyle terrainStyleFromKey(const std::string& k) {
 
 // The generator for a world
 //   biome — single-biome worlds: which biome
+//   bakeCache — file to keep the eroded ground in ("" = none)
 inline std::unique_ptr<TerrainGenerator> makeGenerator(WorldType t, uint64_t seed, int size, int biome = -1,
-                                                       TerrainStyle style = TerrainStyle::GuidedRivers) {
+                                                       TerrainStyle style = TerrainStyle::GuidedRivers,
+                                                       const std::string& bakeCache = "",
+                                                       const WorldGenParams& params = WorldGenParams()) {
     IslandOptions opt;
+    opt.bakeCache    = bakeCache;
+    opt.params       = params;
     opt.erosion      = style != TerrainStyle::NoErosion;
     opt.guidedRivers = style != TerrainStyle::NaturalRivers;
     if (t == WorldType::Island)

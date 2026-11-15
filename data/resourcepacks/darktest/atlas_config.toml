@@ -165,3 +165,69 @@ name    = "volcanic_rock"
 top     = [6, 0]
 side    = [6, 0]
 bottom  = [6, 0]
+
+[[face_map]]
+name    = "lantern"
+top     = [0, 8]
+side    = [0, 8]
+bottom  = [0, 8]
+
+[[face_map]]
+name    = "lamp_red"
+top     = [1, 8]
+side    = [1, 8]
+bottom  = [1, 8]
+
+[[face_map]]
+name    = "lamp_amber"
+top     = [2, 8]
+side    = [2, 8]
+bottom  = [2, 8]
+
+[[face_map]]
+name    = "lamp_yellow"
+top     = [3, 8]
+side    = [3, 8]
+bottom  = [3, 8]
+
+[[face_map]]
+name    = "lamp_green"
+top     = [4, 8]
+side    = [4, 8]
+bottom  = [4, 8]
+
+[[face_map]]
+name    = "lamp_cyan"
+top     = [5, 8]
+side    = [5, 8]
+bottom  = [5, 8]
+
+[[face_map]]
+name    = "lamp_blue"
+top     = [6, 8]
+side    = [6, 8]
+bottom  = [6, 8]
+
+[[face_map]]
+name    = "lamp_violet"
+top     = [7, 8]
+side    = [7, 8]
+bottom  = [7, 8]
+
+[[face_map]]
+name    = "lamp_white"
+top     = [8, 8]
+side    = [8, 8]
+bottom  = [8, 8]
+
+[[face_map]]
+name    = "glow_mushroom"
+top     = [9, 8]
+side    = [9, 8]
+bottom  = [9, 8]
+
+[[face_map]]
+name    = "candle"
+top     = [10, 8]
+side    = [10, 8]
+bottom  = [10, 8]

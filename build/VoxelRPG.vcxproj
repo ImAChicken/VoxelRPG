@@ -433,6 +433,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\Dev\VoxelRPG\src\render\ResourcePack.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\ResourcePack.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Shader.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\Sky.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\IRenderer.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\OpenGLRenderer.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\RaytracingRenderer.h" />
@@ -452,10 +453,12 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\voxel\Voxel.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\voxel\VoxelRegistry.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\voxel\VoxelRegistry.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\world\LightBake.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\StructureCatalog.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\StructureManager.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\VoxelVolume.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldEditor.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldMemory.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\world\WorldSaveManage.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldSaveManager.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldStreamer.h" />
@@ -464,6 +467,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\IslandChart.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\IslandGenerator.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\TerrainBake.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\WorldGenParams.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\WorldType.h" />
   </ItemGroup>
   <ItemGroup />

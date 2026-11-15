@@ -8,7 +8,7 @@ toolbar_opacity = 1   # 0.1 - 1.0
 mouse_sensitivity = 0.1   # 0.02 - 0.4
 
 [view]
-chunk_distance  = 7   # chunks drawn as voxels, 2 - 16
+chunk_distance  = 6   # chunks drawn as voxels, 2 - 16
 render_distance = 160   # distant terrain, chunks, 16 - 160 (160 = whole world)
 
 [characters]

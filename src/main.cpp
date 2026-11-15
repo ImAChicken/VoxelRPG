@@ -5,6 +5,8 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <thread>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -57,6 +59,9 @@
 #include "ui/BuildMenuScreen.h"
 #include "world/StructureManager.h"
 #include "worldgen/WorldType.h"
+#include "render/Sky.h"
+#include "world/WorldMemory.h"
+#include "world/LightBake.h"
 #include "world/WorldSaveManager.h"
 #include "world/WorldEditor.h"
 #include "world/WorldStreamer.h"
@@ -286,6 +291,18 @@ int main() {
     };
     float frameDt = 0.016f;    // last frame's length, for animation
 
+    // ── Light and sky ─────────────────────────────────────
+    // The clock (time of day), the sky dome, what the world
+    // remembers of chunks out of reach (lowres.dat: their ground
+    // and lights), and the glowing points of distant lights
+    SkyRenderer   skyRenderer;
+    if (!skyRenderer.init()) std::cerr << "Sky shader failed\n";
+    WorldMemory   memory;
+    DistantLights distantLights;
+    distantLights.init();
+    uint32_t      memorySeen = 0;
+    auto lightTable = [&]() { return light::LightTable::build(gRegistry); };
+
     // ── Screens ───────────────────────────────────────────
     MainMenuScreen  mainMenu(window);
     PauseMenuScreen pauseMenu(window);
@@ -364,6 +381,8 @@ int main() {
         if (editor) editor->flush();     // finish queued edits first
         gWorldSave.saveDirtyChunks(*world);
         if (structs) structs->save(gWorldSave.getWorldPath());
+        memory.save(gWorldSave.getWorldPath() + "/lowres.dat");
+        { std::ofstream tf(gWorldSave.getWorldPath() + "/time.txt"); tf << gClock.time << "\n"; }
         gWorldSave.savePlayer([&](std::ostream& out) {
             player.write(out);
             build.write(out);
@@ -413,7 +432,8 @@ int main() {
                           WorldType type,
                           int size,
                           int biome = -1,
-                          TerrainStyle terrain = TerrainStyle::GuidedRivers) {
+                          TerrainStyle terrain = TerrainStyle::GuidedRivers,
+                          const WorldGenParams& genParams = WorldGenParams()) {
         streamer.reset();
         farView.reset();
         gPhysics.reset();
@@ -421,7 +441,7 @@ int main() {
         if (isNew) {
             std::cout << "Creating world: " << name
                       << " seed=" << seed << "\n";
-            gWorldSave.createWorld(name, seed, mode, type, size, biome, terrain);
+            gWorldSave.createWorld(name, seed, mode, type, size, biome, terrain, genParams);
         } else {
             std::cout << "Loading world: " << name << "\n";
             gWorldSave.loadWorld(name);
@@ -437,22 +457,45 @@ int main() {
         std::cout << worldTypeName(type) << " world, " << size << " x "
                   << size << " chunks\n";
 
-        // (island ground is baked with erosion here: a few
-        // seconds, so say so on screen first)
-        if (type != WorldType::Classic && gWorldSave.getTerrainStyle() != TerrainStyle::NoErosion) {
-            gRenderer->beginFrame();
-            UIRenderer* ui = gRenderer->getUIRenderer();
-            const auto& theme = gResourcePacks.getTheme();
-            float sw = (float)ui->getWidth(), sh = (float)ui->getHeight();
-            ui->begin();
-            ui->drawRect(0, 0, sw, sh, theme.bg);
-            ui->drawTextCentered("Shaping the land...", 0, sh * 0.5f - 30, sw, 30, theme.title, 3);
-            ui->drawTextCentered("rivers are carving their valleys", 0, sh * 0.5f + 10, sw, 20, theme.textDim, 2);
-            ui->end();
-            gRenderer->endFrame();
-            glfwSwapBuffers(window);
+        // The generator. Island ground is baked with erosion
+        // (a few seconds the first time, then read from the world
+        // folder), so it's built on a worker thread while a
+        // progress screen keeps the window alive
+        {
+            const bool baking = type != WorldType::Classic && gWorldSave.getTerrainStyle() != TerrainStyle::NoErosion;
+            std::string cache = gWorldSave.getWorldPath() + "/terrain.bake";
+            int biomeArg = gWorldSave.getWorldBiome();
+            TerrainStyle style = gWorldSave.getTerrainStyle();
+            WorldGenParams gparams = gWorldSave.getGenParams();
+            gBakeProgress = 0.0f; gBakeStage = 0;
+            std::unique_ptr<TerrainGenerator> made;
+            std::atomic<bool> done{ false };
+            std::thread worker([&] {
+                made = makeGenerator(type, seed, size, biomeArg, style, cache, gparams);
+                done = true;
+            });
+            while (baking && !done) {
+                glfwPollEvents();
+                gRenderer->beginFrame();
+                UIRenderer* ui = gRenderer->getUIRenderer();
+                const auto& theme = gResourcePacks.getTheme();
+                float sw = (float)ui->getWidth(), sh = (float)ui->getHeight();
+                ui->begin();
+                ui->drawRect(0, 0, sw, sh, theme.bg);
+                ui->drawTextCentered("Shaping the land", 0, sh * 0.5f - 60, sw, 30, theme.title, 3);
+                ui->drawTextCentered(bakeStageName(gBakeStage), 0, sh * 0.5f - 18, sw, 20, theme.textDim, 2);
+                float bw = std::min(520.0f, sw - 80.0f), bx = (sw - bw) * 0.5f, by = sh * 0.5f + 20;
+                ui->drawRect(bx, by, bw, 14, theme.inputBg);
+                ui->drawRect(bx, by, bw * std::clamp(gBakeProgress.load(), 0.0f, 1.0f), 14, theme.accent);
+                ui->drawBorder(bx, by, bw, 14, theme.border, 1.0f);
+                ui->end();
+                gRenderer->endFrame();
+                glfwSwapBuffers(window);
+                std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            }
+            worker.join();
+            gen = std::move(made);
         }
-        gen   = makeGenerator(type, seed, size, gWorldSave.getWorldBiome(), gWorldSave.getTerrainStyle());
         world = std::make_unique<ChunkManager>();
 
         // Where each chunk's voxels come from. Runs on worker
@@ -473,7 +516,13 @@ int main() {
             };
 
         streamer = std::make_unique<WorldStreamer>(
-            *world, chunkSource, blockTable);
+            *world, chunkSource, blockTable, lightTable());
+        memory.load(gWorldSave.getWorldPath() + "/lowres.dat");
+        memorySeen = 0;
+        {   // the world's clock
+            std::ifstream tf(gWorldSave.getWorldPath() + "/time.txt");
+            float t; if (tf >> t) gClock.time = std::fmod(std::fabs(t), 1.0f); else gClock.time = 0.35f;
+        }
 
         // The distant view, coloured with each block's
         // average atlas colour
@@ -588,6 +637,45 @@ int main() {
 
         glm::ivec2 pc = world->worldToChunk(camera.position);
 
+        // ── This frame's light and haze ───────────────────
+        {
+            FrameLight& fl = gFrameLight;
+            fl.sky = SkyState::at(gClock.time);
+            // clear air: only a thin haze, a little more where
+            // the voxel chunks hand over to the distant terrain
+            float edge = MESH_DISTANCE * (float)VOXEL_DIM;
+            float farVox = gSettings.renderAll() ? 0.0f : gSettings.renderDistance * VOXEL_DIM;
+            fl.fogDensity = farVox > 0.0f ? std::max(3.0e-5f, 2.6f / farVox) : 3.0e-5f;
+            fl.seamStart = edge - 260.0f;
+            fl.seamEnd   = edge - 40.0f;
+            fl.seamHaze  = 0.16f;
+        }
+        // the sky dome behind everything
+        {
+            glm::mat4 skyProj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect, 0.5f, 10.0f);
+            glm::mat4 v = glr->getViewMatrix();
+            v[3] = glm::vec4(0, 0, 0, 1);
+            skyRenderer.draw(skyProj * v, gFrameLight.sky);
+        }
+        // remembered ground and lights from the chunks baked
+        // since last frame
+        if (streamer->columnInfoVersion() != memorySeen) {
+            memorySeen = streamer->columnInfoVersion();
+            std::vector<int> changed;
+            for (const auto& [idx, ci] : streamer->columnInfo()) {
+                // the streamer keys by ChunkManager index (cx * Z + cz); memory by cz * X + cx
+                int cx = idx / WORLD_SIZE_Z, cz = idx % WORLD_SIZE_Z, key = cz * WORLD_SIZE_X + cx;
+                auto it = memory.columns.find(key);
+                if (it != memory.columns.end() && it->second.summary == ci.summary) continue;
+                if (memory.remember(key, ci.summary, ci.emitters)) changed.push_back(key);
+            }
+            if (farView && !changed.empty()) {
+                auto sums = std::make_shared<FarTerrain::Summaries>();
+                for (const auto& [k, c] : memory.columns) if (c.summary) (*sums)[k] = c.summary;
+                farView->setSummaries(sums, changed);
+            }
+        }
+
         // Distant terrain first, with its own clip planes,
         // stepping aside wherever voxel chunks are drawn.
         // Then the depth buffer is cleared, so the voxels
@@ -602,6 +690,11 @@ int main() {
             farView->setNearMask(nearMask);
             farView->draw(glr->getViewMatrix(), Camera::FOV_DEG, aspect, camera.position,
                           OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
+            // lights out beyond the voxel chunks, against the far terrain's depth
+            glm::mat4 farProj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
+                                                 FarTerrain::NEAR_PLANE, FarTerrain::FAR_PLANE);
+            distantLights.draw(memory, farProj * glr->getViewMatrix(), camera.position,
+                               (MESH_DISTANCE - 0.5f) * VOXEL_DIM, gFrameLight.sky.night);
             glClear(GL_DEPTH_BUFFER_BIT);
         }
 
@@ -618,7 +711,8 @@ int main() {
             for (int sy = 0; sy < SECTIONS; sy++) {
                 const ChunkMesh* mesh = streamer->getMesh(cx, sy, cz);
                 if (!mesh || mesh->isEmpty()) continue;
-                glr->drawMesh(*mesh, origin + glm::vec3(0.0f, (float)(sy * VOXEL_DIM), 0.0f));
+                glr->drawMesh(*mesh, origin + glm::vec3(0.0f, (float)(sy * VOXEL_DIM), 0.0f),
+                              streamer->getLightTexture(cx, sy, cz));
             }
         }
 
@@ -660,6 +754,16 @@ int main() {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
             glm::mat4 view = glr->getViewMatrix();
+            {   // light where the body stands, from the baked layer
+                glm::vec3 at = controller.renderPosition + glm::vec3(0.0f, 9.0f, 0.0f);
+                uint16_t L = streamer->lightAt(at.x, at.y, at.z);
+                float sky = light::skyOf(L) / 15.0f;
+                const SkyState& ss = gFrameLight.sky;
+                charRenderer.lightDir  = ss.lightDir();
+                charRenderer.skyTint   = ss.skyLight * (sky * sky) + ss.ambient * 4.0f;
+                glm::vec3 b(light::rOf(L) / 15.0f, light::gOf(L) / 15.0f, light::bOf(L) / 15.0f);
+                charRenderer.blockTint = b * b * 1.3f;
+            }
             charRenderer.draw(*playerBody, proj * view, controller.renderPosition, camera.position,
                               OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
             // toon edge lines (hidden behind anything in front)
@@ -807,6 +911,7 @@ int main() {
         // cannot fling the camera across the map
         float dt = std::min(frameTime, 0.1f);
         frameDt = dt;
+        if (gState == GameState::Playing || gState == GameState::Console) gClock.update(dt);
 
         // Events first, then input — poll() must run before
         // any isPressed / isHeld check this frame
@@ -860,6 +965,7 @@ int main() {
                     gRegistry, gResourcePacks);
                 if (streamer)
                     streamer->setRenderTable(blockTable);
+                if (streamer) streamer->setLightTable(lightTable());
                 if (gPhysics && world) gPhysics->init(*world);
                 say("blocks and items reloaded");
             }
@@ -934,7 +1040,8 @@ int main() {
                            mainMenu.getNewWorldType(),
                            mainMenu.getNewWorldSize(),
                            mainMenu.getNewWorldBiome(),
-                           mainMenu.getNewWorldTerrain());
+                           mainMenu.getNewWorldTerrain(),
+                           mainMenu.getNewWorldParams());
             } else if (r == ScreenResult::LoadWorld) {
                 // Seed and mode come from the save file
                 enterWorld(false,
@@ -1295,6 +1402,8 @@ int main() {
     playerBody.reset();
     previewBody.reset();
     charRenderer.cleanup();
+    skyRenderer.cleanup();
+    distantLights.cleanup();
     editor.reset();
     gPhysics.reset();
     world.reset();

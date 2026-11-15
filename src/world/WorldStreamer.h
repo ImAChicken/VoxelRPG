@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <array>
 #include <condition_variable>
 #include <cstdlib>
@@ -12,6 +13,9 @@
 #include "../chunk/ChunkManager.h"
 #include "../render/ChunkMesh.h"
 #include "../render/Mesher.h"
+#include "LightBake.h"
+#include <glad/glad.h>
+#include <unordered_map>
 
 // ══════════════════════════════════════════════════════════
 // WorldStreamer — loads and meshes chunks around the player
@@ -49,10 +53,12 @@ public:
     WorldStreamer(ChunkManager& world,
                   ChunkSource source,
                   std::shared_ptr<const BlockRenderTable> table,
+                  std::shared_ptr<const light::LightTable> lights,
                   int workerThreads = 0)
         : world(world)
         , source(std::move(source))
         , table(std::move(table))
+        , lightTable(std::move(lights))
     {
         slots.resize((size_t)WORLD_SIZE_X * WORLD_SIZE_Z);
 
@@ -82,7 +88,8 @@ public:
         }
         wake.notify_all();
         for (std::thread& t : workers) t.join();
-        for (Slot& s : slots) s.cleanupMeshes();
+        for (Slot& s : slots) { s.cleanupMeshes(); s.freeLight(); }
+        for (auto& [v, t] : uniformTex) glDeleteTextures(1, &t);
     }
 
     WorldStreamer(const WorldStreamer&)            = delete;
@@ -102,6 +109,46 @@ public:
         if (!ChunkManager::inWorld(cx, cz) || sy < 0 || sy >= SECTIONS) return nullptr;
         const Slot& s = slots[(size_t)world.index(cx, cz)];
         return s.hasMesh ? &s.mesh[sy] : nullptr;
+    }
+
+    // ── Light ─────────────────────────────────────────────
+    // The light texture for one section (a 66³ RGBA4 3D texture;
+    // sections that are the same everywhere share a 1³ one), or
+    // 0 if the column's light isn't baked yet
+    GLuint getLightTexture(int cx, int sy, int cz) {
+        if (!ChunkManager::inWorld(cx, cz) || sy < 0 || sy >= SECTIONS) return 0;
+        Slot& s = slots[(size_t)world.index(cx, cz)];
+        if (!s.hasLight) return 0;
+        if (s.lightTex[sy]) return s.lightTex[sy];
+        return uniformTexture(s.lightValue[sy]);
+    }
+    bool lightIsUniform(int cx, int sy, int cz) const {
+        const Slot& s = slots[(size_t)world.index(cx, cz)];
+        return !s.lightTex[sy];
+    }
+    // Light at a world point (for characters): packed sky/r/g/b,
+    // or full sky if that column isn't lit yet
+    uint16_t lightAt(float wx, float wy, float wz) const {
+        int cx = ChunkManager::chunkCoord((int)std::floor(wx)), cz = ChunkManager::chunkCoord((int)std::floor(wz));
+        int y = (int)std::floor(wy);
+        if (!ChunkManager::inWorld(cx, cz) || y < 0 || y >= WORLD_HEIGHT) return light::pack(15, 0, 0, 0);
+        const Slot& s = slots[(size_t)world.index(cx, cz)];
+        if (!s.hasLight) return light::pack(15, 0, 0, 0);
+        int sy = y / VOXEL_DIM;
+        if (s.lightCpu[sy].empty()) return s.lightValue[sy];
+        int lx = (int)std::floor(wx) - cx * VOXEL_DIM, lz = (int)std::floor(wz) - cz * VOXEL_DIM, ly = y - sy * VOXEL_DIM;
+        int tx = lx / 2 + 1, ty = ly / 2 + 1, tz = lz / 2 + 1;
+        return s.lightCpu[sy][light::SectionLight::at(tx, ty, tz)];
+    }
+    // Glowing blocks found in each lit column, for distant lights
+    // and the far view. Bumped whenever any column's list changes.
+    struct ColumnInfo { std::vector<light::Emitter> emitters; std::shared_ptr<const light::ColumnLight> summary; };
+    const std::unordered_map<int, ColumnInfo>& columnInfo() const { return info; }
+    uint32_t columnInfoVersion() const { return infoVersion; }
+
+    void setLightTable(std::shared_ptr<const light::LightTable> t) {
+        lightTable = std::move(t);
+        for (Slot& s : slots) { s.version++; s.needMask = 0xFF; s.needLight = true; }
     }
 
     // True once a column has meshes on the GPU
@@ -145,8 +192,19 @@ private:
         bool      loading   = false;  // a load job is running
         bool      meshing   = false;  // a mesh job is running
         uint32_t  version   = 0;      // bumped on every change
+        // light (main thread copy)
+        bool      hasLight  = false;
+        bool      needLight = true;
+        GLuint    lightTex[SECTIONS] = {};
+        uint16_t  lightValue[SECTIONS] = {};
+        std::array<std::vector<uint16_t>, SECTIONS> lightCpu;
 
         void cleanupMeshes() { for (auto& m : mesh) m.cleanup(); }
+        void freeLight() {
+            for (GLuint& t : lightTex) if (t) { glDeleteTextures(1, &t); t = 0; }
+            for (auto& v : lightCpu) { v.clear(); v.shrink_to_fit(); }
+            hasLight = false;
+        }
     };
 
     using ColumnSnap = std::array<std::shared_ptr<const RleData>, SECTIONS>;
@@ -161,7 +219,9 @@ private:
         // column and its four neighbours
         uint8_t   mask = 0;
         ColumnSnap center, west, east, south, north;
+        ColumnSnap nw, ne, sw, se;     // diagonals, for light
         std::shared_ptr<const BlockRenderTable> table;
+        std::shared_ptr<const light::LightTable> lights;
     };
 
     struct Result {
@@ -171,11 +231,64 @@ private:
         ChunkPtr      chunk;          // Load results
         uint8_t       mask = 0;       // Mesh results
         std::array<ChunkMeshData, SECTIONS> meshes;
+        std::shared_ptr<light::ColumnLight> lit;
     };
 
     ChunkManager& world;
     ChunkSource   source;
     std::shared_ptr<const BlockRenderTable> table;
+    std::shared_ptr<const light::LightTable> lightTable;
+    std::unordered_map<uint16_t, GLuint> uniformTex;
+    std::unordered_map<int, ColumnInfo> info;
+    uint32_t infoVersion = 0;
+
+    GLuint uniformTexture(uint16_t v) {
+        auto it = uniformTex.find(v);
+        if (it != uniformTex.end()) return it->second;
+        GLuint t = 0;
+        glGenTextures(1, &t);
+        glBindTexture(GL_TEXTURE_3D, t);
+        glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA4, 1, 1, 1, 0, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, &v);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glBindTexture(GL_TEXTURE_3D, 0);
+        uniformTex[v] = t;
+        return t;
+    }
+
+    // light results onto the GPU (and a CPU copy for sampling)
+    void uploadLight(Slot& s, int cx, int cz, const light::ColumnLight& L) {
+        for (int sy = 0; sy < SECTIONS; sy++) {
+            const auto& sl = L.sections[(size_t)sy];
+            s.lightValue[sy] = sl.value;
+            if (sl.uniform) {
+                if (s.lightTex[sy]) { glDeleteTextures(1, &s.lightTex[sy]); s.lightTex[sy] = 0; }
+                s.lightCpu[sy].clear(); s.lightCpu[sy].shrink_to_fit();
+                continue;
+            }
+            if (!s.lightTex[sy]) glGenTextures(1, &s.lightTex[sy]);
+            glBindTexture(GL_TEXTURE_3D, s.lightTex[sy]);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+            glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA4, light::TEX, light::TEX, light::TEX, 0, GL_RGBA,
+                         GL_UNSIGNED_SHORT_4_4_4_4, sl.cells.data());
+            glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+            s.lightCpu[sy] = sl.cells;
+        }
+        glBindTexture(GL_TEXTURE_3D, 0);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        s.hasLight = true;
+        ColumnInfo ci;
+        ci.emitters = L.emitters;
+        auto sum = std::make_shared<light::ColumnLight>();
+        sum->topY = L.topY; sum->topId = L.topId;
+        ci.summary = sum;
+        info[world.index(cx, cz)] = std::move(ci);
+        infoVersion++;
+    }
 
     std::vector<Slot> slots;
     int  inFlight    = 0;
@@ -234,6 +347,19 @@ private:
                 result.chunk->compress();
             } else {
                 result.mask = job.mask;
+                if (job.lights) {
+                    light::Snap9 s9 = {{ { &job.sw, &job.south, &job.se },
+                                         { &job.west, &job.center, &job.east },
+                                         { &job.nw, &job.north, &job.ne } }};
+                    // missing neighbours (edge of the world) read as open air
+                    for (auto& row : s9) for (auto*& p : row) {
+                        bool any = false;
+                        for (auto& sec : *p) if (sec) { any = true; break; }
+                        if (!any && p != &job.center) p = nullptr;
+                    }
+                    result.lit = std::make_shared<light::ColumnLight>();
+                    light::Baker::bake(s9, *job.lights, job.cx, job.cz, *result.lit);
+                }
                 for (int sy = 0; sy < SECTIONS; sy++) {
                     if (!(job.mask & (1u << sy))) continue;
                     MeshInput in;
@@ -293,11 +419,13 @@ private:
             if (r.version != s.version ||
                 ringDistance(r.cx, r.cz, pcx, pcz) > MESH_DISTANCE + 1) {
                 s.needMask |= r.mask;
+                s.needLight = true;
                 continue;
             }
 
             for (int sy = 0; sy < SECTIONS; sy++)
                 if (r.mask & (1u << sy)) s.mesh[sy].upload(r.meshes[sy]);
+            if (r.lit) uploadLight(s, r.cx, r.cz, *r.lit);
             s.hasMesh = true;
             uploads++;
         }
@@ -313,6 +441,13 @@ private:
             Slot& s = slot(cx, cz);
             s.version++;
             s.needMask |= m;
+            s.needLight = true;
+            // light reaches 32 voxels into the neighbours
+            for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) {
+                if ((!dx && !dz) || !ChunkManager::inWorld(cx + dx, cz + dz)) continue;
+                Slot& n = slot(cx + dx, cz + dz);
+                if (n.hasMesh) { n.needLight = true; n.version++; n.needMask |= 0; }
+            }
             // The old mesh stays on screen until the new
             // one is ready, so edits never flicker
         }
@@ -329,8 +464,12 @@ private:
             if (ringDistance(cx, cz, pcx, pcz)
                     <= MESH_DISTANCE + 1) continue;
             s.cleanupMeshes();
+            s.freeLight();
+            info.erase(world.index(cx, cz));
+            infoVersion++;
             s.hasMesh  = false;
             s.needMask = 0xFF;
+            s.needLight = true;
         }
 
         // Voxel data too, a little further out, so memory
@@ -359,7 +498,7 @@ private:
     };
 
     bool neighboursLoaded(int cx, int cz) const {
-        static const int OFF[4][2] = {{-1,0},{1,0},{0,-1},{0,1}};
+        static const int OFF[8][2] = {{-1,0},{1,0},{0,-1},{0,1},{-1,-1},{1,-1},{-1,1},{1,1}};
         for (const auto& o : OFF) {
             int nx = cx + o[0], nz = cz + o[1];
             if (ChunkManager::inWorld(nx, nz) &&
@@ -389,7 +528,7 @@ private:
 
             // A chunk at ring d can be meshed once ring d + 1
             // is loaded, so its mesh sorts just after those
-            if (d <= MESH_DISTANCE && s.needMask &&
+            if (d <= MESH_DISTANCE && (s.needMask || s.needLight) &&
                 !s.meshing && neighboursLoaded(cx, cz))
                 candidates.push_back(
                     { (d + 1) * 2 + 1, JobKind::Mesh, cx, cz });
@@ -421,6 +560,7 @@ private:
                 s.meshing   = true;
                 job.mask    = s.needMask;
                 s.needMask  = 0;
+                s.needLight = false;
                 job.version = s.version;
                 fillMeshJob(job);
             }
@@ -447,6 +587,11 @@ private:
         snap(job.cx + 1, job.cz,     job.east);
         snap(job.cx,     job.cz - 1, job.south);
         snap(job.cx,     job.cz + 1, job.north);
+        snap(job.cx - 1, job.cz + 1, job.nw);
+        snap(job.cx + 1, job.cz + 1, job.ne);
+        snap(job.cx - 1, job.cz - 1, job.sw);
+        snap(job.cx + 1, job.cz - 1, job.se);
         job.table = table;
+        job.lights = lightTable;
     }
 };

@@ -1,6 +1,12 @@
 # VoxelRPG Block Registry
 # All block types defined here — engine loads this at startup
 # id 0 = air, hardcoded, not listed here
+#
+# Light (the baked light layer):
+#   light      = [r, g, b]   what the block gives off, 0-15 per colour
+#   light_pass = "clear" | "dim" | "block"   how light gets through it
+#                (default from opacity: full blocks it, partial and
+#                translucent dim it, none lets it through)
 
 [[block]]
 id = 1
@@ -161,7 +167,7 @@ opacity = "none"
 flags = ["emits_light"]
 on_destroy = 0
 color = [1.00, 0.55, 0.15]
-emitted_light = [31, 16, 4]
+light = [15, 9, 3]
 
 [[block]]
 id = 17
@@ -182,7 +188,7 @@ opacity = "translucent"
 flags = ["fluid", "emits_light"]
 on_destroy = 0
 color = [0.90, 0.35, 0.05]
-emitted_light = [31, 10, 1]
+light = [15, 7, 1]
 
 [[block]]
 id = 19
@@ -193,7 +199,7 @@ opacity = "none"
 flags = ["destructible", "emits_light"]
 on_destroy = 0
 color = [0.90, 0.75, 0.30]
-emitted_light = [28, 12, 3]
+light = [14, 9, 3]
 
 [[block]]
 id = 20
@@ -264,3 +270,126 @@ opacity = "full"
 flags = ["solid", "destructible"]
 on_destroy = 0
 color = [0.22, 0.18, 0.18]
+
+# ── Light blocks ─────────────────────────────────────────
+
+[[block]]
+id = 27
+name = "lantern"
+material = "wood"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [1.00, 0.85, 0.55]
+light = [15, 13, 10]
+
+[[block]]
+id = 28
+name = "lamp_red"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.90, 0.20, 0.20]
+light = [15, 2, 2]
+
+[[block]]
+id = 29
+name = "lamp_amber"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.95, 0.60, 0.15]
+light = [15, 9, 2]
+
+[[block]]
+id = 30
+name = "lamp_yellow"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.95, 0.90, 0.30]
+light = [14, 13, 3]
+
+[[block]]
+id = 31
+name = "lamp_green"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.30, 0.90, 0.35]
+light = [3, 14, 4]
+
+[[block]]
+id = 32
+name = "lamp_cyan"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.30, 0.85, 0.90]
+light = [3, 13, 14]
+
+[[block]]
+id = 33
+name = "lamp_blue"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.30, 0.40, 0.95]
+light = [3, 5, 15]
+
+[[block]]
+id = 34
+name = "lamp_violet"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.70, 0.35, 0.95]
+light = [11, 4, 15]
+
+[[block]]
+id = 35
+name = "lamp_white"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.95, 0.95, 0.95]
+light = [14, 14, 14]
+
+[[block]]
+id = 36
+name = "glow_mushroom"
+material = "organic"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.20, 0.60, 0.55]
+light = [2, 9, 8]
+
+[[block]]
+id = 37
+name = "candle"
+material = "wood"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.92, 0.86, 0.70]
+light = [9, 6, 3]

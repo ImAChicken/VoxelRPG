@@ -4,6 +4,7 @@
 #include "../worldgen/IslandChart.h"
 #include "../worldgen/WorldType.h"
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <random>
 #include <GLFW/glfw3.h>
@@ -54,7 +55,7 @@ public:
         } else if (state == State::NewWorld) {
             // Wider: settings on the left, island map on the right
             float nw = std::min(1000.0f, (float)sw - 20.0f);
-            result = drawNewWorldPanel(ui, (sw - nw) * 0.5f, 140.0f,
+            result = drawNewWorldPanel(ui, (sw - nw) * 0.5f, 130.0f,
                                        nw, theme);
         } else if (state == State::LoadWorld) {
             result = drawLoadWorldPanel(ui, panelX, 180.0f,
@@ -86,6 +87,7 @@ public:
     int         getNewWorldSize() const { return worldSizeFor(worldType, islandSize); }
     int         getNewWorldBiome() const { return worldType == WorldType::SingleBiome ? singleBiome : -1; }
     TerrainStyle getNewWorldTerrain() const { return terrain; }
+    const WorldGenParams& getNewWorldParams() const { return genParams; }
 
     // Coming back from a world: always start at the main
     // page, not whichever panel was open before
@@ -110,6 +112,11 @@ private:
     int         islandSize  = 96;                  // chunks per side
     int         singleBiome = island::Forest;      // single-biome worlds
     TerrainStyle terrain    = TerrainStyle::GuidedRivers;
+    WorldGenParams genParams;                       // the World Settings sliders
+    bool        genOpen  = false;                   // World Settings showing
+    int         genPage  = 0;                       // 0 Terrain, 1 Features, 2 Biomes
+    int         genDrag  = -1;                      // slider being dragged
+    uint64_t    previewParams = 0;
     int         previewBiome = -1;
 
     // The island map shown on the right, rebuilt whenever
@@ -231,12 +238,19 @@ private:
                                     float pw,
                                     const UITheme& theme) {
         float pad = (float)theme.panelPad;
-        float ph  = 480.0f;
+        float ph  = 526.0f;
         drawPanel(ui, px, py, pw, ph);
 
         float lx = px + pad;
         float ly = py + pad;
         float iw = 440.0f;                      // left column width
+
+        if (genOpen) {
+            drawWorldSettings(ui, theme, lx, ly, iw, py + ph - pad);
+            float mapX = lx + iw + 30.0f;
+            drawPreview(ui, theme, mapX, py + pad, px + pw - pad - mapX, ph - pad * 2);
+            return ScreenResult::Continue;
+        }
 
         ui.drawText("New World", lx, ly, theme.title, 2);
         ly += 26.0f;
@@ -346,6 +360,17 @@ private:
         bool backHov   = isHovered(backX,   ly, bw, bh);
         drawButton(ui, "Create World", createX, ly, createHov);
         drawButton(ui, "Back",         backX,   ly, backHov);
+        // World Settings: the sliders (Island and One biome)
+        if (worldType != WorldType::Classic) {
+            float sy = ly - bh - 8;
+            float sw2 = iw;
+            bool setHov = isHovered(lx, sy, sw2, bh);
+            ui.drawRect(lx, sy, sw2, bh, setHov ? theme.buttonBgHover : theme.buttonBg);
+            ui.drawBorder(lx, sy, sw2, bh, theme.buttonBorder, 1.0f);
+            std::string label = genParams.isDefault() ? "World settings..." : "World settings... (changed)";
+            ui.drawTextCentered(label, lx, sy, sw2, bh, setHov ? theme.textHover : theme.text, 2);
+            if (setHov && justClicked()) { genOpen = true; genDrag = -1; }
+        }
 
         // ── Preview, right column ─────────────────────────
         float mapX = lx + iw + 30.0f;
@@ -362,6 +387,100 @@ private:
         return ScreenResult::Continue;
     }
 
+    // ── World Settings ────────────────────────────────────
+    // Sliders for every generation value, defaults as tuned.
+    // Pages: Terrain, Features, Biomes (a weight per biome)
+    void drawWorldSettings(UIRenderer& ui, const UITheme& theme, float lx, float ly, float iw, float bottom) {
+        ui.drawText("World Settings", lx, ly, theme.title, 2);
+        ly += 28.0f;
+        {   // page tabs
+            static const char* PAGES[3] = { "Terrain", "Features", "Biomes" };
+            float tw = (iw - 8) / 3.0f;
+            for (int i = 0; i < 3; i++) {
+                float tx = lx + i * (tw + 4);
+                bool on = genPage == i, hov = isHovered(tx, ly, tw, 28);
+                ui.drawRect(tx, ly, tw, 28, on || hov ? theme.buttonBgHover : theme.buttonBg);
+                ui.drawBorder(tx, ly, tw, 28, on ? theme.accent : theme.buttonBorder, on ? 2.0f : 1.0f);
+                ui.drawTextCentered(PAGES[i], tx, ly, tw, 28, on ? theme.textHover : theme.text, 2);
+                if (hov && justClicked()) { genPage = i; genDrag = -1; }
+            }
+        }
+        ly += 40.0f;
+        if (!mousePressed) genDrag = -1;
+
+        // one slider: label left, value right, track under
+        auto slider = [&](int id, const char* label, float& v, float lo, float hi, float def, bool whole,
+                          float x, float y, float w, int scale) {
+            bool changed = v != def;
+            ui.drawText(label, x, y, changed ? theme.accent : theme.text, scale);
+            char b[24];
+            if (whole) std::snprintf(b, sizeof(b), lo >= 30.0f ? "%d deg" : "%d", (int)(v + 0.5f));
+            else       std::snprintf(b, sizeof(b), "x%.2f", v);
+            ui.drawText(b, x + w - ui.textWidth(b, scale), y, changed ? theme.accent : theme.textDim, scale);
+            float ty = y + (scale == 2 ? 20.0f : 12.0f), th = 6.0f;
+            float t = (v - lo) / (hi - lo);
+            ui.drawRect(x, ty, w, th, theme.inputBg);
+            ui.drawRect(x, ty, w * t, th, theme.buttonBg);
+            float dmark = x + w * (def - lo) / (hi - lo);
+            ui.drawRect(dmark - 1, ty - 3, 2, th + 6, theme.border);          // the default
+            ui.drawBorder(x, ty, w, th, theme.border, 1.0f);
+            ui.drawRect(x + w * t - 5, ty - 5, 10, th + 10, genDrag == id ? theme.textHover : theme.accent);
+            if (justClicked() && isHovered(x - 6, ty - 8, w + 12, th + 16)) genDrag = id;
+            if (genDrag == id) {
+                float f = std::clamp((float)(mouseX - x) / w, 0.0f, 1.0f);
+                v = lo + f * (hi - lo);
+                if (whole) v = (float)(int)(v + 0.5f);
+                else if (std::fabs(v - def) < (hi - lo) * 0.02f) v = def;   // snap to the default
+            }
+        };
+
+        if (genPage < 2) {
+            const char* page = genPage == 0 ? "Terrain" : "Features";
+            const auto& P = WorldGenParams::params();
+            int id = 0;
+            for (size_t i = 0; i < P.size(); i++) {
+                if (std::string(P[i].page) != page) continue;
+                slider((int)i, P[i].name, genParams.v[i], P[i].lo, P[i].hi, P[i].def, P[i].whole, lx, ly, iw, 2);
+                ly += 44.0f;
+                id++;
+            }
+        } else {
+            ui.drawText("How often each biome is chosen", lx, ly, theme.textDim, 1);
+            ly += 16.0f;
+            std::vector<int> all = singleBiomeChoices();
+            int rows = ((int)all.size() + 1) / 2;
+            float cw = (iw - 16) / 2.0f;
+            for (int k = 0; k < (int)all.size(); k++) {
+                int b = all[k];
+                float x = lx + (k / rows) * (cw + 16), y = ly + (k % rows) * 30.0f;
+                slider(100 + b, island::biomeInfo(b).name, genParams.biomeWeight[(size_t)b], 0.0f, 3.0f, 1.0f, false,
+                       x, y, cw, 1);
+            }
+        }
+        genParams.clamp();
+
+        // Defaults / Done
+        float bh = 32.0f, bw = (iw - 10) / 2.0f, by = bottom - bh;
+        bool defHov = isHovered(lx, by, bw, bh), doneHov = isHovered(lx + bw + 10, by, bw, bh);
+        for (int k = 0; k < 2; k++) {
+            float x = lx + k * (bw + 10);
+            bool hov = k ? doneHov : defHov;
+            ui.drawRect(x, by, bw, bh, hov ? theme.buttonBgHover : theme.buttonBg);
+            ui.drawBorder(x, by, bw, bh, theme.buttonBorder, 1.0f);
+            ui.drawTextCentered(k ? "Done" : (genPage == 2 ? "Reset biomes" : "Reset page"), x, by, bw, bh,
+                                hov ? theme.textHover : theme.text, 2);
+        }
+        if (defHov && justClicked()) {
+            if (genPage == 2) genParams.biomeWeight.fill(1.0f);
+            else {
+                const char* page = genPage == 0 ? "Terrain" : "Features";
+                for (size_t i = 0; i < genParams.v.size(); i++)
+                    if (std::string(WorldGenParams::params()[i].page) == page) genParams.v[i] = WorldGenParams::params()[i].def;
+            }
+        }
+        if (doneHov && justClicked()) { genOpen = false; genDrag = -1; }
+    }
+
     // The right-hand column: the island map, or a note for
     // world types without a map
     void drawPreview(UIRenderer& ui, const UITheme& theme, float x, float y, float w, float h) {
@@ -376,10 +495,12 @@ private:
         uint64_t seed = getNewWorldSeed() % 1000000ull;
         int wantSize  = worldType == WorldType::SingleBiome ? CLASSIC_WORLD_SIZE : islandSize;
         int wantBiome = worldType == WorldType::SingleBiome ? singleBiome : -1;
-        if (seed != previewSeed || wantSize != previewSize || wantBiome != previewBiome) {
+        if (seed != previewSeed || wantSize != previewSize || wantBiome != previewBiome ||
+            (!mousePressed && genParams.hash() != previewParams)) {
+            previewParams = genParams.hash();
             auto t0 = std::chrono::steady_clock::now();
             preview = wantBiome >= 0 ? island::singleBiomeChart((int)seed, wantBiome, wantSize)
-                                     : island::collapseIsland((int)seed, wantSize);
+                                     : island::collapseIsland((int)seed, wantSize, genParams);
             previewMs = std::chrono::duration<float, std::milli>(
                 std::chrono::steady_clock::now() - t0).count();
             previewSeed = seed;

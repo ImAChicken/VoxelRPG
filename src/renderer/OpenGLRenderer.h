@@ -7,6 +7,7 @@
 #include <vector>
 #include <iostream>
 #include "../render/Shader.h"
+#include "../render/Sky.h"
 #include "../render/ChunkMesh.h"
 #include "../render/AtlasTexture.h"
 #include "../render/BoxRenderer.h"
@@ -142,8 +143,17 @@ public:
         glUniform2f(locTileUV, atlas.tileU(), atlas.tileV());
         glUniform1f(locVoxelsPerTile, atlas.voxelsPerTile());
         glUniform3f(locCamPos, cameraPos.x, cameraPos.y, cameraPos.z);
-        glUniform3f(locFogColor, FOG_COLOR.r, FOG_COLOR.g, FOG_COLOR.b);
-        glUniform1f(locFogDensity, fogDensity);
+        {   // light and haze for this frame (render/Sky.h)
+            const FrameLight& fl = gFrameLight;
+            GLuint p = shader.id;
+            auto v3 = [&](const char* n, glm::vec3 v) { glUniform3f(glGetUniformLocation(p, n), v.x, v.y, v.z); };
+            auto f1 = [&](const char* n, float v) { glUniform1f(glGetUniformLocation(p, n), v); };
+            v3("uSkyLight", fl.sky.skyLight); v3("uLightDir", fl.sky.lightDir()); v3("uAmbient", fl.sky.ambient);
+            v3("uFogHorizon", fl.sky.horizon); v3("uFogSunGlow", fl.sky.sunGlow); v3("uSunDir", fl.sky.sunDir);
+            f1("uFogDensity", fl.fogDensity); f1("uSeamStart", fl.seamStart); f1("uSeamEnd", fl.seamEnd);
+            f1("uSeamHaze", fl.seamHaze); f1("uNight", fl.sky.night);
+            glUniform1i(glGetUniformLocation(p, "uLight"), 1);
+        }
         atlas.bind(0);
 
         extractFrustum(projMatrix * viewMatrix);
@@ -151,11 +161,15 @@ public:
 
     // Draw one chunk mesh whose corner sits at 'origin'.
     // Chunks completely outside the camera's view are skipped.
-    void drawMesh(const ChunkMesh& mesh, glm::vec3 origin) {
+    //   lightTex  the section's baked light (3D texture), or 0
+    void drawMesh(const ChunkMesh& mesh, glm::vec3 origin, GLuint lightTex = 0) {
         if (!atlasLoaded || mesh.isEmpty()) return;
 
         glm::vec3 size((float)VOXEL_DIM);
         if (!boxInFrustum(origin, origin + size)) return;
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_3D, lightTex ? lightTex : fullSkyTexture());
+        glActiveTexture(GL_TEXTURE0);
 
         glUniform3f(locChunkOrigin, origin.x, origin.y, origin.z);
 
@@ -252,6 +266,20 @@ private:
     glm::mat4   viewMatrix = glm::mat4(1.0f);
     glm::mat4   projMatrix = glm::mat4(1.0f);
 
+    // A 1³ light texture of open sky, for sections whose light
+    // isn't baked yet
+    GLuint fullSky = 0;
+    GLuint fullSkyTexture() {
+        if (!fullSky) {
+            uint16_t v = 15;   // sky 15, no block light
+            glGenTextures(1, &fullSky);
+            glBindTexture(GL_TEXTURE_3D, fullSky);
+            glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA4, 1, 1, 1, 0, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, &v);
+            glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        }
+        return fullSky;
+    }
     GLint locView = -1, locProjection = -1, locChunkOrigin = -1;
     GLint locAtlas = -1, locTileUV = -1, locVoxelsPerTile = -1;
     GLint locCamPos = -1, locFogColor = -1, locFogDensity = -1;

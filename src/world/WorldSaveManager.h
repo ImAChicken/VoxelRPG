@@ -23,7 +23,9 @@ public:
     //   type, size — world type and its size in chunks
     bool createWorld(const std::string& name, uint64_t seed,
                      GameMode mode, WorldType type, int size, int biome = -1,
-                     TerrainStyle terrain = TerrainStyle::GuidedRivers) {
+                     TerrainStyle terrain = TerrainStyle::GuidedRivers,
+                     const WorldGenParams& params = WorldGenParams()) {
+        worldParams = params;
         worldName   = name;
         worldBiome  = biome;
         worldTerrain = terrain;
@@ -64,6 +66,7 @@ public:
         worldBiome = -1;
         // worlds from before erosion keep their old ground
         worldTerrain = TerrainStyle::NoErosion;
+        worldParams.reset();
         return loadDescriptor();
     }
 
@@ -146,6 +149,7 @@ public:
     WorldType   getWorldType() const { return worldType; }
     int         getWorldBiome() const { return worldBiome; }
     TerrainStyle getTerrainStyle() const { return worldTerrain; }
+    const WorldGenParams& getGenParams() const { return worldParams; }
     int         getWorldSize() const { return worldSize; }
     std::string getName()  const { return worldName; }
     bool        isLoaded() const { return !worldPath.empty(); }
@@ -159,6 +163,7 @@ private:
     int         worldSize   = CLASSIC_WORLD_SIZE;
     int         worldBiome  = -1;     // single-biome worlds
     TerrainStyle worldTerrain = TerrainStyle::GuidedRivers;
+    WorldGenParams worldParams;
 
     bool saveDescriptor() {
         std::ofstream f(worldPath + "/world.vxrp");
@@ -169,7 +174,10 @@ private:
         f << "type="    << worldTypeKey(worldType) << "\n";
         f << "size="    << worldSize << "\n";
         if (worldBiome >= 0) f << "biome=" << island::biomeInfo(worldBiome).name << "\n";
-        if (worldType != WorldType::Classic) f << "terrain=" << terrainStyleKey(worldTerrain) << "\n";
+        if (worldType != WorldType::Classic) {
+            f << "terrain=" << terrainStyleKey(worldTerrain) << "\n";
+            worldParams.write(f, [](int b) { return island::biomeInfo(b).name; }, island::BIOME_COUNT);
+        }
         f << "version=" << 2        << "\n";
         return true;
     }
@@ -189,6 +197,12 @@ private:
                 worldType = worldTypeFromKey(line.substr(5));
             if (line.substr(0,5) == "size=")
                 worldSize = std::atoi(line.substr(5).c_str());
+            {
+                size_t eq = line.find('=');
+                if (eq != std::string::npos)
+                    worldParams.read(line.substr(0, eq), line.substr(eq + 1),
+                                     [](int b) { return island::biomeInfo(b).name; }, island::BIOME_COUNT);
+            }
             if (line.substr(0,8) == "terrain=")
                 worldTerrain = terrainStyleFromKey(line.substr(8));
             if (line.substr(0,6) == "biome=") {

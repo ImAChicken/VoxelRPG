@@ -1,5 +1,10 @@
 #pragma once
+#include "../lz4/lz4.h"
 #include <algorithm>
+#include <atomic>
+#include <cstring>
+#include <fstream>
+#include <string>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -39,8 +44,22 @@
 // Runs on one thread in a fixed order, so the same seed always
 // gives the same ground. Everything is read-only afterwards, so
 // the chunk workers can read it freely.
+// How far along the bake is, for the loading screen (0..1),
+// and which step it's on
+inline std::atomic<float> gBakeProgress{ 0.0f };
+inline std::atomic<int>   gBakeStage{ 0 };
+inline const char* bakeStageName(int s) {
+    static const char* names[] = { "Laying out the ground", "Rain is carving valleys", "Scree is settling",
+                                   "Lakes are filling", "Streams are finding their way", "Reading the saved land" };
+    return names[std::clamp(s, 0, 5)];
+}
+
 class TerrainBake {
 public:
+    // Bump when anything here changes what a bake produces, so
+    // old cached bakes are rebuilt
+    static constexpr uint32_t VERSION = 1;
+
     static constexpr int STEP = 8;            // voxels per sample
 
     struct RiverPoint { float x, z, surface, halfWidth; };
@@ -49,6 +68,7 @@ public:
     struct Settings {
         float seaLevel   = 160.0f;
         int   erosionPasses = 5;
+        float talus         = 1.6f;           // steepest loose rock stands (rise/run, 1.6 ≈ 58°)
         float streamPower   = 0.03f;          // how hard flowing water cuts (× √flow)
         float riverFlow  = 2600.0f;           // samples draining into a spot before it's a river
         int   thermalPasses = 4;
@@ -77,6 +97,11 @@ public:
                uint32_t seed);
 
     bool ready() const { return S > 0; }
+
+    // Save / load the finished bake (see the cache notes below)
+    bool save(const std::string& path, uint64_t key) const;
+    bool load(const std::string& path, uint64_t key);
+    static float quant(float v) { return std::round(v * 16.0f) / 16.0f; }
     int  size()  const { return S; }
 
     // Ground height at a world point (smooth, between samples)
@@ -187,13 +212,18 @@ inline void TerrainBake::build(int worldVoxels, const Settings& st,
     {
         auto rows = [&](int z0, int z1) {
             for (int z = z0; z < z1; z++)
-                for (int x = 0; x < S; x++) {
-                    int i = z * S + x;
-                    base[i] = baseHeight(x * STEP, z * STEP);
-                    hn[i] = base[i] / step;
-                    mask[i] = (uint8_t)std::lround(std::clamp(erodibility(x * STEP, z * STEP), 0.0f, 1.0f) * 255.0f);
+                {
+                    for (int x = 0; x < S; x++) {
+                        int i = z * S + x;
+                        base[i] = baseHeight(x * STEP, z * STEP);
+                        hn[i] = base[i] / step;
+                        mask[i] = (uint8_t)std::lround(std::clamp(erodibility(x * STEP, z * STEP), 0.0f, 1.0f) * 255.0f);
+                    }
+                    float p = gBakeProgress.load();
+                    while (!gBakeProgress.compare_exchange_weak(p, p + 0.35f / S)) {}
                 }
         };
+        gBakeStage = 0; gBakeProgress = 0.0f;
         int threads = (int)std::max(1u, std::min(8u, std::thread::hardware_concurrency()));
         std::vector<std::thread> pool;
         for (int t = 0; t < threads; t++)
@@ -243,7 +273,9 @@ inline void TerrainBake::build(int worldVoxels, const Settings& st,
     };
     std::vector<int> recv, order;
     std::vector<float> A(n);
+    gBakeStage = 1;
     for (int pass = 0; pass < st.erosionPasses; pass++) {
+        gBakeProgress = 0.35f + 0.4f * pass / st.erosionPasses;
         route(recv, order, nullptr);
         for (int i = 0; i < n; i++) A[i] = hn[i] > seaN ? 1.0f : 0.0f;
         for (int k = (int)order.size() - 1; k >= 0; k--) {
@@ -261,12 +293,13 @@ inline void TerrainBake::build(int worldVoxels, const Settings& st,
         }
     }
 
+    gBakeStage = 2; gBakeProgress = 0.75f;
     // ── 3 scree ───────────────────────────────────────────
     // Where cutting left ground steeper than loose rock can stand
     // (on erodible ground only), the top slides down and piles at
     // the foot: valley walls ease into a V with scree below
     {
-        const float talus = 1.6f;     // ~58°
+        const float talus = st.talus;
         for (int pass = 0; pass < st.thermalPasses; pass++)
             for (int z = 1; z < S - 1; z++)
                 for (int x = 1; x < S - 1; x++) {
@@ -289,6 +322,7 @@ inline void TerrainBake::build(int worldVoxels, const Settings& st,
     // Priority flood from the sea and the map edge: every sample
     // is reached from a lower neighbour, which is where its water
     // goes. Hollows get a water level at their spill point.
+    gBakeStage = 3; gBakeProgress = 0.8f;
     std::vector<float> Fn;
     route(recv, order, &Fn);
     // lakes: the designed ones, plus the few biggest natural
@@ -363,6 +397,7 @@ inline void TerrainBake::build(int worldVoxels, const Settings& st,
         if (recv[i] >= 0) flow[recv[i]] += flow[i];
     }
 
+    gBakeStage = 4; gBakeProgress = 0.92f;
     // ── 6 rivers ──────────────────────────────────────────
     // Sources: big-enough flow with no big-enough flow upstream.
     // Each is followed downstream to the sea, a lake, a river
@@ -420,11 +455,92 @@ inline void TerrainBake::build(int worldVoxels, const Settings& st,
         stat.rivers = (int)lines.size();
     }
 
-    // results in voxels
+    // results in voxels, rounded to the precision the cache
+    // keeps, so a fresh bake and a reloaded one are identical
     h.resize(n); dh.resize(n); F.resize(n);
     for (int i = 0; i < n; i++) {
-        h[i] = hn[i] * step;
-        dh[i] = h[i] - base[i];
-        F[i] = std::max(Fn[i], hn[i]) * step;
+        h[i] = quant(hn[i] * step);
+        dh[i] = quant(h[i] - base[i]);
+        F[i] = quant(std::max(Fn[i], hn[i]) * step);
     }
+    gBakeProgress = 1.0f;
+}
+
+// ── Cache ─────────────────────────────────────────────────
+// Heights are kept to 1/16 voxel (16-bit), lake flags as bytes,
+// river lines as floats; the lot LZ4-compressed. 'key' says what
+// the bake was made from (seed, world type, options), so a
+// mismatch rebuilds.
+inline bool TerrainBake::save(const std::string& path, uint64_t key) const {
+    if (!S) return false;
+    const size_t n = (size_t)S * S;
+    std::vector<char> raw;
+    auto put = [&](const void* p, size_t sz) { const char* c = (const char*)p; raw.insert(raw.end(), c, c + sz); };
+    auto put16 = [&](const std::vector<float>& g, float offset) {
+        for (size_t i = 0; i < n; i++) {
+            int v = (int)std::lround((g[i] + offset) * 16.0f);
+            uint16_t u = (uint16_t)std::clamp(v, 0, 65535);
+            put(&u, 2);
+        }
+    };
+    put16(h, 0.0f); put16(F, 0.0f); put16(dh, 2048.0f);
+    put(lakeFlag.data(), n);
+    uint32_t nl = (uint32_t)lines.size(); put(&nl, 4);
+    for (const auto& l : lines) {
+        uint32_t np = (uint32_t)l.size(); put(&np, 4);
+        put(l.data(), np * sizeof(RiverPoint));
+    }
+    put(&stat, sizeof(stat));
+    std::vector<char> packed((size_t)LZ4_compressBound((int)raw.size()));
+    int got = LZ4_compress_default(raw.data(), packed.data(), (int)raw.size(), (int)packed.size());
+    if (got <= 0) return false;
+    std::string tmp = path + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary);
+        if (!f) return false;
+        uint32_t magic = 0x4B414256u /* VBAK */, ver = VERSION, side = (uint32_t)S;
+        uint64_t rawSize = raw.size();
+        f.write((const char*)&magic, 4); f.write((const char*)&ver, 4); f.write((const char*)&key, 8);
+        f.write((const char*)&side, 4); f.write((const char*)&rawSize, 8);
+        f.write(packed.data(), got);
+        if (!f) return false;
+    }
+    std::remove(path.c_str());
+    return std::rename(tmp.c_str(), path.c_str()) == 0;
+}
+
+inline bool TerrainBake::load(const std::string& path, uint64_t key) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    uint32_t magic = 0, ver = 0, side = 0; uint64_t k = 0, rawSize = 0;
+    f.read((char*)&magic, 4); f.read((char*)&ver, 4); f.read((char*)&k, 8);
+    f.read((char*)&side, 4); f.read((char*)&rawSize, 8);
+    if (!f || magic != 0x4B414256u || ver != VERSION || k != key || side == 0 || side > 8192) return false;
+    std::vector<char> packed((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    std::vector<char> raw(rawSize);
+    int got = LZ4_decompress_safe(packed.data(), raw.data(), (int)packed.size(), (int)raw.size());
+    if (got != (int)rawSize) return false;
+    gBakeStage = 5;
+    const size_t n = (size_t)side * side;
+    size_t off = 0;
+    auto take = [&](void* p, size_t sz) { if (off + sz > raw.size()) return false; std::memcpy(p, raw.data() + off, sz); off += sz; return true; };
+    auto get16 = [&](std::vector<float>& g, float offset) {
+        g.resize(n);
+        for (size_t i = 0; i < n; i++) { uint16_t u; if (!take(&u, 2)) return false; g[i] = u / 16.0f - offset; }
+        return true;
+    };
+    S = (int)side;
+    if (!get16(h, 0.0f) || !get16(F, 0.0f) || !get16(dh, 2048.0f)) { S = 0; return false; }
+    lakeFlag.resize(n);
+    if (!take(lakeFlag.data(), n)) { S = 0; return false; }
+    uint32_t nl = 0; if (!take(&nl, 4)) { S = 0; return false; }
+    lines.assign(nl, {});
+    for (auto& l : lines) {
+        uint32_t np = 0; if (!take(&np, 4)) { S = 0; return false; }
+        l.resize(np);
+        if (!take(l.data(), np * sizeof(RiverPoint))) { S = 0; return false; }
+    }
+    take(&stat, sizeof(stat));
+    gBakeProgress = 1.0f;
+    return true;
 }

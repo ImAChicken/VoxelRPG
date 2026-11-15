@@ -126,6 +126,12 @@ struct EdgeStyle {
 //                 walls in front of a character hide them.
 class CharacterRenderer {
 public:
+    // How the next characters drawn are lit (set per character
+    // from the baked light where it stands; the creator's
+    // preview uses the defaults)
+    glm::vec3 lightDir  = glm::normalize(glm::vec3(0.33f, 0.74f, 0.58f));
+    glm::vec3 skyTint   = glm::vec3(1.0f);
+    glm::vec3 blockTint = glm::vec3(0.0f);
     bool init() {
         body = link(R"(#version 460 core
 layout(location = 0) in vec3 aPos;
@@ -141,15 +147,18 @@ void main() {
 })", R"(#version 460 core
 in vec3 vColor; in vec3 vNormal; in float vDist;
 uniform vec3 uFogColor; uniform float uFogDensity;
+uniform vec3 uLightDir;     // toward the sun or moon
+uniform vec3 uSkyTint;      // sky light reaching the character (baked light × sun/moon)
+uniform vec3 uBlockTint;    // glowing blocks' light reaching it
 out vec4 outColor;
 void main() {
-    // toon: a soft sky/ground fill plus a sun in three hard
-    // steps, gentle for a muted look
+    // toon: a soft sky/ground fill plus the sun or moon in three
+    // hard steps, gentle for a muted look; nearby lamps add their colour
     vec3 n = normalize(vNormal);
-    float d = max(dot(n, normalize(vec3(0.33, 0.74, 0.58))), 0.0);
+    float d = max(dot(n, uLightDir), 0.0);
     float ramp = d < 0.25 ? 0.49 : (d < 0.5 ? 0.76 : 1.0);
     vec3 fill = mix(vec3(0.80, 0.75, 0.93), vec3(1.0), n.y * 0.5 + 0.5);
-    vec3 c = vColor * fill * (0.55 + 0.45 * ramp);
+    vec3 c = vColor * (uSkyTint * fill * (0.55 + 0.45 * ramp) + uBlockTint);
     float fog = 1.0 - exp(-vDist * uFogDensity);
     outColor = vec4(mix(c, uFogColor, fog), 1.0);
 })");
@@ -161,12 +170,12 @@ void main() {
     vUv = vec2(aCorner.x + 0.5, 0.5 - aCorner.y);
     gl_Position = uViewProj * uModel * vec4(uCenter + vec3(aCorner * uSize, 0.0), 1.0);
 })", R"(#version 460 core
-in vec2 vUv; uniform sampler2D uFace;
+in vec2 vUv; uniform sampler2D uFace; uniform vec3 uTint;
 out vec4 outColor;
 void main() {
     vec4 c = texture(uFace, vUv);
     if (c.a < 0.35) discard;
-    outColor = vec4(c.rgb, 1.0);
+    outColor = vec4(c.rgb * uTint, 1.0);
 })");
         normals = link(R"(#version 460 core
 layout(location = 0) in vec3 aPos;
@@ -288,6 +297,9 @@ void main() {
         glUniform3f(loc(body, "uCamPos"), camPos.x, camPos.y, camPos.z);
         glUniform3f(loc(body, "uFogColor"), fogColor.r, fogColor.g, fogColor.b);
         glUniform1f(loc(body, "uFogDensity"), fogDensity);
+        glUniform3f(loc(body, "uLightDir"), lightDir.x, lightDir.y, lightDir.z);
+        glUniform3f(loc(body, "uSkyTint"), skyTint.x, skyTint.y, skyTint.z);
+        glUniform3f(loc(body, "uBlockTint"), blockTint.x, blockTint.y, blockTint.z);
         GLint lm = loc(body, "uModel");
         glBindVertexArray(ch.vao);
         for (int b = 0; b < BONE_COUNT; b++) {
@@ -305,6 +317,10 @@ void main() {
         const CharacterModel& m = ch.getModel();
         glUniform3f(loc(face, "uCenter"), m.faceCenter.x, m.faceCenter.y, m.faceCenter.z);
         glUniform1f(loc(face, "uSize"), m.faceSize);
+        {
+            glm::vec3 t = glm::min(skyTint * 0.9f + blockTint, glm::vec3(1.2f));
+            glUniform3f(loc(face, "uTint"), t.x, t.y, t.z);
+        }
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, ch.faceTex[ch.blinking() ? 1 : 0]);
         glUniform1i(loc(face, "uFace"), 0);

@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -35,8 +36,16 @@ struct VoxelTypeDef {
     // Render color RGB 0-1
     float color[3]          = {0, 0, 0};
 
-    // Light emission — 0-31 per channel
+    // Light emission — 0-31 per channel (older field)
     uint8_t emittedLight[3] = {0, 0, 0};
+
+    // Light for the baked light layer (world/LightBake.h):
+    //   light      what it gives off, 0-15 per colour
+    //   lightPass  how light gets through it: 0 clear, 1-14 dims
+    //              it by that many levels per cell, 15 blocks it
+    uint8_t light[3]  = {0, 0, 0};
+    uint8_t lightPass = 15;
+    bool    glows() const { return light[0] | light[1] | light[2]; }
 
     bool isSolid()       const { return flags & VF_SOLID; }
     bool isFluid()       const { return flags & VF_FLUID; }
@@ -56,6 +65,7 @@ public:
             air.id      = 0;
             air.name    = "air";
             air.opacity = VoxelOpacity::None;
+            air.lightPass = 0;
             ensureSize(1);
             types[0] = air;
 
@@ -112,6 +122,24 @@ public:
                         def.emittedLight[1] = (uint8_t)(*larr)[1].value_or(0);
                         def.emittedLight[2] = (uint8_t)(*larr)[2].value_or(0);
                     }
+                }
+
+                // Light: "light = [r, g, b]" 0-15; older files give
+                // "emitted_light" 0-31, which is halved
+                if (auto* l2 = (*tbl2)["light"].as_array()) {
+                    for (int k = 0; k < 3 && k < (int)l2->size(); k++)
+                        def.light[k] = (uint8_t)std::min<int64_t>(15, (*l2)[k].value_or((int64_t)0));
+                } else {
+                    for (int k = 0; k < 3; k++) def.light[k] = (uint8_t)std::min(15, def.emittedLight[k] / 2);
+                }
+                if (def.glows()) def.flags |= VF_EMITS_LIGHT;
+                // how light passes: from opacity unless given
+                def.lightPass = def.opacity == VoxelOpacity::Full ? 15 : def.opacity == VoxelOpacity::Partial ? 1
+                              : def.opacity == VoxelOpacity::Translucent ? 1 : 0;
+                if (auto lp = (*tbl2)["light_pass"].value<std::string>()) {
+                    if (*lp == "clear") def.lightPass = 0;
+                    else if (*lp == "block") def.lightPass = 15;
+                    else if (*lp == "dim") def.lightPass = 2;
                 }
 
                 ensureSize(def.id + 1);

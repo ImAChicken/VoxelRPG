@@ -67,6 +67,7 @@ struct BlockRenderInfo {
     uint8_t tileY[6] = {0,0,0,0,0,0};
     bool    opaque   = false;   // completely hides what is behind it
     bool    cutout   = false;   // has see-through pixels (leaves)
+    bool    glow     = false;   // gives off light: drawn at full brightness
 };
 
 struct BlockRenderTable {
@@ -89,6 +90,7 @@ struct BlockRenderTable {
             BlockRenderInfo& info = table->blocks[id];
             info.opaque = (def.opacity == VoxelOpacity::Full);
             info.cutout = (def.opacity == VoxelOpacity::Partial);
+            info.glow   = def.glows();
 
             info.tileX[FACE_TOP]    = (uint8_t)uv.topX;
             info.tileY[FACE_TOP]    = (uint8_t)uv.topY;
@@ -306,7 +308,7 @@ private:
                 emitQuad(info.cutout ? s.cutout : opaqueOut,
                          n, u, v, sign, face,
                          slice, i, j, w, h,
-                         info.tileX[face], info.tileY[face]);
+                         info.tileX[face], info.tileY[face], info.glow ? 1 : 0);
 
                 // Mark the merged area as done
                 for (int jj = j; jj < j + h; jj++)
@@ -329,7 +331,7 @@ private:
                          int sign, uint8_t face,
                          int slice, int i, int j,
                          int w, int h,
-                         uint8_t tileX, uint8_t tileY) {
+                         uint8_t tileX, uint8_t tileY, uint8_t glow = 0) {
         // The face sits on the far side of the voxel for +n
         int plane = slice + (sign > 0 ? 1 : 0);
 
@@ -339,7 +341,7 @@ private:
             p[u] = (uint8_t)cu;
             p[v] = (uint8_t)cv;
             return ChunkVertex{ p[0], p[1], p[2], face,
-                                tileX, tileY, 0, 0 };
+                                tileX, tileY, glow, 0 };
         };
 
         ChunkVertex c0 = corner(i,     j);
