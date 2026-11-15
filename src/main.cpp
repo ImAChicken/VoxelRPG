@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <functional>
@@ -23,6 +24,11 @@
 #include "input/InputManager.h"
 #include "entity/Player.h"
 #include "entity/PlayerController.h"
+#include "game/GameMode.h"
+#include "game/ItemRegistry.h"
+#include "game/DevTools.h"
+#include "game/Commands.h"
+#include "game/PlayerInteraction.h"
 
 // ── Game systems ──────────────────────────────────────────
 #include "render/Camera.h"
@@ -30,13 +36,26 @@
 #include "chunk/Chunk.h"
 #include "chunk/ChunkManager.h"
 #include "chunk/ChunkLoader.h"
+#include "render/FarTerrain.h"
 #include "chunk/TerrainGenerator.h"
 #include "voxel/VoxelRegistry.h"
 #include "render/ResourcePack.h"
 #include "ui/UIRenderer.h"
 #include "ui/MainMenuScreen.h"
 #include "ui/PauseMenuScreen.h"
+#include "ui/HudScreen.h"
+#include "ui/DevMenuScreen.h"
+#include "ui/ConsoleScreen.h"
+#include "ui/ControlsScreen.h"
+#include "ui/SettingsScreen.h"
+#include "game/Settings.h"
+#include "game/StructureRegistry.h"
+#include "game/BuildTool.h"
+#include "ui/BuildMenuScreen.h"
+#include "world/StructureManager.h"
+#include "worldgen/WorldType.h"
 #include "world/WorldSaveManager.h"
+#include "world/WorldEditor.h"
 #include "world/WorldStreamer.h"
 
 constexpr int WIN_W = 1280;
@@ -46,38 +65,49 @@ constexpr int WIN_H = 720;
 // MainMenu — menu on screen, cursor visible
 // Playing  — in the world, cursor captured
 // Paused   — pause menu drawn over the world
+// DevMenu  — dev menu drawn over the world (from Paused)
+// Console  — typing a command; the world keeps drawing
+// Controls — key bindings screen (from Paused)
+// Settings — settings screen (from Paused)
 enum class GameState {
     MainMenu,
     Playing,
     Paused,
+    DevMenu,
+    Console,
+    Controls,
+    Settings,
+    BuildMenu,
 };
 
-// ── Game modes ────────────────────────────────────────────
-// Spectator — free fly camera, no physics
-// Dev       — test play: a body with gravity and collision
-// Survival  — stub
-// Combat    — stub
-enum class GameMode {
-    Spectator = 0,
-    Dev       = 1,
-    Survival  = 2,
-    Combat    = 3,
-};
+// Seconds between automatic saves while in a world
+constexpr float AUTOSAVE_SECONDS = 180.0f;
+
+// Game modes are per player, not global — see
+// game/GameMode.h and Player::mode.
 
 GameState gState    = GameState::MainMenu;
-GameMode  gGameMode = GameMode::Spectator;
 
 std::unique_ptr<IRenderer> gRenderer;
 std::unique_ptr<IPhysics>  gPhysics;
 
-// Lets the GLFW text callbacks reach the main menu
+// Lets the GLFW text callbacks reach the main menu and
+// the console
 MainMenuScreen* gMainMenu = nullptr;
+Console*        gConsole  = nullptr;
+ControlsScreen* gControls = nullptr;
+
+// Lines typed into the console, waiting to be run by the
+// main loop (the key callback only collects them)
+std::vector<std::string> gConsoleLines;
 
 // ── GLFW callbacks ────────────────────────────────────────
 void scrollCallback(GLFWwindow* window,
                     double xoffset, double yoffset) {
     (void)window; (void)xoffset;
     gInput.onScroll((float)yoffset);
+    if (gState == GameState::Controls && gControls)
+        gControls->onScroll((float)yoffset);
 }
 
 void charCallback(GLFWwindow* window,
@@ -86,14 +116,24 @@ void charCallback(GLFWwindow* window,
     gInput.onChar(codepoint);
     if (gState == GameState::MainMenu && gMainMenu)
         gMainMenu->onChar(codepoint);
+    if (gState == GameState::Console && gConsole)
+        gConsole->onChar(codepoint);
 }
 
 void keyCallback(GLFWwindow* window, int key,
                  int scancode, int action, int mods) {
-    (void)window; (void)scancode; (void)mods;
+    (void)window; (void)scancode;
     if (action == GLFW_PRESS || action == GLFW_REPEAT) {
         if (gState == GameState::MainMenu && gMainMenu)
             gMainMenu->onKey(key);
+        if (gState == GameState::Controls && gControls &&
+            action == GLFW_PRESS)
+            gControls->onKey(key);
+        if (gState == GameState::Console && gConsole) {
+            std::string line;
+            if (gConsole->onKey(key, action == GLFW_REPEAT, mods, line))
+                gConsoleLines.push_back(line);
+        }
     }
 }
 
@@ -146,6 +186,9 @@ int main() {
     // Edit data/controls/keyboard.toml to rebind anything
     gInput.loadKeyboard("data/controls/keyboard.toml");
 
+    // Player preferences (Esc -> Settings)
+    gSettings.load();
+
     // ── Data — must load BEFORE the renderer ──────────────
     // The renderer needs the resource pack to find its font
     if (!gRegistry.load("data/registry/blocks.toml")) {
@@ -153,6 +196,12 @@ int main() {
         glfwTerminate();
         return -1;
     }
+
+    // Items: every block, plus tools / weapons / dev tools
+    gItems.load(gRegistry, "data/registry/items.toml");
+
+    // Multi-block structures: building pieces, doors, trees
+    gStructures.load("data/registry/structures.toml");
 
     if (!gResourcePacks.load("data/resourcepacks")) {
         std::cerr << "Resource pack load failed\n";
@@ -189,7 +238,35 @@ int main() {
     // ── Screens ───────────────────────────────────────────
     MainMenuScreen  mainMenu(window);
     PauseMenuScreen pauseMenu(window);
+    DevMenuScreen   devMenu(window);
+    ControlsScreen  controlsScreen(window);
+    SettingsScreen  settingsScreen(window);
+    BuildMenuScreen buildMenu(window);
+    Hud             hud;
+    Console         console;
     gMainMenu = &mainMenu;
+    gConsole  = &console;
+    gControls = &controlsScreen;
+
+    // Messages from commands, tools and saving go to the
+    // console (and the terminal)
+    auto say = [&console](const std::string& msg) {
+        console.print(msg);
+        std::cout << msg << "\n";
+    };
+
+    // ── Building and commands ─────────────────────────────
+    // DevTools holds the dev operations shared by the tool
+    // items and the console commands; PlayerInteraction is
+    // the player's hands (break / place / use tool).
+    DevTools          dev;
+    PlayerInteraction hands;
+    BuildTool         build;       // the Builder's Hammer
+    hud.build = &build;
+    CommandRegistry   commands;
+    registerDefaultCommands(commands);
+    dev.log   = say;
+    hands.log = say;
 
     // ── Game objects ──────────────────────────────────────
     // Created when a world is opened, destroyed on Save and
@@ -218,29 +295,94 @@ int main() {
     };
     std::unique_ptr<TerrainGenerator> gen;
     std::unique_ptr<ChunkManager>     world;
+    std::unique_ptr<WorldEditor>      editor;    // all world edits
+    std::unique_ptr<StructureManager> structs;   // doors, trees, buildings
     std::unique_ptr<WorldStreamer>    streamer;
+    std::unique_ptr<FarTerrain>       farView;   // distant terrain
+    float autosaveTimer = 0.0f;
+
+    // ── Save everything ───────────────────────────────────
+    // Edited chunks (only those — untouched terrain is
+    // rebuilt from the seed and comes out identical) and the
+    // player file: position, view, mode, health, both
+    // inventories, dev tool settings.
+    auto saveWorld = [&]() {
+        if (!world) return;
+        if (editor) editor->flush();     // finish queued edits first
+        gWorldSave.saveDirtyChunks(*world);
+        if (structs) structs->save(gWorldSave.getWorldPath());
+        gWorldSave.savePlayer([&](std::ostream& out) {
+            player.write(out);
+            build.write(out);
+            out << "look=" << camera.yaw << " " << camera.pitch << "\n";
+            out << "thirdperson=" << (controller.thirdPersonWanted ? 1 : 0) << "\n";
+            dev.write(out);
+        });
+        autosaveTimer = 0.0f;
+        say("world saved");
+    };
+
+    // Leave the world: save, then tear everything down.
+    // Streamer first: it stops the worker threads and frees
+    // the GPU meshes before the world goes away.
+    auto leaveWorld = [&]() {
+        saveWorld();
+        streamer.reset();
+        farView.reset();
+        dev.attach(nullptr);
+        structs.reset();
+        editor.reset();
+        gPhysics.reset();
+        world.reset();
+        gen.reset();
+    };
+
+    // Switch the player to another game mode. The body is
+    // put wherever the camera is, so you can fly somewhere
+    // as a spectator and drop in to play from there.
+    auto changeMode = [&](GameMode mode) {
+        player.setMode(mode);
+        bodyToCamera();
+        std::cout << "Game mode: "
+                  << player.rules().name << "\n";
+    };
 
     // ── Open a world (new or saved) ───────────────────────
+    //   mode — default mode for a new world; a saved world
+    //          uses the one stored in its file
     // Returns immediately. Nothing is generated here — the
     // streamer brings chunks in on background threads, so the
     // window never freezes however big the world is.
     auto enterWorld = [&](bool isNew,
                           const std::string& name,
-                          uint64_t seed) {
+                          uint64_t seed,
+                          GameMode mode,
+                          WorldType type,
+                          int size) {
         streamer.reset();
+        farView.reset();
         gPhysics.reset();
 
         if (isNew) {
             std::cout << "Creating world: " << name
                       << " seed=" << seed << "\n";
-            gWorldSave.createWorld(name, seed);
+            gWorldSave.createWorld(name, seed, mode, type, size);
         } else {
             std::cout << "Loading world: " << name << "\n";
             gWorldSave.loadWorld(name);
             seed = gWorldSave.getSeed();
+            mode = gWorldSave.getDefaultMode();
+            type = gWorldSave.getWorldType();
         }
 
-        gen   = std::make_unique<TerrainGenerator>((int)seed);
+        // World size first: the chunk grid and streamer are
+        // built for it
+        size = gWorldSave.getWorldSize();
+        WORLD_SIZE_X = WORLD_SIZE_Z = size;
+        std::cout << worldTypeName(type) << " world, " << size << " x "
+                  << size << " chunks\n";
+
+        gen   = makeGenerator(type, seed, size);
         world = std::make_unique<ChunkManager>();
 
         // Where each chunk's voxels come from. Runs on worker
@@ -263,25 +405,89 @@ int main() {
         streamer = std::make_unique<WorldStreamer>(
             *world, chunkSource, blockTable);
 
+        // The distant view, coloured with each block's
+        // average atlas colour
+        {
+            auto colors = std::make_shared<FarTerrain::ColorTable>(blockTable->blocks.size());
+            for (size_t id = 0; id < blockTable->blocks.size(); id++) {
+                const BlockRenderInfo& info = blockTable->get((uint16_t)id);
+                (*colors)[id] = glr->tileAverage(info.tileX[FACE_TOP], info.tileY[FACE_TOP]);
+            }
+            farView = std::make_unique<FarTerrain>(*gen, WORLD_SIZE_X, WORLD_SIZE_Z, colors);
+            if (!farView->initGL()) {
+                std::cerr << "Distant terrain shaders failed to load\n";
+                farView.reset();
+            }
+        }
+
         gPhysics = std::make_unique<VoxelPhysics>();
         gPhysics->init(*world);
 
-        // Spawn at the centre of the world, high enough to
-        // clear the tallest tree (about 85 voxels)
-        int spawnX = WORLD_SIZE_X * VOXEL_DIM / 2;
-        int spawnZ = WORLD_SIZE_Z * VOXEL_DIM / 2;
-        int ground = gen->getSurfaceY(spawnX, spawnZ);
+        editor = std::make_unique<WorldEditor>(*world);
+        structs = std::make_unique<StructureManager>(*world, *editor, *gen);
+        structs->log = say;
+        structs->load(gWorldSave.getWorldPath());
+        build.reset();
+        dev.resetForNewWorld();
+        dev.attach(editor.get());
+        hands.clearTarget();
+        autosaveTimer = 0.0f;
 
-        player = Player();
+        // Spawn point. A spectator
+        // starts high enough to clear the tallest tree
+        // (about 85 voxels); a body starts just above the
+        // ground and drops onto it once the chunk arrives.
+        // The world type decides where players appear (the
+        // island's spawn marker; the classic world's centre)
+        glm::ivec3 sp = gen->spawnPoint(WORLD_SIZE_X, WORLD_SIZE_Z);
+        int spawnX = sp.x, spawnZ = sp.z, ground = sp.y;
+
+        player.resetForNewWorld();
         player.spawnPoint = glm::vec3(
             (float)spawnX, (float)ground, (float)spawnZ);
         camera = Camera();
-        camera.position = glm::vec3(
-            (float)spawnX, (float)ground + 105.0f, (float)spawnZ);
-        bodyToCamera();
+        controller.thirdPersonWanted = false;
 
-        gState    = GameState::Playing;
-        gGameMode = GameMode::Spectator;
+        // A returning player picks up exactly where they
+        // left off: position, view, mode and inventories.
+        // A new player starts at the spawn in the world's
+        // default mode.
+        float lookYaw = camera.yaw, lookPitch = camera.pitch;
+        bool returning = !isNew && gWorldSave.loadPlayer(
+            [&](const std::string& key, const std::string& value) {
+                if (key == "look")
+                    std::sscanf(value.c_str(), "%f %f", &lookYaw, &lookPitch);
+                else if (key == "thirdperson")
+                    controller.thirdPersonWanted = (value == "1");
+                else if (!player.read(key, value) && !build.read(key, value))
+                    dev.read(key, value);
+            });
+
+        if (returning) {
+            mode = player.mode;
+            camera.position = player.position +
+                glm::vec3(0.0f, Human::STAND_EYE, 0.0f);
+            camera.setLook(lookYaw, lookPitch);
+            say("welcome back");
+        } else {
+            float above = rulesFor(mode, false).hasBody
+                        ? Human::STAND_EYE + 3.0f : 105.0f;
+            camera.position = glm::vec3(
+                (float)spawnX, (float)ground + above, (float)spawnZ);
+            // A starter kit in the dev inventory
+            const char* kit[] = { "dev_wand", "dev_fill", "dev_brush",
+                                  "dev_copy", "dev_paste", "dev_breaker",
+                                  "stone", "builders_hammer" };
+            for (int i = 0; i < Inventory::TOOLBAR_SLOTS; i++)
+                if (uint16_t id = gItems.find(kit[i]))
+                    player.devInventory.setSlot(i, id, 1);
+            // Every player starts with a Builder's Hammer
+            if (uint16_t h = gItems.find("builders_hammer"))
+                player.inventory.setSlot(0, h, 1);
+        }
+        changeMode(mode);
+
+        gState = GameState::Playing;
 
         // Capture the cursor first, then reset the mouse
         // delta, so the camera does not jump on the first frame
@@ -305,22 +511,172 @@ int main() {
                            gRenderer->getScreenHeight());
         gRenderer->setCamera(camera, aspect);
 
+        glm::ivec2 pc = world->worldToChunk(camera.position);
+
+        // Distant terrain first, with its own clip planes,
+        // stepping aside wherever voxel chunks are drawn.
+        // Then the depth buffer is cleared, so the voxels
+        // always draw over it.
+        if (farView) {
+            static std::vector<uint8_t> nearMask;
+            nearMask.assign((size_t)WORLD_SIZE_X * WORLD_SIZE_Z, 0);
+            for (int cx = pc.x - MESH_DISTANCE; cx <= pc.x + MESH_DISTANCE; cx++)
+            for (int cz = pc.y - MESH_DISTANCE; cz <= pc.y + MESH_DISTANCE; cz++)
+                if (streamer->hasMesh(cx, cz))
+                    nearMask[(size_t)cz * WORLD_SIZE_X + cx] = 1;
+            farView->setNearMask(nearMask);
+            farView->draw(glr->getViewMatrix(), Camera::FOV_DEG, aspect, camera.position,
+                          OpenGLRenderer::FOG_COLOR, OpenGLRenderer::FOG_DENSITY);
+            glClear(GL_DEPTH_BUFFER_BIT);
+        }
+
         // World pass: depth test + back-face culling ON
         glr->beginWorldDraw();
 
-        glm::ivec2 pc = world->worldToChunk(camera.position);
         for (int cx = pc.x - MESH_DISTANCE;
                  cx <= pc.x + MESH_DISTANCE; cx++)
         for (int cz = pc.y - MESH_DISTANCE;
                  cz <= pc.y + MESH_DISTANCE; cz++) {
             // Not built yet (or outside the world) → skip
-            const ChunkMesh* mesh = streamer->getMesh(cx, cz);
-            if (!mesh) continue;
-            glr->drawMesh(*mesh, world->chunkOrigin(cx, cz));
+            if (!streamer->hasMesh(cx, cz)) continue;
+            glm::vec3 origin = world->chunkOrigin(cx, cz);
+            for (int sy = 0; sy < SECTIONS; sy++) {
+                const ChunkMesh* mesh = streamer->getMesh(cx, sy, cz);
+                if (!mesh || mesh->isEmpty()) continue;
+                glr->drawMesh(*mesh, origin + glm::vec3(0.0f, (float)(sy * VOXEL_DIM), 0.0f));
+            }
         }
 
         // Culling OFF again so the UI draws normally
         glr->endWorldDraw();
+
+        // Third person: there is no player model yet, so a
+        // plain box stands in for the body — torso in the
+        // stance colour, with a lighter block for the face
+        // so you can tell which way it is looking.
+        const GameModeRules rules = player.rules();
+        if (rules.hasBody &&
+            controller.usingThirdPerson(rules) &&
+            controller.bodyVisible()) {
+            float yaw = glm::degrees(std::atan2(
+                player.facing.z, player.facing.x));
+            glm::vec3 feet = controller.renderPosition;
+            glm::vec3 tint = player.combatStance
+                ? glm::vec3(0.80f, 0.30f, 0.25f)
+                : glm::vec3(0.25f, 0.45f, 0.80f);
+            glr->drawBox(feet,
+                glm::vec3(Human::RADIUS * 2.0f, player.height,
+                          Human::RADIUS * 2.0f),
+                yaw, tint);
+            glm::vec3 ahead = glm::normalize(player.facing);
+            glr->drawBox(
+                feet + glm::vec3(0.0f, player.eyeHeight - 1.0f, 0.0f)
+                     + ahead * Human::RADIUS,
+                glm::vec3(1.0f, 2.0f, 2.0f), yaw,
+                glm::vec3(0.95f, 0.85f, 0.70f));
+        }
+
+        // ── Outlines: target block, selection, paste ──────
+        // Twelve thin boxes along the edges of [lo, hi).
+        // Thickness grows with distance so far edges stay
+        // visible.
+        auto wire = [&](glm::vec3 lo, glm::vec3 hi, glm::vec3 col) {
+            glm::vec3 mid = (lo + hi) * 0.5f;
+            float t = std::max(0.06f,
+                glm::length(mid - camera.position) * 0.004f);
+            glm::vec3 s = hi - lo;
+            for (int a = 0; a < 3; a++) {          // edge direction
+                int b = (a + 1) % 3, c = (a + 2) % 3;
+                for (int i = 0; i < 4; i++) {
+                    glm::vec3 base = lo;
+                    base[b] += (i & 1) ? s[b] : 0.0f;
+                    base[c] += (i & 2) ? s[c] : 0.0f;
+                    glm::vec3 size(t);
+                    size[a] = s[a] + t;
+                    // drawBox places boxes by the centre of
+                    // their bottom face
+                    glm::vec3 centre = base;
+                    centre[a] += s[a] * 0.5f;
+                    glm::vec3 bottom = centre - glm::vec3(0.0f, size.y * 0.5f, 0.0f);
+                    glr->drawBox(bottom, size, 0.0f, col);
+                }
+            }
+        };
+
+        // Builder's Hammer: outline of the chosen structure
+        // where it would go — green if it can be placed, red
+        // if not — plus its anchor voxel
+        if (hands.hammerActive && hands.previewHas && rules.worldInteraction) {
+            if (const StructureType* t = build.type()) {
+                const VoxelVolume& v = t->shape(0, build.rot);
+                glm::vec3 lo(hands.previewSpot - v.anchor);
+                wire(lo, lo + glm::vec3(v.size),
+                     hands.previewWhy.empty() ? glm::vec3(0.3f, 0.95f, 0.4f)
+                                              : glm::vec3(1.0f, 0.3f, 0.25f));
+                wire(glm::vec3(hands.previewSpot), glm::vec3(hands.previewSpot) + 1.0f,
+                     glm::vec3(1.0f));
+            }
+        }
+
+        if (rules.worldInteraction && hands.target.hit &&
+            gState != GameState::DevMenu) {
+            glm::vec3 b(hands.target.blockPos);
+            wire(b - 0.01f, b + 1.01f, glm::vec3(0.05f));
+        }
+        if (player.mode == GameMode::Dev) {
+            if (dev.hasSelection())
+                wire(glm::vec3(dev.selMin()) - 0.02f,
+                     glm::vec3(dev.selMax()) + 1.02f,
+                     glm::vec3(0.95f, 0.80f, 0.20f));
+            else if (dev.hasPos1 || dev.hasPos2) {
+                glm::vec3 p(dev.hasPos1 ? dev.pos1 : dev.pos2);
+                wire(p, p + 1.0f, glm::vec3(0.95f, 0.80f, 0.20f));
+            }
+
+            // Where the paste tool would put the clipboard:
+            // following the crosshair, or locked (brighter)
+            const ItemDef& held = player.devInventory.heldDef();
+            if (held.devTool == DevToolKind::Paste && dev.clipboard &&
+                dev.pasteHasTarget(hands.target)) {
+                glm::ivec3 at = dev.pasteTarget(hands.target);
+                glm::vec3 lo(at - dev.clipboard->anchor);
+                wire(lo, lo + glm::vec3(dev.clipboard->size),
+                     dev.pasteLocked ? glm::vec3(1.0f, 0.4f, 1.0f)
+                                     : glm::vec3(0.75f, 0.5f, 0.75f));
+                // The anchor voxel itself
+                wire(glm::vec3(at), glm::vec3(at) + 1.0f,
+                     glm::vec3(1.0f, 1.0f, 1.0f));
+            }
+
+            // Brush and explosion: three rings showing the
+            // size of the sphere they will make
+            if ((held.devTool == DevToolKind::Explode ||
+                 held.devTool == DevToolKind::Brush) && hands.target.hit) {
+                bool blast = held.devTool == DevToolKind::Explode;
+                glm::vec3 c = glm::vec3(blast ? hands.target.blockPos
+                    : hands.target.blockPos + glm::ivec3(hands.target.normal)) + 0.5f;
+                float r = dev.brushRadius;
+                glm::vec3 col = blast ? glm::vec3(1.0f, 0.3f, 0.15f)
+                                      : glm::vec3(0.3f, 0.9f, 0.45f);
+                float t = std::max(0.08f,
+                    glm::length(c - camera.position) * 0.004f);
+                // Enough small cubes along each ring that they
+                // touch and read as a solid line
+                const int seg = std::max(48, std::min(720,
+                    (int)(6.2831853f * r / (t * 1.6f))));
+                for (int ring = 0; ring < 3; ring++)
+                for (int i = 0; i < seg; i++) {
+                    float ang = 6.2831853f * i / seg;
+                    glm::vec3 p;
+                    if (ring == 0)      p = { std::cos(ang), 0, std::sin(ang) };
+                    else if (ring == 1) p = { std::cos(ang), std::sin(ang), 0 };
+                    else                p = { 0, std::sin(ang), std::cos(ang) };
+                    glm::vec3 at = c + p * r;
+                    glr->drawBox(at - glm::vec3(0, t, 0), glm::vec3(t * 2.0f),
+                                 0.0f, col);
+                }
+            }
+        }
     };
 
     gState = GameState::MainMenu;
@@ -368,16 +724,41 @@ int main() {
 
         // ── Shortcuts while playing ───────────────────────
         if (gState == GameState::Playing) {
-            // F4 — switch Spectator ↔ Dev (test play).
-            // The position carries over: entering test play
-            // drops a body in right where the camera is.
-            if (gInput.isPressed(
-                    InputAction::GamemodeCycle)) {
-                int m = ((int)gGameMode + 1) % 2;
-                gGameMode = (GameMode)m;
-                if (gGameMode == GameMode::Dev) bodyToCamera();
-                std::cout << "GameMode: "
-                          << (int)gGameMode << "\n";
+            // F4 — next game mode:
+            // Spectator → Test Play → Survival → Spectator.
+            // (Combat is not in the cycle: it is a stance
+            // inside Survival, toggled with R.)
+            if (gInput.isPressed(InputAction::GamemodeCycle))
+                changeMode(nextGameMode(player.mode));
+
+            // ` — open the console
+            if (gInput.isPressed(InputAction::ToggleConsole)) {
+                console.toggle();
+                gState = GameState::Console;
+                gConsoleLines.clear();
+            }
+
+            // Test Play building keys
+            if (player.mode == GameMode::Dev) {
+                if (gInput.isPressed(InputAction::Undo)) dev.undo();
+                if (gInput.isPressed(InputAction::Redo)) dev.redo();
+                if (gInput.isPressed(InputAction::BrushBigger))
+                    dev.setBrush(dev.brushRadius + 1.0f);
+                if (gInput.isPressed(InputAction::BrushSmaller))
+                    dev.setBrush(dev.brushRadius - 1.0f);
+            }
+
+            // F6 — hot reload blocks.toml and items.toml
+            if (gInput.isPressed(InputAction::ReloadRegistry)) {
+                gRegistry.load("data/registry/blocks.toml");
+                gItems.load(gRegistry, "data/registry/items.toml");
+                gStructures.load("data/registry/structures.toml");
+                blockTable = BlockRenderTable::build(
+                    gRegistry, gResourcePacks);
+                if (streamer)
+                    streamer->setRenderTable(blockTable);
+                if (gPhysics && world) gPhysics->init(*world);
+                say("blocks and items reloaded");
             }
             // F7 — hot reload the resource pack
             if (gInput.isPressed(InputAction::ReloadPack)) {
@@ -405,6 +786,15 @@ int main() {
             glm::ivec2 pc =
                 world->worldToChunk(camera.position);
             streamer->update(pc.x, pc.y);
+            if (farView) farView->update(camera.position);
+
+            // Big edits are spread over frames: a few
+            // milliseconds of them per frame
+            if (editor) editor->update(4.0f);
+
+            // Autosave every few minutes
+            autosaveTimer += frameTime;
+            if (autosaveTimer >= AUTOSAVE_SECONDS) saveWorld();
         }
 
         gRenderer->beginFrame();
@@ -420,19 +810,31 @@ int main() {
             if (r == ScreenResult::NewWorld) {
                 enterWorld(true,
                            mainMenu.getNewWorldName(),
-                           mainMenu.getNewWorldSeed());
+                           mainMenu.getNewWorldSeed(),
+                           mainMenu.getNewWorldMode(),
+                           mainMenu.getNewWorldType(),
+                           mainMenu.getNewWorldSize());
             } else if (r == ScreenResult::LoadWorld) {
+                // Seed and mode come from the save file
                 enterWorld(false,
-                           mainMenu.getLoadWorldName(), 0);
+                           mainMenu.getLoadWorldName(), 0,
+                           GameMode::Survival,
+                           WorldType::Classic, 0);
             } else if (r == ScreenResult::Quit) {
                 glfwSetWindowShouldClose(window, true);
             }
 
         } else if (gState == GameState::Playing) {
 
+            camera.sensitivity = gSettings.mouseSensitivity;
             glm::vec2 mouseDelta = gInput.getMouseDelta();
 
-            if (gGameMode == GameMode::Spectator) {
+            // What this player's mode allows. Every mode
+            // with a body shares the same physics path;
+            // only the free camera is different.
+            const GameModeRules rules = player.rules();
+
+            if (!rules.hasBody) {
                 // Free fly camera — no physics, no collision
                 camera.processMouse(
                     mouseDelta.x, mouseDelta.y);
@@ -466,12 +868,17 @@ int main() {
                 player.position = camera.position -
                     glm::vec3(0.0f, Human::STAND_EYE, 0.0f);
 
-            } else if (gGameMode == GameMode::Dev) {
-                // ── Test play: a body in the world ────────
+            } else {
+                // ── A body in the world (Test Play,
+                //    Survival, and Survival's combat stance) ─
                 camera.processMouse(
                     mouseDelta.x, mouseDelta.y);
 
-                // 1. Keyboard → what the player wants to do
+                // 1. Keyboard → what the player wants to do.
+                //    Which buttons do what depends on the
+                //    mode and stance (see PlayerController).
+                controller.slotKeysBlocked =
+                    PlayerInteraction::blocksToolbarKeys(dev);
                 controller.readInput(player, camera, dt);
 
                 // 2. Physics, in fixed 1/60 s ticks. A fast
@@ -510,13 +917,121 @@ int main() {
                     }
                 }
 
-                // 4. Camera to the player's eyes, blended
-                //    between the last two ticks
+                // 4. Camera to the player's eyes — or behind
+                //    them in third person — blended between
+                //    the last two ticks
                 controller.updateCamera(player, camera,
-                    physicsTime / PHYSICS_STEP, dt);
+                    physicsTime / PHYSICS_STEP, dt,
+                    gPhysics.get());
+
+                // 5. Hands: what is under the crosshair, and
+                //    break / place / use the held tool
+                glm::vec3 eyes = controller.renderPosition +
+                    glm::vec3(0.0f, player.eyeHeight, 0.0f);
+                if (rules.worldInteraction) {
+                    hands.aim(camera, eyes, *gPhysics,
+                              player.mode == GameMode::Dev);
+                    hands.update(player, *editor, dev, *structs, build, dt);
+
+                    // Hammer right click → build menu
+                    if (hands.wantBuildMenu) {
+                        hands.wantBuildMenu = false;
+                        buildMenu.setContext(&player, &build);
+                        buildMenu.onEnter();
+                        gState = GameState::BuildMenu;
+                        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                    }
+                } else {
+                    hands.clearTarget();
+                }
             }
+            if (!rules.hasBody) hands.clearTarget();
 
             drawWorld();
+            hud.draw(*gRenderer->getUIRenderer(),
+                     player, controller, hands, dev);
+            console.update(dt);
+            console.draw(*gRenderer->getUIRenderer());
+
+        } else if (gState == GameState::Console) {
+
+            // The world keeps drawing; the player stands still
+            // while you type
+            drawWorld();
+            hud.draw(*gRenderer->getUIRenderer(),
+                     player, controller, hands, dev);
+
+            // Run whatever was typed this frame
+            for (const std::string& line : gConsoleLines) {
+                CommandContext ctx {
+                    player, dev, hands.target, structs.get(),
+                    [&](GameMode m) { changeMode(m); },
+                    [&]() { saveWorld(); },
+                    say };
+                commands.run(line, ctx);
+            }
+            gConsoleLines.clear();
+
+            console.update(dt);
+            console.draw(*gRenderer->getUIRenderer());
+
+            // Closed with ` or Esc → back to the game
+            if (!console.open) {
+                gState = GameState::Playing;
+                camera.firstMouse = true;
+                gInput.resetMouseDelta(window);
+            }
+
+        } else if (gState == GameState::BuildMenu) {
+
+            drawWorld();
+            hud.draw(*gRenderer->getUIRenderer(),
+                     player, controller, hands, dev);
+            ScreenResult r = buildMenu.update(*gRenderer->getUIRenderer(), dt);
+            if (r == ScreenResult::CloseMenu ||
+                gInput.isPressed(InputAction::Pause)) {
+                gState = GameState::Playing;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                camera.firstMouse = true;
+                gInput.resetMouseDelta(window);
+            }
+
+        } else if (gState == GameState::Controls) {
+
+            drawWorld();
+            ScreenResult r = controlsScreen.update(
+                *gRenderer->getUIRenderer(), dt);
+            if (r == ScreenResult::CloseMenu) {   // Back or Esc
+                gState = GameState::Paused;
+                pauseMenu.onEnter();
+            }
+
+        } else if (gState == GameState::Settings) {
+
+            // The HUD stays visible so toolbar changes show
+            // as you drag the sliders
+            drawWorld();
+            hud.draw(*gRenderer->getUIRenderer(),
+                     player, controller, hands, dev);
+            ScreenResult r = settingsScreen.update(
+                *gRenderer->getUIRenderer(), dt);
+            if (r == ScreenResult::CloseMenu ||
+                gInput.isPressed(InputAction::Pause)) {
+                gSettings.save();
+                gState = GameState::Paused;
+                pauseMenu.onEnter();
+            }
+
+        } else if (gState == GameState::DevMenu) {
+
+            drawWorld();
+            UIRenderer* ui = gRenderer->getUIRenderer();
+            ScreenResult r = devMenu.update(*ui, dt);
+            if (r == ScreenResult::CloseMenu ||
+                gInput.isPressed(InputAction::Pause)) {
+                gState = GameState::Paused;
+                pauseMenu.onEnter();
+            }
 
         } else if (gState == GameState::Paused) {
 
@@ -524,9 +1039,23 @@ int main() {
             drawWorld();
 
             UIRenderer* ui = gRenderer->getUIRenderer();
+            pauseMenu.setDevMenuAllowed(player.mode != GameMode::Survival);
             ScreenResult r = pauseMenu.update(*ui, dt);
 
-            if (r == ScreenResult::ResumeGame) {
+            if (r == ScreenResult::OpenDevMenu) {
+                devMenu.setContext(&player, &dev, &build);
+                devMenu.onEnter();
+                gState = GameState::DevMenu;
+
+            } else if (r == ScreenResult::OpenControls) {
+                controlsScreen.onEnter();
+                gState = GameState::Controls;
+
+            } else if (r == ScreenResult::OpenSettings) {
+                settingsScreen.onEnter();
+                gState = GameState::Settings;
+
+            } else if (r == ScreenResult::ResumeGame) {
                 gState = GameState::Playing;
                 glfwSetInputMode(window, GLFW_CURSOR,
                                  GLFW_CURSOR_DISABLED);
@@ -534,14 +1063,7 @@ int main() {
                 gInput.resetMouseDelta(window);
 
             } else if (r == ScreenResult::SaveAndQuit) {
-                if (world)
-                    gWorldSave.saveDirtyChunks(*world);
-                // Streamer first: stops the workers and frees
-                // the GPU meshes before the world goes away
-                streamer.reset();
-                gPhysics.reset();
-                world.reset();
-                gen.reset();
+                leaveWorld();
                 gState = GameState::MainMenu;
                 glfwSetInputMode(window, GLFW_CURSOR,
                                  GLFW_CURSOR_NORMAL);
@@ -568,8 +1090,9 @@ int main() {
                     streamer->meshCount(),
                     streamer->isIdle() ? "" : "  |  loading...");
 
-                // Test play: live readout for tuning movement
-                if (gGameMode == GameMode::Dev && n > 0 &&
+                // A body: live readout for tuning movement
+                const GameModeRules rules = player.rules();
+                if (rules.hasBody && n > 0 &&
                     n < (int)sizeof(title)) {
                     const char* doing =
                         player.waitingForWorld ? "waiting for chunks"
@@ -585,8 +1108,9 @@ int main() {
                     float flat = glm::length(glm::vec2(
                         player.velocity.x, player.velocity.z));
                     std::snprintf(title + n, sizeof(title) - n,
-                        "  |  TEST PLAY  pos %.0f %.1f %.0f"
+                        "  |  %s  pos %.0f %.1f %.0f"
                         "  speed %.1f  vy %.1f  %s",
+                        rules.name,
                         player.position.x, player.position.y,
                         player.position.z, flat,
                         player.velocity.y, doing);
@@ -602,11 +1126,13 @@ int main() {
     // ── Shutdown ──────────────────────────────────────────
     // Closing the window while in a world still saves it
     if (gState != GameState::MainMenu && world)
-        gWorldSave.saveDirtyChunks(*world);
+        leaveWorld();
 
     // Everything that owns OpenGL objects goes before
     // glfwTerminate() destroys the context
     streamer.reset();
+    farView.reset();
+    editor.reset();
     gPhysics.reset();
     world.reset();
     gen.reset();

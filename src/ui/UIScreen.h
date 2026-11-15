@@ -9,6 +9,10 @@ enum class ScreenResult {
     ResumeGame,
     SaveAndQuit,
     Quit,
+    OpenDevMenu,    // pause menu → dev menu
+    CloseMenu,      // a sub-menu → back to the pause menu
+    OpenControls,   // pause menu → key bindings
+    OpenSettings,   // pause menu → settings
 };
 
 class UIScreen {

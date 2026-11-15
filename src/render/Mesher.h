@@ -104,15 +104,20 @@ struct BlockRenderTable {
 };
 
 // ── Everything one mesh job needs ─────────────────────────
-// The chunk itself plus its four neighbours, so faces on the
-// chunk border are hidden when the neighbour covers them.
-// A null neighbour (edge of the world) reads as air.
+// One 128³ section plus its six neighbours, so faces on the
+// border are hidden when the neighbour covers them. A null
+// side neighbour (edge of the world) or a null section above
+// (top of the world) reads as air; below the bottom section
+// is treated as solid, since nobody can look up from there.
 struct MeshInput {
     std::shared_ptr<const RleData> center;
-    std::shared_ptr<const RleData> west;    // chunk at cx - 1
-    std::shared_ptr<const RleData> east;    // chunk at cx + 1
-    std::shared_ptr<const RleData> south;   // chunk at cz - 1
-    std::shared_ptr<const RleData> north;   // chunk at cz + 1
+    std::shared_ptr<const RleData> west;    // column at cx - 1
+    std::shared_ptr<const RleData> east;    // column at cx + 1
+    std::shared_ptr<const RleData> south;   // column at cz - 1
+    std::shared_ptr<const RleData> north;   // column at cz + 1
+    std::shared_ptr<const RleData> above;   // section sy + 1
+    std::shared_ptr<const RleData> below;   // section sy - 1
+    bool bottomOfWorld = false;
     std::shared_ptr<const BlockRenderTable> table;
 };
 
@@ -129,6 +134,17 @@ public:
         // All air (very common high up) has nothing to draw.
         if (in.center->types.size() == 1 &&
             in.center->types[0] == BLOCK_AIR)
+            return;
+
+        // Solid rock with solid rock on every side shows no
+        // face at all — very common deep under a mountain
+        auto solid = [&](const std::shared_ptr<const RleData>& r) {
+            return r && r->types.size() == 1 &&
+                   in.table->get(r->types[0]).opaque;
+        };
+        if (solid(in.center) && solid(in.west) && solid(in.east) &&
+            solid(in.south) && solid(in.north) && solid(in.above) &&
+            (in.bottomOfWorld || solid(in.below)))
             return;
 
         Scratch& s = scratch();
@@ -213,7 +229,18 @@ private:
                 s.vol[(size_t)pidx(i, y, DIM)] = in.north->at(
                     (uint32_t)Chunk::index(i, y, 0));
         }
-        // Above and below the chunk stays air
+        // The layers above and below
+        for (int x = 0; x < DIM; x++)
+        for (int z = 0; z < DIM; z++) {
+            if (in.above)
+                s.vol[(size_t)pidx(x, DIM, z)] = in.above->at(
+                    (uint32_t)Chunk::index(x, 0, z));
+            if (in.below)
+                s.vol[(size_t)pidx(x, -1, z)] = in.below->at(
+                    (uint32_t)Chunk::index(x, DIM - 1, z));
+            else if (in.bottomOfWorld)
+                s.vol[(size_t)pidx(x, -1, z)] = BLOCK_STONE;
+        }
     }
 
     // Mesh every face pointing one way.

@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -17,8 +18,9 @@ public:
     // Clip planes in voxels. The far plane has to reach past
     // the furthest drawn chunk (view distance × 128 voxels,
     // measured corner to corner).
+    static constexpr float FOV_DEG    = 70.0f;
     static constexpr float NEAR_PLANE = 0.2f;
-    static constexpr float FAR_PLANE  = 2048.0f;
+    static constexpr float FAR_PLANE  = 3072.0f;   // voxel chunks only; FarTerrain has its own
 
     glm::mat4 getViewMatrix() const {
         return glm::lookAt(position,
@@ -28,7 +30,7 @@ public:
     glm::mat4 getProjectionMatrix(
             float aspectRatio) const {
         return glm::perspective(
-            glm::radians(70.0f),
+            glm::radians(FOV_DEG),
             aspectRatio, NEAR_PLANE, FAR_PLANE);
     }
 
@@ -63,6 +65,13 @@ public:
         if (right)    position += r     * velocity;
         if (up_key)   position += up    * velocity;
         if (down_key) position -= up    * velocity;
+    }
+
+    // Point the camera (used when a saved game is loaded)
+    void setLook(float yawDeg, float pitchDeg) {
+        yaw   = yawDeg;
+        pitch = std::max(-89.0f, std::min(89.0f, pitchDeg));
+        updateFront();
     }
 
 private:

@@ -2,12 +2,15 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
-#include <unordered_map>
-#include <string>
 #include <array>
+#include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <string>
+#include <unordered_map>
+#include <vector>
 #include <toml++/toml.hpp>
 #include "InputAction.h"
 
@@ -26,366 +29,375 @@ struct InputBinding {
     Type  type    = Type::None;
     int   code    = 0;
     float axisDir = 1.0f;
+
+    // Same physical input? (key/button code only matters
+    // for keys and mouse buttons)
+    bool sameAs(const InputBinding& o) const {
+        if (type != o.type || type == Type::None) return false;
+        if (type == Type::Key || type == Type::MouseButton) return code == o.code;
+        return true;
+    }
 };
 
-// Manages all player input
-// Gameplay code calls isHeld/isPressed/isReleased
-// Never sees GLFW constants directly
-// Bindings loaded from TOML — fully rebindable
+// One row of the action table: where the action lives in
+// keyboard.toml, what the Controls screen calls it, and its
+// default binding.
+struct ActionInfo {
+    InputAction action;
+    const char* section;     // [movement], [actions] …
+    const char* key;         // move_forward …
+    const char* label;       // "Move forward"
+    const char* defaultBind; // "W", "MOUSE_LEFT", "MOUSE_SCROLL_UP"
+};
 
+// ══════════════════════════════════════════════════════════
+// InputManager — every key and button, by action
+// ══════════════════════════════════════════════════════════
+// Gameplay code calls isHeld / isPressed / isReleased with an
+// action and never sees GLFW key codes. Bindings come from
+// data/controls/keyboard.toml and can be changed in game
+// (Esc → Controls), which writes the file back.
+//
+// actionTable() below is the single list of actions: it is
+// used to load and save the file, to fill the Controls
+// screen, and as the defaults for "Reset to defaults".
 class InputManager {
 public:
-    bool loadKeyboard(
-        const std::filesystem::path& path) {
+    static const std::vector<ActionInfo>& actionTable() {
+        static const std::vector<ActionInfo> table = {
+            // movement
+            {InputAction::MoveForward,  "movement", "move_forward",  "Move forward",  "W"},
+            {InputAction::MoveBackward, "movement", "move_backward", "Move back",     "S"},
+            {InputAction::StrafeLeft,   "movement", "strafe_left",   "Strafe left",   "A"},
+            {InputAction::StrafeRight,  "movement", "strafe_right",  "Strafe right",  "D"},
+            {InputAction::Jump,         "movement", "jump",          "Jump",          "SPACE"},
+            {InputAction::Crouch,       "movement", "crouch",        "Crouch",        "LEFT_CONTROL"},
+            {InputAction::Sprint,       "movement", "sprint",        "Sprint (hold)", "LEFT_SHIFT"},
+            {InputAction::Roll,         "movement", "roll",          "Roll (tap)",    "LEFT_SHIFT"},
+            // actions
+            {InputAction::UseLeft,      "actions", "use_left",       "Use / place / attack", "MOUSE_LEFT"},
+            {InputAction::UseRight,     "actions", "use_right",      "Break / heavy attack", "MOUSE_RIGHT"},
+            {InputAction::Block,        "actions", "block",          "Guard",          "Q"},
+            {InputAction::DrawWeapon,   "actions", "draw_weapon",    "Draw weapon",    "R"},
+            {InputAction::Interact,     "actions", "interact",       "Interact",       "E"},
+            {InputAction::LedgeGrab,    "actions", "ledge_grab",     "Ledge grab",     "F"},
+            {InputAction::Inventory,    "actions", "inventory",      "Inventory",      "TAB"},
+            {InputAction::ToolbarNext,  "actions", "toolbar_next",   "Next tool",      "MOUSE_SCROLL_DOWN"},
+            {InputAction::ToolbarPrev,  "actions", "toolbar_prev",   "Previous tool",  "MOUSE_SCROLL_UP"},
+            {InputAction::ToolbarSlot1, "actions", "toolbar_slot_1", "Toolbar slot 1", "1"},
+            {InputAction::ToolbarSlot2, "actions", "toolbar_slot_2", "Toolbar slot 2", "2"},
+            {InputAction::ToolbarSlot3, "actions", "toolbar_slot_3", "Toolbar slot 3", "3"},
+            {InputAction::ToolbarSlot4, "actions", "toolbar_slot_4", "Toolbar slot 4", "4"},
+            {InputAction::ToolbarSlot5, "actions", "toolbar_slot_5", "Toolbar slot 5", "5"},
+            {InputAction::ToolbarSlot6, "actions", "toolbar_slot_6", "Toolbar slot 6", "6"},
+            {InputAction::ToolbarSlot7, "actions", "toolbar_slot_7", "Toolbar slot 7", "7"},
+            {InputAction::ToolbarSlot8, "actions", "toolbar_slot_8", "Toolbar slot 8", "8"},
+            // camera
+            {InputAction::CameraToggle, "camera", "camera_toggle",   "1st / 3rd person", "F5"},
+            // dev
+            {InputAction::ToggleFly,    "dev", "toggle_fly",         "Fly (Test Play)",  "V"},
+            {InputAction::ToggleDebug,  "dev", "toggle_debug",       "Debug overlay",    "F3"},
+            {InputAction::ToggleConsole,"dev", "toggle_console",     "Console",          "GRAVE"},
+            {InputAction::GamemodeCycle,"dev", "gamemode_cycle",     "Next game mode",   "F4"},
+            {InputAction::ReloadRegistry,"dev","reload_registry",    "Reload blocks/items", "F6"},
+            {InputAction::ReloadPack,   "dev", "reload_pack",        "Reload resource pack", "F7"},
+            {InputAction::PickBlock,    "dev", "pick_block",         "Pick block",       "MOUSE_MIDDLE"},
+            {InputAction::Undo,         "dev", "undo",               "Undo edit",        "Z"},
+            {InputAction::Redo,         "dev", "redo",               "Redo edit",        "Y"},
+            {InputAction::BrushBigger,  "dev", "brush_bigger",       "Brush bigger",     "EQUAL"},
+            {InputAction::BrushSmaller, "dev", "brush_smaller",      "Brush smaller",    "MINUS"},
+            {InputAction::NudgeForward, "dev", "nudge_forward",      "Nudge paste away / size up", "UP"},
+            {InputAction::NudgeBack,    "dev", "nudge_back",         "Nudge paste closer / size down", "DOWN"},
+            {InputAction::NudgeLeft,    "dev", "nudge_left",         "Nudge paste left", "LEFT"},
+            {InputAction::NudgeRight,   "dev", "nudge_right",        "Nudge paste right","RIGHT"},
+            {InputAction::NudgeUp,      "dev", "nudge_up",           "Nudge paste up",   "PAGE_UP"},
+            {InputAction::NudgeDown,    "dev", "nudge_down",         "Nudge paste down", "PAGE_DOWN"},
+            {InputAction::ToolCancel,   "dev", "tool_cancel",        "Release paste / cancel", "BACKSPACE"},
+            {InputAction::RotatePiece,  "actions", "rotate_piece",   "Turn structure (hammer)", "T"},
+            // system
+            {InputAction::Pause,        "system", "pause",           "Pause menu",       "ESCAPE"},
+            {InputAction::Screenshot,   "system", "screenshot",      "Screenshot",       "F2"},
+        };
+        return table;
+    }
+
+    // Actions that are MEANT to share a key (one button,
+    // two jobs) — the Controls screen does not flag them
+    static bool allowedToShare(InputAction a, InputAction b) {
+        auto pair = [&](InputAction x, InputAction y) {
+            return (a == x && b == y) || (a == y && b == x);
+        };
+        return pair(InputAction::Sprint, InputAction::Roll);
+    }
+
+    bool loadKeyboard(const std::filesystem::path& path) {
+        keyboardPath = path;
+        resetToDefaults();           // anything missing keeps its default
         if (!std::filesystem::exists(path)) {
-            std::cerr << "Keyboard config not found: "
-                      << path << "\n";
-            loadDefaults();
+            std::cerr << "Keyboard config not found: " << path
+                      << " (using defaults)\n";
             return false;
         }
         try {
             auto tbl = toml::parse_file(path.string());
-            loadSection(tbl, "movement");
-            loadSection(tbl, "actions");
-            loadSection(tbl, "camera");
-            loadSection(tbl, "dev");
-            loadSection(tbl, "system");
-            std::cout << "Keyboard bindings loaded: "
-                      << path << "\n";
+            for (const ActionInfo& info : actionTable()) {
+                auto* sec = tbl[info.section].as_table();
+                if (!sec) continue;
+                auto node = (*sec)[info.key];
+                if (!node) continue;
+                InputBinding b;
+                if (parseBinding(node.value_or(std::string()), b))
+                    bindings[info.action] = b;
+            }
+            std::cout << "Keyboard bindings loaded: " << path << "\n";
             return true;
         } catch (const std::exception& e) {
-            std::cerr << "Keyboard config error: "
-                      << e.what() << "\n";
-            loadDefaults();
+            std::cerr << "Keyboard config error: " << e.what() << "\n";
             return false;
         }
     }
 
-    // Call once per frame before processing input
-    void poll(GLFWwindow* window) {
-        prevState    = currState;
-        prevScroll   = scrollDelta;
-        scrollDelta  = 0.0f;
+    // Write every binding back to keyboard.toml
+    bool saveKeyboard() const {
+        if (keyboardPath.empty()) return false;
+        std::ofstream f(keyboardPath);
+        if (!f) return false;
+        f << "# VoxelRPG Keyboard + Mouse Controls\n"
+          << "# Change these in game (Esc -> Controls) or edit here.\n"
+          << "# Keys: W, SPACE, LEFT_SHIFT, F5, UP, PAGE_UP, GRAVE ...\n"
+          << "# Mouse: MOUSE_LEFT, MOUSE_RIGHT, MOUSE_MIDDLE,\n"
+          << "#        MOUSE_SCROLL_UP, MOUSE_SCROLL_DOWN\n";
+        std::string section;
+        for (const ActionInfo& info : actionTable()) {
+            if (section != info.section) {
+                section = info.section;
+                f << "\n[" << section << "]\n";
+            }
+            std::string key = info.key;
+            f << key << std::string(key.size() < 16 ? 16 - key.size() : 1, ' ')
+              << "= \"" << bindingName(getBinding(info.action)) << "\""
+              << "   # " << info.label << "\n";
+        }
+        return (bool)f;
+    }
 
-        // Poll keyboard + mouse buttons
+    void resetToDefaults() {
+        bindings.clear();
+        for (const ActionInfo& info : actionTable()) {
+            InputBinding b;
+            if (parseBinding(info.defaultBind, b)) bindings[info.action] = b;
+        }
+    }
+
+    InputBinding getBinding(InputAction action) const {
+        auto it = bindings.find(action);
+        return it != bindings.end() ? it->second : InputBinding();
+    }
+
+    void rebind(InputAction action, InputBinding binding) {
+        bindings[action] = binding;
+    }
+
+    // ── Per frame ─────────────────────────────────────────
+    // Call once per frame, after glfwPollEvents()
+    void poll(GLFWwindow* window) {
+        prevState = currState;
+
+        // Scroll arrives through the callback during
+        // glfwPollEvents(). Take this frame's total, then
+        // start counting afresh for the next frame.
+        frameScroll  = scrollAccum;
+        scrollAccum  = 0.0f;
+
         for (auto& [action, binding] : bindings) {
             int idx = (int)action;
-            if (idx < 0 ||
-                idx >= (int)InputAction::COUNT) continue;
-
+            if (idx < 0 || idx >= (int)InputAction::COUNT) continue;
             switch (binding.type) {
-                case InputBinding::Type::Key:
-                    currState[idx] =
-                        glfwGetKey(window, binding.code)
-                        == GLFW_PRESS;
-                    break;
-                case InputBinding::Type::MouseButton:
-                    currState[idx] =
-                        glfwGetMouseButton(
-                            window, binding.code)
-                        == GLFW_PRESS;
-                    break;
-                case InputBinding::Type::MouseScrollUp:
-                    currState[idx] =
-                        (scrollDelta > 0.0f);
-                    break;
-                case InputBinding::Type::MouseScrollDown:
-                    currState[idx] =
-                        (scrollDelta < 0.0f);
-                    break;
-                default:
-                    currState[idx] = false;
-                    break;
+            case InputBinding::Type::Key:
+                currState[idx] = binding.code != GLFW_KEY_UNKNOWN &&
+                    glfwGetKey(window, binding.code) == GLFW_PRESS;
+                break;
+            case InputBinding::Type::MouseButton:
+                currState[idx] =
+                    glfwGetMouseButton(window, binding.code) == GLFW_PRESS;
+                break;
+            // A wheel notch is a fresh press every frame it
+            // happens, so fast scrolling steps through slots
+            case InputBinding::Type::MouseScrollUp:
+                currState[idx] = frameScroll > 0.0f;
+                prevState[idx] = false;
+                break;
+            case InputBinding::Type::MouseScrollDown:
+                currState[idx] = frameScroll < 0.0f;
+                prevState[idx] = false;
+                break;
+            default:
+                currState[idx] = false;
+                break;
             }
         }
 
-        // Mouse delta
         double mx, my;
         glfwGetCursorPos(window, &mx, &my);
         mouseDelta.x = (float)(mx - lastMouseX);
         mouseDelta.y = (float)(my - lastMouseY);
-        lastMouseX   = mx;
-        lastMouseY   = my;
+        lastMouseX = mx;
+        lastMouseY = my;
     }
 
-    // Is action currently held down
     bool isHeld(InputAction action) const {
         int idx = (int)action;
-        if (idx < 0 || idx >= (int)InputAction::COUNT)
-            return false;
+        if (idx < 0 || idx >= (int)InputAction::COUNT) return false;
         return currState[idx];
     }
-
-    // Was action just pressed this frame
     bool isPressed(InputAction action) const {
         int idx = (int)action;
-        if (idx < 0 || idx >= (int)InputAction::COUNT)
-            return false;
+        if (idx < 0 || idx >= (int)InputAction::COUNT) return false;
         return currState[idx] && !prevState[idx];
     }
-
-    // Was action just released this frame
     bool isReleased(InputAction action) const {
         int idx = (int)action;
-        if (idx < 0 || idx >= (int)InputAction::COUNT)
-            return false;
+        if (idx < 0 || idx >= (int)InputAction::COUNT) return false;
         return !currState[idx] && prevState[idx];
     }
 
-    // Mouse movement this frame in pixels
-    glm::vec2 getMouseDelta() const {
-        return mouseDelta;
-    }
+    glm::vec2 getMouseDelta()  const { return mouseDelta; }
+    float     getScrollDelta() const { return frameScroll; }
 
-    // Scroll wheel delta this frame
-    float getScrollDelta() const {
-        return scrollDelta;
-    }
+    // GLFW scroll callback
+    void onScroll(float yOffset) { scrollAccum += yOffset; }
 
-    // Called by GLFW scroll callback
-    void onScroll(float yOffset) {
-        scrollDelta += yOffset;
-    }
-
-    // Called by GLFW char callback (for text input)
-    void onChar(unsigned int codepoint) {
-        lastChar = codepoint;
-        hasChar  = true;
-    }
-
+    // GLFW char callback (text input)
+    void onChar(unsigned int codepoint) { lastChar = codepoint; hasChar = true; }
     bool consumeChar(unsigned int& out) {
         if (!hasChar) return false;
-        out     = lastChar;
+        out = lastChar;
         hasChar = false;
         return true;
     }
 
-    // Rebind an action at runtime
-    void rebind(InputAction action,
-                InputBinding binding) {
-        bindings[action] = binding;
-    }
-
-    // Reset mouse delta (call when capturing cursor)
     void resetMouseDelta(GLFWwindow* window) {
         double mx, my;
         glfwGetCursorPos(window, &mx, &my);
-        lastMouseX   = mx;
-        lastMouseY   = my;
-        mouseDelta   = {0, 0};
+        lastMouseX = mx;
+        lastMouseY = my;
+        mouseDelta = {0, 0};
+    }
+
+    // ── Names ─────────────────────────────────────────────
+    // Binding → the text used in keyboard.toml ("LEFT_SHIFT")
+    static std::string bindingName(const InputBinding& b) {
+        switch (b.type) {
+        case InputBinding::Type::MouseScrollUp:   return "MOUSE_SCROLL_UP";
+        case InputBinding::Type::MouseScrollDown: return "MOUSE_SCROLL_DOWN";
+        case InputBinding::Type::MouseButton:
+            if (b.code == GLFW_MOUSE_BUTTON_LEFT)   return "MOUSE_LEFT";
+            if (b.code == GLFW_MOUSE_BUTTON_RIGHT)  return "MOUSE_RIGHT";
+            if (b.code == GLFW_MOUSE_BUTTON_MIDDLE) return "MOUSE_MIDDLE";
+            return "MOUSE_" + std::to_string(b.code + 1);
+        case InputBinding::Type::Key: {
+            if (b.code >= GLFW_KEY_A && b.code <= GLFW_KEY_Z)
+                return std::string(1, (char)('A' + b.code - GLFW_KEY_A));
+            if (b.code >= GLFW_KEY_0 && b.code <= GLFW_KEY_9)
+                return std::string(1, (char)('0' + b.code - GLFW_KEY_0));
+            if (b.code >= GLFW_KEY_F1 && b.code <= GLFW_KEY_F12)
+                return "F" + std::to_string(b.code - GLFW_KEY_F1 + 1);
+            for (auto& [name, code] : namedKeys())
+                if (code == b.code) return name;
+            return "UNKNOWN";
+        }
+        default: return "NONE";
+        }
+    }
+
+    // Shorter form for the Controls screen
+    static std::string bindingLabel(const InputBinding& b) {
+        std::string n = bindingName(b);
+        if (n == "MOUSE_SCROLL_UP")   return "WHEEL UP";
+        if (n == "MOUSE_SCROLL_DOWN") return "WHEEL DOWN";
+        if (n == "MOUSE_LEFT")        return "LEFT CLICK";
+        if (n == "MOUSE_RIGHT")       return "RIGHT CLICK";
+        if (n == "MOUSE_MIDDLE")      return "MIDDLE CLICK";
+        if (n == "GRAVE")             return "` (GRAVE)";
+        for (char& c : n) if (c == '_') c = ' ';
+        return n;
+    }
+
+    // Text from keyboard.toml → binding. False if unknown.
+    static bool parseBinding(const std::string& s, InputBinding& out) {
+        out = InputBinding();
+        if (s == "MOUSE_SCROLL_UP")   { out.type = InputBinding::Type::MouseScrollUp;   return true; }
+        if (s == "MOUSE_SCROLL_DOWN") { out.type = InputBinding::Type::MouseScrollDown; return true; }
+        if (s == "MOUSE_LEFT")   { out.type = InputBinding::Type::MouseButton; out.code = GLFW_MOUSE_BUTTON_LEFT;   return true; }
+        if (s == "MOUSE_RIGHT")  { out.type = InputBinding::Type::MouseButton; out.code = GLFW_MOUSE_BUTTON_RIGHT;  return true; }
+        if (s == "MOUSE_MIDDLE") { out.type = InputBinding::Type::MouseButton; out.code = GLFW_MOUSE_BUTTON_MIDDLE; return true; }
+        if (s.rfind("MOUSE_", 0) == 0 && s.size() > 6 && std::isdigit((unsigned char)s[6])) {
+            out.type = InputBinding::Type::MouseButton;
+            out.code = std::atoi(s.c_str() + 6) - 1;
+            return true;
+        }
+        int code = keyCode(s);
+        if (code == GLFW_KEY_UNKNOWN) return false;
+        out.type = InputBinding::Type::Key;
+        out.code = code;
+        return true;
+    }
+
+    static int keyCode(const std::string& name) {
+        if (name.size() == 1 && name[0] >= 'A' && name[0] <= 'Z')
+            return GLFW_KEY_A + (name[0] - 'A');
+        if (name.size() == 1 && name[0] >= '0' && name[0] <= '9')
+            return GLFW_KEY_0 + (name[0] - '0');
+        if (name.size() >= 2 && name[0] == 'F' && std::isdigit((unsigned char)name[1])) {
+            int n = std::atoi(name.c_str() + 1);
+            if (n >= 1 && n <= 12) return GLFW_KEY_F1 + n - 1;
+        }
+        for (auto& [n, code] : namedKeys())
+            if (n == name) return code;
+        return GLFW_KEY_UNKNOWN;
     }
 
 private:
-    std::unordered_map<InputAction,
-                       InputBinding> bindings;
+    std::unordered_map<InputAction, InputBinding> bindings;
+    std::filesystem::path keyboardPath;
 
-    std::array<bool, (int)InputAction::COUNT>
-        currState{};
-    std::array<bool, (int)InputAction::COUNT>
-        prevState{};
+    std::array<bool, (int)InputAction::COUNT> currState{};
+    std::array<bool, (int)InputAction::COUNT> prevState{};
 
     glm::vec2 mouseDelta  = {0, 0};
-    float     scrollDelta = 0.0f;
-    float     prevScroll  = 0.0f;
+    float     scrollAccum = 0.0f;   // collected by the callback
+    float     frameScroll = 0.0f;   // this frame's total
     double    lastMouseX  = 0;
     double    lastMouseY  = 0;
 
     unsigned int lastChar = 0;
     bool         hasChar  = false;
 
-    // ── Key name lookup ───────────────────────────────────
-    int keyNameToCode(const std::string& name) {
-        // Letters
-        if (name.size() == 1 &&
-            name[0] >= 'A' && name[0] <= 'Z')
-            return GLFW_KEY_A + (name[0] - 'A');
-
-        // Common keys
-        if (name == "SPACE")        return GLFW_KEY_SPACE;
-        if (name == "LEFT_SHIFT")   return GLFW_KEY_LEFT_SHIFT;
-        if (name == "RIGHT_SHIFT")  return GLFW_KEY_RIGHT_SHIFT;
-        if (name == "LEFT_CONTROL") return GLFW_KEY_LEFT_CONTROL;
-        if (name == "RIGHT_CONTROL")return GLFW_KEY_RIGHT_CONTROL;
-        if (name == "LEFT_ALT")     return GLFW_KEY_LEFT_ALT;
-        if (name == "TAB")          return GLFW_KEY_TAB;
-        if (name == "ESCAPE")       return GLFW_KEY_ESCAPE;
-        if (name == "ENTER")        return GLFW_KEY_ENTER;
-        if (name == "BACKSPACE")    return GLFW_KEY_BACKSPACE;
-        if (name == "GRAVE")        return GLFW_KEY_GRAVE_ACCENT;
-        if (name == "LEFT_BRACKET") return GLFW_KEY_LEFT_BRACKET;
-        if (name == "RIGHT_BRACKET")return GLFW_KEY_RIGHT_BRACKET;
-
-        // Function keys
-        if (name == "F1")  return GLFW_KEY_F1;
-        if (name == "F2")  return GLFW_KEY_F2;
-        if (name == "F3")  return GLFW_KEY_F3;
-        if (name == "F4")  return GLFW_KEY_F4;
-        if (name == "F5")  return GLFW_KEY_F5;
-        if (name == "F6")  return GLFW_KEY_F6;
-        if (name == "F7")  return GLFW_KEY_F7;
-        if (name == "F8")  return GLFW_KEY_F8;
-        if (name == "F9")  return GLFW_KEY_F9;
-        if (name == "F10") return GLFW_KEY_F10;
-        if (name == "F11") return GLFW_KEY_F11;
-        if (name == "F12") return GLFW_KEY_F12;
-
-        // Number keys
-        if (name == "0") return GLFW_KEY_0;
-        if (name == "1") return GLFW_KEY_1;
-        if (name == "2") return GLFW_KEY_2;
-        if (name == "3") return GLFW_KEY_3;
-        if (name == "4") return GLFW_KEY_4;
-        if (name == "5") return GLFW_KEY_5;
-        if (name == "6") return GLFW_KEY_6;
-        if (name == "7") return GLFW_KEY_7;
-        if (name == "8") return GLFW_KEY_8;
-        if (name == "9") return GLFW_KEY_9;
-
-        // Arrow keys
-        if (name == "UP")    return GLFW_KEY_UP;
-        if (name == "DOWN")  return GLFW_KEY_DOWN;
-        if (name == "LEFT")  return GLFW_KEY_LEFT;
-        if (name == "RIGHT") return GLFW_KEY_RIGHT;
-
-        return GLFW_KEY_UNKNOWN;
-    }
-
-    int mouseButtonNameToCode(const std::string& name) {
-        if (name == "MOUSE_LEFT")   return GLFW_MOUSE_BUTTON_LEFT;
-        if (name == "MOUSE_RIGHT")  return GLFW_MOUSE_BUTTON_RIGHT;
-        if (name == "MOUSE_MIDDLE") return GLFW_MOUSE_BUTTON_MIDDLE;
-        return -1;
-    }
-
-    void loadSection(const toml::table& tbl,
-                     const std::string& section) {
-        auto* s = tbl[section].as_table();
-        if (!s) return;
-
-        for (auto& [key, val] : *s) {
-            std::string actionName =
-                section + "_" + std::string(key.str());
-            InputAction action = nameToAction(actionName);
-            if (action == InputAction::COUNT) continue;
-
-            std::string bindStr = val.value_or("");
-            InputBinding binding;
-
-            if (bindStr == "MOUSE_SCROLL_UP") {
-                binding.type = InputBinding::Type
-                                   ::MouseScrollUp;
-            } else if (bindStr == "MOUSE_SCROLL_DOWN") {
-                binding.type = InputBinding::Type
-                                   ::MouseScrollDown;
-            } else {
-                int mb = mouseButtonNameToCode(bindStr);
-                if (mb >= 0) {
-                    binding.type =
-                        InputBinding::Type::MouseButton;
-                    binding.code = mb;
-                } else {
-                    binding.type =
-                        InputBinding::Type::Key;
-                    binding.code =
-                        keyNameToCode(bindStr);
-                }
-            }
-
-            bindings[action] = binding;
-        }
-    }
-
-    InputAction nameToAction(const std::string& n) {
-        static const std::unordered_map<
-            std::string, InputAction> map = {
-            {"movement_move_forward",   InputAction::MoveForward},
-            {"movement_move_backward",  InputAction::MoveBackward},
-            {"movement_strafe_left",    InputAction::StrafeLeft},
-            {"movement_strafe_right",   InputAction::StrafeRight},
-            {"movement_jump",           InputAction::Jump},
-            {"movement_crouch",         InputAction::Crouch},
-            {"movement_sprint",         InputAction::Sprint},
-            {"movement_roll",           InputAction::Roll},
-            {"actions_use_left",        InputAction::UseLeft},
-            {"actions_use_right",       InputAction::UseRight},
-            {"actions_block",           InputAction::Block},
-            {"actions_draw_weapon",     InputAction::DrawWeapon},
-            {"actions_interact",        InputAction::Interact},
-            {"actions_ledge_grab",      InputAction::LedgeGrab},
-            {"actions_inventory",       InputAction::Inventory},
-            {"actions_toolbar_next",    InputAction::ToolbarNext},
-            {"actions_toolbar_prev",    InputAction::ToolbarPrev},
-            {"actions_toolbar_slot_1",  InputAction::ToolbarSlot1},
-            {"actions_toolbar_slot_2",  InputAction::ToolbarSlot2},
-            {"actions_toolbar_slot_3",  InputAction::ToolbarSlot3},
-            {"actions_toolbar_slot_4",  InputAction::ToolbarSlot4},
-            {"actions_toolbar_slot_5",  InputAction::ToolbarSlot5},
-            {"actions_toolbar_slot_6",  InputAction::ToolbarSlot6},
-            {"actions_toolbar_slot_7",  InputAction::ToolbarSlot7},
-            {"actions_toolbar_slot_8",  InputAction::ToolbarSlot8},
-            {"camera_camera_toggle",    InputAction::CameraToggle},
-            {"dev_toggle_fly",          InputAction::ToggleFly},
-            {"dev_toggle_debug",        InputAction::ToggleDebug},
-            {"dev_toggle_console",      InputAction::ToggleConsole},
-            {"dev_gamemode_cycle",      InputAction::GamemodeCycle},
-            {"dev_reload_registry",     InputAction::ReloadRegistry},
-            {"dev_reload_pack",         InputAction::ReloadPack},
-            {"system_pause",            InputAction::Pause},
-            {"system_screenshot",       InputAction::Screenshot},
+    static const std::vector<std::pair<std::string, int>>& namedKeys() {
+        static const std::vector<std::pair<std::string, int>> keys = {
+            {"SPACE", GLFW_KEY_SPACE}, {"LEFT_SHIFT", GLFW_KEY_LEFT_SHIFT},
+            {"RIGHT_SHIFT", GLFW_KEY_RIGHT_SHIFT}, {"LEFT_CONTROL", GLFW_KEY_LEFT_CONTROL},
+            {"RIGHT_CONTROL", GLFW_KEY_RIGHT_CONTROL}, {"LEFT_ALT", GLFW_KEY_LEFT_ALT},
+            {"RIGHT_ALT", GLFW_KEY_RIGHT_ALT}, {"TAB", GLFW_KEY_TAB},
+            {"ESCAPE", GLFW_KEY_ESCAPE}, {"ENTER", GLFW_KEY_ENTER},
+            {"BACKSPACE", GLFW_KEY_BACKSPACE}, {"GRAVE", GLFW_KEY_GRAVE_ACCENT},
+            {"LEFT_BRACKET", GLFW_KEY_LEFT_BRACKET}, {"RIGHT_BRACKET", GLFW_KEY_RIGHT_BRACKET},
+            {"MINUS", GLFW_KEY_MINUS}, {"EQUAL", GLFW_KEY_EQUAL},
+            {"COMMA", GLFW_KEY_COMMA}, {"PERIOD", GLFW_KEY_PERIOD},
+            {"SLASH", GLFW_KEY_SLASH}, {"BACKSLASH", GLFW_KEY_BACKSLASH},
+            {"SEMICOLON", GLFW_KEY_SEMICOLON}, {"APOSTROPHE", GLFW_KEY_APOSTROPHE},
+            {"UP", GLFW_KEY_UP}, {"DOWN", GLFW_KEY_DOWN},
+            {"LEFT", GLFW_KEY_LEFT}, {"RIGHT", GLFW_KEY_RIGHT},
+            {"PAGE_UP", GLFW_KEY_PAGE_UP}, {"PAGE_DOWN", GLFW_KEY_PAGE_DOWN},
+            {"HOME", GLFW_KEY_HOME}, {"END", GLFW_KEY_END},
+            {"INSERT", GLFW_KEY_INSERT}, {"DELETE", GLFW_KEY_DELETE},
+            {"CAPS_LOCK", GLFW_KEY_CAPS_LOCK},
+            {"KP_0", GLFW_KEY_KP_0}, {"KP_1", GLFW_KEY_KP_1}, {"KP_2", GLFW_KEY_KP_2},
+            {"KP_3", GLFW_KEY_KP_3}, {"KP_4", GLFW_KEY_KP_4}, {"KP_5", GLFW_KEY_KP_5},
+            {"KP_6", GLFW_KEY_KP_6}, {"KP_7", GLFW_KEY_KP_7}, {"KP_8", GLFW_KEY_KP_8},
+            {"KP_9", GLFW_KEY_KP_9}, {"KP_ENTER", GLFW_KEY_KP_ENTER},
         };
-        auto it = map.find(n);
-        return it != map.end()
-            ? it->second : InputAction::COUNT;
-    }
-
-    void loadDefaults() {
-        // Hardcoded fallback if TOML missing
-        auto bind = [&](InputAction a, int key) {
-            InputBinding b;
-            b.type = InputBinding::Type::Key;
-            b.code = key;
-            bindings[a] = b;
-        };
-        auto bindMouse = [&](InputAction a, int btn) {
-            InputBinding b;
-            b.type = InputBinding::Type::MouseButton;
-            b.code = btn;
-            bindings[a] = b;
-        };
-
-        bind(InputAction::MoveForward,   GLFW_KEY_W);
-        bind(InputAction::MoveBackward,  GLFW_KEY_S);
-        bind(InputAction::StrafeLeft,    GLFW_KEY_A);
-        bind(InputAction::StrafeRight,   GLFW_KEY_D);
-        bind(InputAction::Jump,          GLFW_KEY_SPACE);
-        bind(InputAction::Crouch,        GLFW_KEY_LEFT_CONTROL);
-        bind(InputAction::Sprint,        GLFW_KEY_LEFT_SHIFT);
-        bind(InputAction::Roll,          GLFW_KEY_LEFT_SHIFT);
-        bind(InputAction::Interact,      GLFW_KEY_E);
-        bind(InputAction::Inventory,     GLFW_KEY_TAB);
-        bind(InputAction::DrawWeapon,    GLFW_KEY_R);
-        bind(InputAction::Block,         GLFW_KEY_Q);
-        bind(InputAction::ToggleFly,     GLFW_KEY_V);
-        bind(InputAction::ToggleDebug,   GLFW_KEY_F3);
-        bind(InputAction::ToggleConsole, GLFW_KEY_GRAVE_ACCENT);
-        bind(InputAction::GamemodeCycle, GLFW_KEY_F4);
-        bind(InputAction::ReloadRegistry,GLFW_KEY_F6);
-        bind(InputAction::ReloadPack,    GLFW_KEY_F7);
-        bind(InputAction::CameraToggle,  GLFW_KEY_F5);
-        bind(InputAction::Pause,         GLFW_KEY_ESCAPE);
-        bind(InputAction::Screenshot,    GLFW_KEY_F2);
-        bind(InputAction::ToolbarSlot1,  GLFW_KEY_1);
-        bind(InputAction::ToolbarSlot2,  GLFW_KEY_2);
-        bind(InputAction::ToolbarSlot3,  GLFW_KEY_3);
-        bind(InputAction::ToolbarSlot4,  GLFW_KEY_4);
-        bind(InputAction::ToolbarSlot5,  GLFW_KEY_5);
-        bind(InputAction::ToolbarSlot6,  GLFW_KEY_6);
-        bind(InputAction::ToolbarSlot7,  GLFW_KEY_7);
-        bind(InputAction::ToolbarSlot8,  GLFW_KEY_8);
-        bindMouse(InputAction::UseLeft,  GLFW_MOUSE_BUTTON_LEFT);
-        bindMouse(InputAction::UseRight, GLFW_MOUSE_BUTTON_RIGHT);
-
-        std::cout << "InputManager: using default bindings\n";
+        return keys;
     }
 };
 

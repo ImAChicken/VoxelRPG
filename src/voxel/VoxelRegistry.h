@@ -27,6 +27,9 @@ struct VoxelTypeDef {
     uint32_t    flags       = 0;
     uint8_t     hardness    = 0;
     uint16_t    onDestroyID = 0;
+    // What it is made of — decides which tool digs it
+    // fastest (stone → pickaxe, dirt → shovel, wood → axe)
+    std::string material    = "none";
     VoxelOpacity opacity    = VoxelOpacity::None;
 
     // Render color RGB 0-1
@@ -71,6 +74,7 @@ public:
                 def.name = (*tbl2)["name"].value_or("unknown");
                 def.hardness    = (uint8_t)(*tbl2)["hardness"].value_or(0);
                 def.onDestroyID = (uint16_t)(*tbl2)["on_destroy"].value_or(0);
+                def.material    = (*tbl2)["material"].value_or("none");
 
                 // Opacity
                 std::string op = (*tbl2)["opacity"].value_or("full");

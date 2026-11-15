@@ -317,12 +317,12 @@ public:
             // Climb from the bottom of the world to the top
             // of the ground
             int y = 0;
-            while (y < VOXEL_DIM && isSolid(vx, y, vz)) y++;
+            while (y < WORLD_HEIGHT && isSolid(vx, y, vz)) y++;
             if (y == 0) continue;   // nothing to stand on
 
             // Then up until the whole body fits
             glm::vec3 p(px, (float)y, pz);
-            while (p.y < (float)VOXEL_DIM &&
+            while (p.y < (float)WORLD_HEIGHT &&
                    overlaps(p, radius, height)) p.y += 1.0f;
 
             if (!found || p.y < out.y) {

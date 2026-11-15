@@ -6,10 +6,14 @@
 // Magic number identifies valid .vxrp files
 // Spells VXRP in little-endian bytes
 constexpr uint32_t CHUNK_MAGIC   = 0x50525856;
-// Version 2: 128³ chunks, voxels stored Y-major
-// (same order as Chunk::index). Version 1 files (64³) are
-// rejected on load and the chunk is regenerated from the seed.
-constexpr uint16_t CHUNK_VERSION = 2;
+// Version 3: a column of SECTIONS 128³ sections (dimY holds
+// the section count). The voxel data is one block per section:
+//   uint32 compressed size, then that many LZ4 bytes of the
+//   section's voxels (uint16 little-endian, Y-major)
+// Version 2 files (a single 128³ chunk) load into the bottom
+// section. Version 1 files (64³) are rejected and the chunk
+// is regenerated from the seed.
+constexpr uint16_t CHUNK_VERSION = 3;
 
 enum class ChunkRole : uint8_t {
     World     = 0,

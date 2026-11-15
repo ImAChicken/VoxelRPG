@@ -1,0 +1,146 @@
+# VoxelRPG Structure Registry
+# Multi-block structures that exist as ONE object in the world
+# (a structure instance): building pieces, doors and trees.
+# Scale: 1 voxel = 4 inches, so 3 voxels = 1 ft, 12 voxels = 4 ft.
+# F6 reloads this file.
+#
+# kind:     build | door | tree
+# menu:     true = listed in the Builder's Hammer build menu
+# block:    what a build piece / door is made of
+# size:     [width, height, depth] in voxels
+# hole:     [x, y, z, width, height, depth] cut out of a build piece
+# snap:     while following the crosshair, line the piece up on
+#           this grid (foundations snap to the 4 ft grid)
+# foundation:    true = rests on the ground and holds others up;
+#                it may sink into earth / stone (not wood or
+#                other structures), so it can level uneven ground
+# needs_support: true = in Survival it must touch a foundation or
+#                a piece already standing on one
+# cost:     what Survival placement uses up (refunded on removal)
+# health / drop / drop_count: trees — chops take health away,
+#           at 0 the whole tree falls and drops this
+
+# ── Building pieces ───────────────────────────────────────
+[[structure]]
+name = "foundation"
+display = "Stone Foundation"
+kind = "build"
+menu = true
+block = "stone"
+size = [12, 12, 12]
+snap = 12
+foundation = true
+cost = { stone = 32 }
+
+[[structure]]
+name = "plank_floor"
+display = "Plank Floor"
+kind = "build"
+menu = true
+block = "planks"
+size = [12, 1, 12]
+snap = 12
+needs_support = true
+cost = { planks = 12 }
+
+[[structure]]
+name = "plank_wall"
+display = "Plank Wall"
+kind = "build"
+menu = true
+block = "planks"
+size = [12, 24, 1]
+needs_support = true
+cost = { planks = 16 }
+
+[[structure]]
+name = "plank_doorway"
+display = "Plank Doorway"
+kind = "build"
+menu = true
+block = "planks"
+size = [12, 24, 1]
+hole = [1, 0, 0, 9, 21, 1]
+needs_support = true
+cost = { planks = 10 }
+
+[[structure]]
+name = "plank_window"
+display = "Plank Window Wall"
+kind = "build"
+menu = true
+block = "planks"
+size = [12, 24, 1]
+hole = [3, 9, 0, 6, 6, 1]
+needs_support = true
+cost = { planks = 14 }
+
+[[structure]]
+name = "stone_wall"
+display = "Stone Wall"
+kind = "build"
+menu = true
+block = "cobblestone"
+size = [12, 24, 2]
+needs_support = true
+cost = { cobblestone = 24 }
+
+[[structure]]
+name = "stone_pillar"
+display = "Stone Pillar"
+kind = "build"
+menu = true
+block = "cobblestone"
+size = [3, 24, 3]
+needs_support = true
+cost = { cobblestone = 8 }
+
+# ── Doors (E opens / closes) ──────────────────────────────
+# 3 ft x 7 ft. Placed by its hinge corner; opening swings the
+# panel a quarter turn around the hinge.
+[[structure]]
+name = "wooden_door"
+display = "Wooden Door"
+kind = "door"
+menu = true
+block = "planks"
+size = [9, 21, 1]
+needs_support = true
+cost = { planks = 6 }
+
+# ── Trees (chop the trunk to fell them) ───────────────────
+[[structure]]
+name = "oak_tree"
+display = "Oak Tree"
+kind = "tree"
+generator = "oak"
+health = 40
+drop = "log_y"
+drop_count = 24
+
+[[structure]]
+name = "pine_tree"
+display = "Pine Tree"
+kind = "tree"
+generator = "pine"
+health = 50
+drop = "log_y"
+drop_count = 28
+
+[[structure]]
+name = "dead_tree"
+display = "Dead Tree"
+kind = "tree"
+generator = "dead"
+health = 20
+drop = "log_y"
+drop_count = 12
+
+[[structure]]
+name = "ancient_oak"
+display = "Ancient Oak"
+kind = "tree"
+generator = "ancient"
+health = 120
+drop = "log_y"
+drop_count = 64

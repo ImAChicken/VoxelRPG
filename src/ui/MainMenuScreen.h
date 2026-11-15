@@ -1,5 +1,11 @@
 #pragma once
 #include "UIScreen.h"
+#include "../game/GameMode.h"
+#include "../worldgen/IslandChart.h"
+#include "../worldgen/WorldType.h"
+#include <chrono>
+#include <cstdio>
+#include <random>
 #include <GLFW/glfw3.h>
 #include <string>
 #include <vector>
@@ -39,15 +45,17 @@ public:
                     theme.titleScale * 8 + 12,
                     theme.textDim, 2);
 
-        float panelW = 420.0f;
+        float panelW = 500.0f;
         float panelX = (sw - panelW) * 0.5f;
 
         if (state == State::Main) {
             result = drawMainButtons(ui, panelX, 200.0f,
                                      panelW, theme);
         } else if (state == State::NewWorld) {
-            result = drawNewWorldPanel(ui, panelX, 180.0f,
-                                       panelW, theme);
+            // Wider: settings on the left, island map on the right
+            float nw = std::min(1000.0f, (float)sw - 20.0f);
+            result = drawNewWorldPanel(ui, (sw - nw) * 0.5f, 140.0f,
+                                       nw, theme);
         } else if (state == State::LoadWorld) {
             result = drawLoadWorldPanel(ui, panelX, 180.0f,
                                         panelW, theme);
@@ -73,6 +81,16 @@ public:
             return h;
         }
     }
+    GameMode    getNewWorldMode() const { return worldMode; }
+    WorldType   getNewWorldType() const { return worldType; }
+    int         getNewWorldSize() const { return worldSizeFor(worldType, islandSize); }
+
+    // Coming back from a world: always start at the main
+    // page, not whichever panel was open before
+    void onEnter() override {
+        state = State::Main;
+        mousePrevPressed = mousePressed = true;
+    }
     std::string getLoadWorldName() const { return selectedWorld; }
 
 private:
@@ -85,6 +103,16 @@ private:
     // New world inputs
     std::string worldName;
     std::string worldSeed;
+    GameMode    worldMode   = GameMode::Survival;  // default mode
+    WorldType   worldType   = WorldType::Island;
+    int         islandSize  = 96;                  // chunks per side
+
+    // The island map shown on the right, rebuilt whenever
+    // the seed or size changes
+    island::Chart preview;
+    uint64_t      previewSeed = ~0ull;
+    int           previewSize = 0;
+    float         previewMs   = 0.0f;
     bool        nameActive  = true;   // which input is focused
     float       cursorTimer = 0.0f;
     bool        showCursor  = true;
@@ -156,6 +184,9 @@ private:
                     state = State::NewWorld;
                     worldName.clear();
                     worldSeed.clear();
+                    worldMode  = GameMode::Survival;
+                    worldType  = WorldType::Island;
+                    islandSize = 96;
                     nameActive = true;
                 }
                 else if (i == 1) {
@@ -168,67 +199,217 @@ private:
         return ScreenResult::Continue;
     }
 
+    // A row of choices; returns the index clicked, or -1
+    int choiceRow(UIRenderer& ui, const UITheme& theme, float x, float y, float w,
+                  const std::vector<std::string>& labels, int selected, bool enabled = true) {
+        float gap = 6.0f;
+        float cw  = (w - gap * (labels.size() - 1)) / labels.size();
+        float ch  = (float)theme.buttonH;
+        int clicked = -1;
+        for (size_t i = 0; i < labels.size(); i++) {
+            float cx  = x + (cw + gap) * i;
+            bool  hov = enabled && isHovered(cx, y, cw, ch);
+            bool  on  = enabled && (int)i == selected;
+            ui.drawRect(cx, y, cw, ch, (on || hov) ? theme.buttonBgHover : theme.buttonBg);
+            ui.drawBorder(cx, y, cw, ch, on ? theme.accent : theme.buttonBorder,
+                          on ? 2.0f : 1.0f);
+            ui.drawTextCentered(labels[i], cx, y, cw, ch,
+                                !enabled ? theme.textDim : on ? theme.textHover : theme.text, 2);
+            if (hov && justClicked()) clicked = (int)i;
+        }
+        return clicked;
+    }
+
     ScreenResult drawNewWorldPanel(UIRenderer& ui,
                                     float px, float py,
                                     float pw,
                                     const UITheme& theme) {
         float pad = (float)theme.panelPad;
-        float ph  = 240.0f;
+        float ph  = 480.0f;
         drawPanel(ui, px, py, pw, ph);
 
         float lx = px + pad;
         float ly = py + pad;
-        float iw = pw - pad * 2;
+        float iw = 440.0f;                      // left column width
 
-        // Title
         ui.drawText("New World", lx, ly, theme.title, 2);
-        ly += 24.0f;
+        ly += 26.0f;
 
-        // World name input
+        // ── Name ──────────────────────────────────────────
         ui.drawText("World Name:", lx, ly, theme.text, 2);
         ly += 20.0f;
-        bool nameHov = isHovered(lx, ly, iw,
-                                  (float)theme.buttonH);
+        bool nameHov = isHovered(lx, ly, iw, (float)theme.buttonH);
         if (nameHov && justClicked()) nameActive = true;
-        drawInput(ui, worldName, "My World",
-                  lx, ly, iw, nameActive, showCursor);
+        drawInput(ui, worldName, "My World", lx, ly, iw, nameActive, showCursor);
         ly += theme.buttonH + 10.0f;
 
-        // Seed input
-        ui.drawText("Seed (optional):", lx, ly, theme.text, 2);
+        // ── Seed, with a Random button ────────────────────
+        ui.drawText("Seed:", lx, ly, theme.text, 2);
         ly += 20.0f;
-        bool seedHov = isHovered(lx, ly, iw,
-                                  (float)theme.buttonH);
+        float rw = 120.0f;
+        bool seedHov = isHovered(lx, ly, iw - rw - 8, (float)theme.buttonH);
         if (seedHov && justClicked()) nameActive = false;
-        drawInput(ui, worldSeed, "42",
-                  lx, ly, iw, !nameActive, showCursor);
-        ly += theme.buttonH + 16.0f;
+        drawInput(ui, worldSeed, "42", lx, ly, iw - rw - 8, !nameActive, showCursor);
+        float rx = lx + iw - rw;
+        bool randHov = isHovered(rx, ly, rw, (float)theme.buttonH);
+        ui.drawRect(rx, ly, rw, (float)theme.buttonH, randHov ? theme.buttonBgHover : theme.buttonBg);
+        ui.drawBorder(rx, ly, rw, (float)theme.buttonH, theme.buttonBorder, 1.0f);
+        ui.drawTextCentered("Random", rx, ly, rw, (float)theme.buttonH,
+                            randHov ? theme.textHover : theme.text, 2);
+        if (randHov && justClicked()) {
+            std::random_device rd;
+            worldSeed = std::to_string(rd() % 1000000u);
+        }
+        ly += theme.buttonH + 10.0f;
 
-        // Buttons
+        // ── World type ────────────────────────────────────
+        ui.drawText("World Type:", lx, ly, theme.text, 2);
+        ly += 20.0f;
+        {
+            std::vector<std::string> types;
+            for (int t = 0; t < (int)WorldType::COUNT; t++)
+                types.push_back(worldTypeName((WorldType)t));
+            int c = choiceRow(ui, theme, lx, ly, iw, types, (int)worldType);
+            if (c >= 0) worldType = (WorldType)c;
+        }
+        ly += theme.buttonH + 10.0f;
+
+        // ── Island size ───────────────────────────────────
+        bool isIsland = worldType == WorldType::Island;
+        ui.drawText("Island Size:", lx, ly, isIsland ? theme.text : theme.textDim, 2);
+        ly += 20.0f;
+        {
+            int sel = islandSize <= 72 ? 0 : islandSize <= 96 ? 1 : 2;
+            int c = choiceRow(ui, theme, lx, ly, iw, { "Small", "Medium", "Large" }, sel, isIsland);
+            if (c >= 0) islandSize = ISLAND_SIZES[c];
+        }
+        ly += theme.buttonH + 10.0f;
+
+        // ── Default mode ──────────────────────────────────
+        ui.drawText("Default Mode:", lx, ly, theme.text, 2);
+        ly += 20.0f;
+        {
+            const GameMode choices[3] = { GameMode::Survival, GameMode::Dev, GameMode::Spectator };
+            int sel = worldMode == GameMode::Survival ? 0 : worldMode == GameMode::Dev ? 1 : 2;
+            int c = choiceRow(ui, theme, lx, ly, iw,
+                              { rulesFor(choices[0], false).name, rulesFor(choices[1], false).name,
+                                rulesFor(choices[2], false).name }, sel);
+            if (c >= 0) worldMode = choices[c];
+        }
+        ly += theme.buttonH + 18.0f;
+
+        // ── Buttons ───────────────────────────────────────
         float bw = (float)theme.buttonW;
         float bh = (float)theme.buttonH;
-        float createX = px + pad;
-        float backX   = px + pw - pad - bw;
-
+        ly = py + ph - pad - bh;                // buttons sit on the panel's bottom edge
+        float createX = lx;
+        float backX   = lx + iw - bw;
         bool createHov = isHovered(createX, ly, bw, bh);
         bool backHov   = isHovered(backX,   ly, bw, bh);
-
         drawButton(ui, "Create World", createX, ly, createHov);
         drawButton(ui, "Back",         backX,   ly, backHov);
+
+        // ── Preview, right column ─────────────────────────
+        float mapX = lx + iw + 30.0f;
+        float mapW = px + pw - pad - mapX;
+        drawPreview(ui, theme, mapX, py + pad, mapW, ph - pad * 2);
 
         if (createHov && justClicked()) {
             if (worldName.empty()) worldName = "New World";
             return ScreenResult::NewWorld;
         }
-        if (backHov && justClicked()) {
-            state = State::Main;
+        if (backHov && justClicked()) state = State::Main;
+
+        handleTextInput();
+        return ScreenResult::Continue;
+    }
+
+    // The right-hand column: the island map, or a note for
+    // world types without a map
+    void drawPreview(UIRenderer& ui, const UITheme& theme, float x, float y, float w, float h) {
+        if (worldType != WorldType::Island) {
+            ui.drawText("Classic", x, y, theme.title, 2);
+            ui.drawText("Rolling hills and forest.", x, y + 30, theme.text, 2);
+            ui.drawText("32 x 32 chunks, 0.26 mi", x, y + 52, theme.textDim, 2);
+            return;
         }
 
-        // Text input handling
-        // (character input handled via glfwSetCharCallback)
-        handleTextInput();
+        // Rebuild the chart when the seed or size changes
+        uint64_t seed = getNewWorldSeed() % 1000000ull;
+        if (seed != previewSeed || islandSize != previewSize) {
+            auto t0 = std::chrono::steady_clock::now();
+            preview = island::generateIsland((int)seed, islandSize);
+            previewMs = std::chrono::duration<float, std::milli>(
+                std::chrono::steady_clock::now() - t0).count();
+            previewSeed = seed;
+            previewSize = islandSize;
+        }
 
-        return ScreenResult::Continue;
+        const int S = preview.size;
+        float side = std::min(w, h - 50.0f);
+        float cell = side / S;
+        float map  = side;
+        float mx = x + (w - map) * 0.5f, my = y;
+
+        // One rectangle per cell, coloured by biome
+        for (int j = 0; j < S; j++)
+        for (int i = 0; i < S; i++) {
+            uint32_t c = island::biomeInfo(preview.at(i, j)).color;
+            // Hill shading: lit from the north-west, so the
+            // mountain and the valleys stand out
+            auto el = [&](int x, int y) {
+                x = std::clamp(x, 0, S - 1); y = std::clamp(y, 0, S - 1);
+                return preview.elev[(size_t)y * S + x];
+            };
+            float shade = std::clamp(1.0f + (el(i - 1, j - 1) - el(i + 1, j + 1)) * 3.0f, 0.6f, 1.35f);
+            float col[4] = { std::min(255.0f, ((c >> 16) & 255) * shade),
+                             std::min(255.0f, ((c >> 8) & 255) * shade),
+                             std::min(255.0f, (c & 255) * shade), 255.0f };
+            float x0 = std::floor(mx + i * cell), y0 = std::floor(my + j * cell);
+            float x1 = std::floor(mx + (i + 1) * cell), y1 = std::floor(my + (j + 1) * cell);
+            ui.drawRect(x0, y0, x1 - x0, y1 - y0, col);
+        }
+        ui.drawBorder(mx, my, map, map, theme.border, 1.0f);
+
+        // Markers
+        for (const auto& m : preview.markers) {
+            float c[4] = {255, 255, 255, 255};
+            if (m.kind == "village") { c[0] = 255; c[1] = 160; c[2] = 60; }
+            else if (m.kind == "cave") { c[0] = 20; c[1] = 20; c[2] = 20; }
+            else if (m.kind == "spring") { c[0] = 80; c[1] = 230; c[2] = 220; }
+            else if (m.kind == "lava") { c[0] = 255; c[1] = 90; c[2] = 20; }
+            else if (m.kind == "fork") { c[0] = 250; c[1] = 220; c[2] = 120; }
+            float r = std::max(3.0f, cell * 0.8f);
+            float cx = mx + (m.x + 0.5f) * cell, cy = my + (m.y + 0.5f) * cell;
+            float edge[4] = {0, 0, 0, 255};
+            ui.drawRect(cx - r - 1, cy - r - 1, r * 2 + 2, r * 2 + 2, edge);
+            ui.drawRect(cx - r, cy - r, r * 2, r * 2, c);
+            if (m.kind == "spawn" || m.kind == "peak")
+                ui.drawText(m.label, cx + r + 3, cy - 6, theme.textHover, 1);
+        }
+
+        // Under the map: size, and what the mouse is over
+        float ty = my + map + 8;
+        char buf[160];
+        double miles = S * 128 * 4.0 / 12.0 / 5280.0;
+        std::snprintf(buf, sizeof(buf), "%d x %d chunks, %.1f mi", S, S, miles);
+        fitText(ui, buf, mx, ty, map, theme.textDim);
+        ty += 20;
+        if (mouseX >= mx && mouseY >= my && mouseX < mx + map && mouseY < my + map) {
+            int ci = (int)((mouseX - mx) / cell), cj = (int)((mouseY - my) / cell);
+            int b = preview.at(ci, cj);
+            std::snprintf(buf, sizeof(buf), "%s, elev %.2f", island::biomeInfo(b).name,
+                          preview.elev[(size_t)cj * S + ci]);
+            fitText(ui, buf, mx, ty, map, theme.textHover);
+        } else {
+            fitText(ui, "Point at the map for details", mx, ty, map, theme.textDim);
+        }
+    }
+
+    // Text at scale 2, dropping to scale 1 if it would run past maxW
+    void fitText(UIRenderer& ui, const std::string& t, float x, float y, float maxW, const float* col) {
+        int scale = ui.textWidth(t, 2) <= maxW ? 2 : 1;
+        ui.drawText(t, x, y, col, scale);
     }
 
     ScreenResult drawLoadWorldPanel(UIRenderer& ui,
@@ -310,4 +491,4 @@ public:
         if (key == GLFW_KEY_TAB)
             nameActive = !nameActive;
     }
-};
+};

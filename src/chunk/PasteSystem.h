@@ -83,7 +83,7 @@ private:
         while (lz >= VOXEL_DIM) { tcz++; lz -= VOXEL_DIM; }
 
         // Y is clamped — trees don't go underground or above chunk
-        if (wy < 0 || wy >= VOXEL_DIM) return;
+        if (wy < 0 || wy >= WORLD_HEIGHT) return;
 
         Chunk* dest = world.getChunk(tcx, tcz);
         if (!dest) return;

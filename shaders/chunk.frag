@@ -16,12 +16,15 @@
 in      vec2  vFacePos;
 flat in vec2  vTile;
 flat in float vShade;
+in      float vDist;
 
 out vec4 outColor;
 
 uniform sampler2D uAtlas;
 uniform vec2  uTileUV;          // size of one tile in atlas UVs
 uniform float uVoxelsPerTile;   // voxels one tile stretches over
+uniform vec3  uFogColor;        // distance haze — same as the
+uniform float uFogDensity;      // distant terrain, so they blend
 
 void main() {
     vec2 inTile = fract(vFacePos / uVoxelsPerTile);
@@ -32,5 +35,6 @@ void main() {
     // Cut-out pixels (gaps between leaves)
     if (color.a < 0.1) discard;
 
-    outColor = vec4(color.rgb * vShade, color.a);
+    float fog = 1.0 - exp(-vDist * uFogDensity);
+    outColor = vec4(mix(color.rgb * vShade, uFogColor, fog), color.a);
 }

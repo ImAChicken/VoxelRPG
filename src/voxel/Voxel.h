@@ -6,7 +6,12 @@
 //   chunk  = 128 voxels = 512 inches = 42.7 ft per side
 //   player = 17 voxels  = 68 inches  = 5'8"
 constexpr int   VOXEL_DIM       = 128;
-constexpr int   VOXEL_COUNT     = VOXEL_DIM * VOXEL_DIM * VOXEL_DIM;
+constexpr int   VOXEL_COUNT     = VOXEL_DIM * VOXEL_DIM * VOXEL_DIM;   // one section
+
+// A chunk is a column of SECTIONS stacked 128³ sections:
+//   8 × 128 = 1024 voxels = 341 ft from bedrock to sky
+constexpr int   SECTIONS        = 8;
+constexpr int   WORLD_HEIGHT    = VOXEL_DIM * SECTIONS;
 constexpr float VOXEL_SIZE_IN   = 4.0f;
 
 // Block IDs — must match data/registry/blocks.toml exactly

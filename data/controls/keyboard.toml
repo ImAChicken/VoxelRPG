@@ -34,6 +34,7 @@ toolbar_slot_5  = "5"
 toolbar_slot_6  = "6"
 toolbar_slot_7  = "7"
 toolbar_slot_8  = "8"
+rotate_piece    = "T"              # Builder's Hammer: turn the structure
 
 [camera]
 camera_toggle  = "F5"              # first person <-> third person
@@ -43,8 +44,20 @@ toggle_fly      = "V"              # fly mode on/off (dev mode only)
 toggle_debug    = "F3"             # debug overlay
 toggle_console  = "GRAVE"          # ` key — dev console
 gamemode_cycle  = "F4"             # cycle gamemodes
-reload_registry = "F6"             # hot reload blocks.toml
+reload_registry = "F6"             # hot reload blocks.toml + items.toml
 reload_pack     = "F7"             # hot reload resource pack
+pick_block      = "MOUSE_MIDDLE"   # copy the block you look at into the toolbar
+undo            = "Z"              # undo the last dev edit
+redo            = "Y"              # redo
+brush_bigger    = "EQUAL"          # = : dev brush / explosion bigger
+brush_smaller   = "MINUS"          # - : dev brush / explosion smaller
+nudge_forward   = "UP"             # paste tool: move away   brush/explosion: bigger
+nudge_back      = "DOWN"           # paste tool: move closer brush/explosion: smaller
+nudge_left      = "LEFT"           # paste tool: move left
+nudge_right     = "RIGHT"          # paste tool: move right
+nudge_up        = "PAGE_UP"        # paste tool: move up
+nudge_down      = "PAGE_DOWN"      # paste tool: move down
+tool_cancel     = "BACKSPACE"      # release a locked paste / cancel a prompt
 
 [system]
 pause           = "ESCAPE"

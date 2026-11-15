@@ -9,6 +9,7 @@
 #include "../render/Shader.h"
 #include "../render/ChunkMesh.h"
 #include "../render/AtlasTexture.h"
+#include "../render/BoxRenderer.h"
 #include "../ui/UIRenderer.h"
 #include "../render/Camera.h"
 #include "../chunk/Chunk.h"
@@ -43,6 +44,9 @@ public:
         locTileUV      = glGetUniformLocation(shader.id, "uTileUV");
         locVoxelsPerTile =
             glGetUniformLocation(shader.id, "uVoxelsPerTile");
+        locCamPos      = glGetUniformLocation(shader.id, "uCamPos");
+        locFogColor    = glGetUniformLocation(shader.id, "uFogColor");
+        locFogDensity  = glGetUniformLocation(shader.id, "uFogDensity");
 
         if (!uiRenderer.init(screenW, screenH)) {
             std::cerr << "OpenGLRenderer: UI init failed\n";
@@ -54,6 +58,11 @@ public:
             return false;
         }
 
+        if (!boxRenderer.init()) {
+            std::cerr << "OpenGLRenderer: box renderer init failed\n";
+            return false;
+        }
+
         std::cout << "OpenGLRenderer initialized "
                   << screenW << "x" << screenH << "\n";
         return true;
@@ -61,6 +70,7 @@ public:
 
     void shutdown() override {
         atlas.cleanup();
+        boxRenderer.cleanup();
         uiRenderer.cleanup();
     }
 
@@ -75,7 +85,7 @@ public:
         drawCallCount  = 0;
         vertexCount    = 0;
 
-        glClearColor(0.4f, 0.6f, 0.9f, 1.0f);
+        glClearColor(FOG_COLOR.r, FOG_COLOR.g, FOG_COLOR.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT |
                 GL_DEPTH_BUFFER_BIT);
 
@@ -94,6 +104,7 @@ public:
         viewMatrix = camera.getViewMatrix();
         projMatrix = camera.getProjectionMatrix(
                          aspectRatio);
+        cameraPos  = camera.position;
     }
 
     void drawChunk(const Chunk& chunk,
@@ -130,6 +141,9 @@ public:
         glUniform1i(locAtlas, 0);
         glUniform2f(locTileUV, atlas.tileU(), atlas.tileV());
         glUniform1f(locVoxelsPerTile, atlas.voxelsPerTile());
+        glUniform3f(locCamPos, cameraPos.x, cameraPos.y, cameraPos.z);
+        glUniform3f(locFogColor, FOG_COLOR.r, FOG_COLOR.g, FOG_COLOR.b);
+        glUniform1f(locFogDensity, FOG_DENSITY);
         atlas.bind(0);
 
         extractFrustum(projMatrix * viewMatrix);
@@ -163,6 +177,16 @@ public:
     void endWorldDraw() {
         glBindVertexArray(0);
         glDisable(GL_CULL_FACE);
+    }
+
+    // A plain coloured box in the world — a stand-in for
+    // anything without a model yet (see BoxRenderer.h).
+    // Call after endWorldDraw() and before any UI.
+    void drawBox(glm::vec3 base, glm::vec3 size,
+                 float yawDeg, glm::vec3 color) {
+        boxRenderer.draw(projMatrix * viewMatrix,
+                         base, size, yawDeg, color);
+        drawCallCount++;
     }
 
     UIRenderer* getUIRenderer() override {
@@ -203,16 +227,31 @@ public:
     // Direct shader access for main loop
     Shader& getShader() { return shader; }
 
+    // ── Sky and distance haze ─────────────────────────────
+    // The sky is the fog colour, so far land fades into it.
+    // Density: about 75% haze at 12,000 voxels (4,000 ft).
+    static constexpr glm::vec3 FOG_COLOR   = glm::vec3(0.58f, 0.72f, 0.93f);
+    static constexpr float     FOG_DENSITY = 1.15e-4f;
+
+    const glm::mat4& getViewMatrix() const { return viewMatrix; }
+
+    // A block's colour seen from far away: the average of its
+    // top tile in the atlas
+    glm::u8vec3 tileAverage(int tx, int ty) const { return atlas.averageColor(tx, ty); }
+
 private:
     Shader      shader;
     AtlasTexture atlas;
     UIRenderer  uiRenderer;
+    BoxRenderer boxRenderer;
 
     glm::mat4   viewMatrix = glm::mat4(1.0f);
     glm::mat4   projMatrix = glm::mat4(1.0f);
 
     GLint locView = -1, locProjection = -1, locChunkOrigin = -1;
     GLint locAtlas = -1, locTileUV = -1, locVoxelsPerTile = -1;
+    GLint locCamPos = -1, locFogColor = -1, locFogDensity = -1;
+    glm::vec3 cameraPos = glm::vec3(0.0f);
 
     // The six planes of the camera's view volume, each stored
     // as (normal, distance). A point is inside when

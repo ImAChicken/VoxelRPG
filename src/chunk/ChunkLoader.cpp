@@ -4,6 +4,49 @@
 #include <vector>
 #include <iostream>
 
+namespace {
+    constexpr int SECTION_BYTES = VOXEL_COUNT * (int)sizeof(uint16_t);
+
+    // One section → LZ4 bytes
+    bool packSection(const ChunkSection& sec, std::vector<uint8_t>& out) {
+        static thread_local std::vector<uint16_t> voxels;
+        static thread_local std::vector<uint8_t>  raw;
+        voxels.resize(VOXEL_COUNT);
+        raw.resize(SECTION_BYTES);
+        sec.copyTo(voxels.data());
+        for (int i = 0; i < VOXEL_COUNT; i++) {
+            raw[i * 2]     = (uint8_t)(voxels[i] & 0xFF);
+            raw[i * 2 + 1] = (uint8_t)(voxels[i] >> 8);
+        }
+        int bound = LZ4_compressBound(SECTION_BYTES);
+        size_t at = out.size();
+        out.resize(at + 4 + bound);
+        int n = LZ4_compress_default(reinterpret_cast<const char*>(raw.data()),
+                                     reinterpret_cast<char*>(out.data() + at + 4),
+                                     SECTION_BYTES, bound);
+        if (n <= 0) return false;
+        out[at] = (uint8_t)n; out[at + 1] = (uint8_t)(n >> 8);
+        out[at + 2] = (uint8_t)(n >> 16); out[at + 3] = (uint8_t)(n >> 24);
+        out.resize(at + 4 + n);
+        return true;
+    }
+
+    // LZ4 bytes → one section
+    bool unpackSection(const uint8_t* src, int size, ChunkSection& sec) {
+        static thread_local std::vector<uint8_t> raw;
+        raw.resize(SECTION_BYTES);
+        int got = LZ4_decompress_safe(reinterpret_cast<const char*>(src),
+                                      reinterpret_cast<char*>(raw.data()),
+                                      size, SECTION_BYTES);
+        if (got != SECTION_BYTES) return false;
+        uint16_t* out = sec.rawData();
+        for (int i = 0; i < VOXEL_COUNT; i++)
+            out[i] = (uint16_t)(raw[i * 2] | (raw[i * 2 + 1] << 8));
+        sec.compress();
+        return true;
+    }
+}
+
 bool ChunkLoader::save(const Chunk&                 chunk,
                         const std::filesystem::path& path,
                         int32_t worldX,
@@ -11,66 +54,52 @@ bool ChunkLoader::save(const Chunk&                 chunk,
                         int32_t worldZ,
                         ChunkRole role)
 {
-    // --- Flatten voxels into raw little-endian bytes ---
-    // Voxel order is Y-major, identical to Chunk::index()
-    constexpr int RAW_SIZE_BYTES = VOXEL_COUNT * (int)sizeof(uint16_t);
-
-    std::vector<uint16_t> voxels(VOXEL_COUNT);
-    chunk.copyTo(voxels.data());
-
-    std::vector<uint8_t> raw(RAW_SIZE_BYTES);
-    for (int i = 0; i < VOXEL_COUNT; i++) {
-        raw[i * 2]     = (uint8_t)(voxels[i] & 0xFF);
-        raw[i * 2 + 1] = (uint8_t)(voxels[i] >> 8);
+    std::vector<uint8_t> data;
+    for (int s = 0; s < SECTIONS; s++) {
+        if (!packSection(chunk.section(s), data)) {
+            std::cerr << "LZ4 compression failed\n";
+            return false;
+        }
     }
 
-    // --- LZ4 compress ---
-    int maxCompressed = LZ4_compressBound(RAW_SIZE_BYTES);
-    std::vector<uint8_t> compressed(maxCompressed);
-
-    int compressedSize = LZ4_compress_default(
-        reinterpret_cast<const char*>(raw.data()),
-        reinterpret_cast<char*>(compressed.data()),
-        RAW_SIZE_BYTES,
-        maxCompressed);
-
-    if (compressedSize <= 0) {
-        std::cerr << "LZ4 compression failed\n";
-        return false;
-    }
-    compressed.resize(compressedSize);
-
-    // --- Build header ---
     ChunkHeader header{};
     header.magic           = CHUNK_MAGIC;
     header.version         = CHUNK_VERSION;
     header.role            = role;
     header.dimX            = VOXEL_DIM;
-    header.dimY            = VOXEL_DIM;
+    header.dimY            = SECTIONS;
     header.dimZ            = VOXEL_DIM;
     header.worldX          = worldX;
     header.worldY          = worldY;
     header.worldZ          = worldZ;
-    header.voxelDataSize   = (uint32_t)compressedSize;
+    header.voxelDataSize   = (uint32_t)data.size();
     header.voxelDataOffset = (uint32_t)sizeof(ChunkHeader);
     header.entityOffset    = 0;
     header.extDataOffset   = 0;
-    header.checksum        = crc32(compressed.data(), compressedSize);
+    header.checksum        = crc32(data.data(), data.size());
 
-    // --- Write to disk ---
+    // Written to a temporary file and renamed, so a crash
+    // mid-save never leaves a half-written chunk behind
     std::filesystem::create_directories(path.parent_path());
-    std::ofstream file(path, std::ios::binary | std::ios::trunc);
-    if (!file) {
-        std::cerr << "Cannot open for writing: " << path << "\n";
-        return false;
+    std::filesystem::path tmp = path;
+    tmp += ".tmp";
+    {
+        std::ofstream file(tmp, std::ios::binary | std::ios::trunc);
+        if (!file) {
+            std::cerr << "Cannot open for writing: " << tmp << "\n";
+            return false;
+        }
+        file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+        file.write(reinterpret_cast<const char*>(data.data()), (std::streamsize)data.size());
+        if (!file.good()) return false;
     }
-
-    file.write(reinterpret_cast<const char*>(&header),
-               sizeof(header));
-    file.write(reinterpret_cast<const char*>(compressed.data()),
-               compressedSize);
-
-    return file.good();
+    std::error_code ec;
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) {
+        std::filesystem::remove(path, ec);
+        std::filesystem::rename(tmp, path, ec);
+    }
+    return !ec;
 }
 
 bool ChunkLoader::load(const std::filesystem::path& path,
@@ -82,69 +111,61 @@ bool ChunkLoader::load(const std::filesystem::path& path,
         return false;
     }
 
-    // --- Read header ---
     ChunkHeader header{};
     file.read(reinterpret_cast<char*>(&header), sizeof(header));
     if (!file) {
         std::cerr << "Failed to read header: " << path << "\n";
         return false;
     }
-
-    // --- Validate ---
     if (header.magic != CHUNK_MAGIC) {
         std::cerr << "Invalid magic number: " << path << "\n";
         return false;
     }
-    if (header.version != CHUNK_VERSION ||
-        header.dimX != VOXEL_DIM ||
-        header.dimY != VOXEL_DIM ||
-        header.dimZ != VOXEL_DIM) {
+    bool v2 = header.version == 2 && header.dimY == VOXEL_DIM;
+    bool v3 = header.version == 3 && header.dimY == SECTIONS;
+    if ((!v2 && !v3) || header.dimX != VOXEL_DIM || header.dimZ != VOXEL_DIM) {
         // Saved by an older build with a different chunk
         // layout — caller regenerates the chunk instead
         return false;
     }
 
-    // --- Read compressed data ---
     file.seekg(header.voxelDataOffset);
-    std::vector<uint8_t> compressed(header.voxelDataSize);
-    file.read(reinterpret_cast<char*>(compressed.data()),
-              header.voxelDataSize);
+    std::vector<uint8_t> data(header.voxelDataSize);
+    file.read(reinterpret_cast<char*>(data.data()), header.voxelDataSize);
     if (!file) {
         std::cerr << "Failed to read voxel data: " << path << "\n";
         return false;
     }
-
-    // --- Verify checksum ---
-    uint32_t check = crc32(compressed.data(), compressed.size());
-    if (check != header.checksum) {
+    if (crc32(data.data(), data.size()) != header.checksum) {
         std::cerr << "Checksum mismatch: " << path << "\n";
         return false;
     }
 
-    // --- Decompress ---
-    constexpr int RAW_SIZE_BYTES = VOXEL_COUNT * (int)sizeof(uint16_t);
-
-    std::vector<uint8_t> raw(RAW_SIZE_BYTES);
-    int decompSize = LZ4_decompress_safe(
-        reinterpret_cast<const char*>(compressed.data()),
-        reinterpret_cast<char*>(raw.data()),
-        (int)compressed.size(),
-        RAW_SIZE_BYTES);
-
-    if (decompSize != RAW_SIZE_BYTES) {
-        std::cerr << "Decompression failed: " << path << "\n";
-        return false;
+    if (v2) {
+        // One 128³ chunk from before sections: the bottom
+        // section, open sky above it
+        if (!unpackSection(data.data(), (int)data.size(), outChunk.section(0))) {
+            std::cerr << "Decompression failed: " << path << "\n";
+            return false;
+        }
+        for (int s = 1; s < SECTIONS; s++)
+            outChunk.section(s).setRle(ChunkSection::allAirShared());
+        return true;
     }
 
-    // --- Unpack into chunk, then drop back to RLE ---
-    uint16_t* out = outChunk.rawData();
-    for (int i = 0; i < VOXEL_COUNT; i++) {
-        uint16_t lo = raw[i * 2];
-        uint16_t hi = raw[i * 2 + 1];
-        out[i] = (uint16_t)(lo | (hi << 8));
+    size_t at = 0;
+    for (int s = 0; s < SECTIONS; s++) {
+        if (at + 4 > data.size()) return false;
+        int n = (int)(data[at] | (data[at + 1] << 8) | (data[at + 2] << 16) |
+                      ((uint32_t)data[at + 3] << 24));
+        at += 4;
+        if (n <= 0 || at + (size_t)n > data.size() ||
+            !unpackSection(data.data() + at, n, outChunk.section(s))) {
+            std::cerr << "Decompression failed: " << path << "\n";
+            return false;
+        }
+        at += (size_t)n;
     }
-    outChunk.compress();
-
     return true;
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <array>
 #include <condition_variable>
 #include <cstdlib>
 #include <deque>
@@ -81,7 +82,7 @@ public:
         }
         wake.notify_all();
         for (std::thread& t : workers) t.join();
-        for (Slot& s : slots) s.mesh.cleanup();
+        for (Slot& s : slots) s.cleanupMeshes();
     }
 
     WorldStreamer(const WorldStreamer&)            = delete;
@@ -95,11 +96,18 @@ public:
         scheduleWork(playerCX, playerCZ);
     }
 
-    // Mesh for a chunk, or nullptr if it is not ready yet
-    const ChunkMesh* getMesh(int cx, int cz) const {
-        if (!ChunkManager::inWorld(cx, cz)) return nullptr;
+    // Mesh for one section of a column, or nullptr if the
+    // column is not meshed yet
+    const ChunkMesh* getMesh(int cx, int sy, int cz) const {
+        if (!ChunkManager::inWorld(cx, cz) || sy < 0 || sy >= SECTIONS) return nullptr;
         const Slot& s = slots[(size_t)world.index(cx, cz)];
-        return s.hasMesh ? &s.mesh : nullptr;
+        return s.hasMesh ? &s.mesh[sy] : nullptr;
+    }
+
+    // True once a column has meshes on the GPU
+    bool hasMesh(int cx, int cz) const {
+        if (!ChunkManager::inWorld(cx, cz)) return false;
+        return slots[(size_t)world.index(cx, cz)].hasMesh;
     }
 
     // Resource pack changed — every mesh needs new tile info
@@ -108,7 +116,7 @@ public:
         table = std::move(newTable);
         for (Slot& s : slots) {
             s.version++;
-            s.needsMesh = true;
+            s.needMask = 0xFF;
         }
     }
 
@@ -129,15 +137,19 @@ private:
     // chunks cannot cause a hitch.
     static constexpr int MAX_UPLOADS_PER_FRAME = 4;
 
-    // Per-chunk bookkeeping (main thread only)
+    // Per-column bookkeeping (main thread only)
     struct Slot {
-        ChunkMesh mesh;
-        bool      hasMesh   = false;  // mesh is on the GPU
-        bool      needsMesh = true;   // mesh missing or out of date
+        ChunkMesh mesh[SECTIONS];     // one per section
+        bool      hasMesh   = false;  // meshes are on the GPU
+        uint8_t   needMask  = 0xFF;   // sections missing or out of date
         bool      loading   = false;  // a load job is running
         bool      meshing   = false;  // a mesh job is running
         uint32_t  version   = 0;      // bumped on every change
+
+        void cleanupMeshes() { for (auto& m : mesh) m.cleanup(); }
     };
+
+    using ColumnSnap = std::array<std::shared_ptr<const RleData>, SECTIONS>;
 
     enum class JobKind { Load, Mesh };
 
@@ -145,7 +157,11 @@ private:
         JobKind   kind = JobKind::Load;
         int       cx = 0, cz = 0;
         uint32_t  version = 0;
-        MeshInput input;              // Mesh jobs only
+        // Mesh jobs only: which sections, and snapshots of the
+        // column and its four neighbours
+        uint8_t   mask = 0;
+        ColumnSnap center, west, east, south, north;
+        std::shared_ptr<const BlockRenderTable> table;
     };
 
     struct Result {
@@ -153,7 +169,8 @@ private:
         int           cx = 0, cz = 0;
         uint32_t      version = 0;
         ChunkPtr      chunk;          // Load results
-        ChunkMeshData mesh;           // Mesh results
+        uint8_t       mask = 0;       // Mesh results
+        std::array<ChunkMeshData, SECTIONS> meshes;
     };
 
     ChunkManager& world;
@@ -216,7 +233,21 @@ private:
                 if (!result.chunk) result.chunk = makeChunk();
                 result.chunk->compress();
             } else {
-                ChunkMesher::build(job.input, result.mesh);
+                result.mask = job.mask;
+                for (int sy = 0; sy < SECTIONS; sy++) {
+                    if (!(job.mask & (1u << sy))) continue;
+                    MeshInput in;
+                    in.center = job.center[sy];
+                    in.west   = job.west[sy];
+                    in.east   = job.east[sy];
+                    in.south  = job.south[sy];
+                    in.north  = job.north[sy];
+                    in.above  = sy + 1 < SECTIONS ? job.center[sy + 1] : nullptr;
+                    in.below  = sy > 0 ? job.center[sy - 1] : nullptr;
+                    in.bottomOfWorld = sy == 0;
+                    in.table  = job.table;
+                    ChunkMesher::build(in, result.meshes[sy]);
+                }
             }
 
             {
@@ -257,15 +288,16 @@ private:
             Slot& s = slot(r.cx, r.cz);
             // Skip meshes that went out of date while they
             // were being built (chunk edited, pack reloaded)
-            // or whose chunk the player has since left behind
-            if (r.version != s.version) continue;
-            if (ringDistance(r.cx, r.cz, pcx, pcz)
-                    > MESH_DISTANCE + 1) {
-                s.needsMesh = true;
+            // or whose chunk the player has since left behind;
+            // those sections are simply meshed again
+            if (r.version != s.version ||
+                ringDistance(r.cx, r.cz, pcx, pcz) > MESH_DISTANCE + 1) {
+                s.needMask |= r.mask;
                 continue;
             }
 
-            s.mesh.upload(r.mesh);
+            for (int sy = 0; sy < SECTIONS; sy++)
+                if (r.mask & (1u << sy)) s.mesh[sy].upload(r.meshes[sy]);
             s.hasMesh = true;
             uploads++;
         }
@@ -275,11 +307,12 @@ private:
     void collectEdits() {
         for (int cx = 0; cx < WORLD_SIZE_X; cx++)
         for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
-            if (!world.isMeshDirty(cx, cz)) continue;
+            uint8_t m = world.meshDirtySections(cx, cz);
+            if (!m) continue;
             world.clearMeshDirty(cx, cz);
             Slot& s = slot(cx, cz);
             s.version++;
-            s.needsMesh = true;
+            s.needMask |= m;
             // The old mesh stays on screen until the new
             // one is ready, so edits never flicker
         }
@@ -295,11 +328,28 @@ private:
             if (!s.hasMesh) continue;
             if (ringDistance(cx, cz, pcx, pcz)
                     <= MESH_DISTANCE + 1) continue;
-            s.mesh.cleanup();
-            s.hasMesh   = false;
-            s.needsMesh = true;
+            s.cleanupMeshes();
+            s.hasMesh  = false;
+            s.needMask = 0xFF;
+        }
+
+        // Voxel data too, a little further out, so memory
+        // stays flat however much of a big world is explored.
+        // Chunks with unsaved edits stay until the next save
+        // writes them; after that they reload from the save
+        // file, and untouched chunks regenerate from the seed.
+        for (int cx = 0; cx < WORLD_SIZE_X; cx++)
+        for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
+            if (!world.isLoaded(cx, cz)) continue;
+            if (ringDistance(cx, cz, pcx, pcz) <= LOAD_DISTANCE + UNLOAD_SLACK) continue;
+            const Slot& s = slot(cx, cz);
+            if (s.loading || s.meshing || world.isDirty(cx, cz)) continue;
+            world.setChunk(cx, cz, nullptr);
         }
     }
+
+    // Rings beyond LOAD_DISTANCE before voxel data is freed
+    static constexpr int UNLOAD_SLACK = 2;
 
     // ── 4. Hand out new work, nearest chunks first ────────
     struct Candidate {
@@ -339,7 +389,7 @@ private:
 
             // A chunk at ring d can be meshed once ring d + 1
             // is loaded, so its mesh sorts just after those
-            if (d <= MESH_DISTANCE && s.needsMesh &&
+            if (d <= MESH_DISTANCE && s.needMask &&
                 !s.meshing && neighboursLoaded(cx, cz))
                 candidates.push_back(
                     { (d + 1) * 2 + 1, JobKind::Mesh, cx, cz });
@@ -369,9 +419,10 @@ private:
                 s.loading = true;
             } else {
                 s.meshing   = true;
-                s.needsMesh = false;
+                job.mask    = s.needMask;
+                s.needMask  = 0;
                 job.version = s.version;
-                job.input   = makeMeshInput(c.cx, c.cz);
+                fillMeshJob(job);
             }
             newJobs.push_back(std::move(job));
         }
@@ -384,20 +435,18 @@ private:
         wake.notify_all();
     }
 
-    // Snapshot a chunk and its four neighbours for a worker
-    MeshInput makeMeshInput(int cx, int cz) {
-        auto snap = [this](int x, int z)
-                -> std::shared_ptr<const RleData> {
+    // Snapshot a column and its four neighbours for a worker
+    void fillMeshJob(Job& job) {
+        auto snap = [this](int x, int z, ColumnSnap& out) {
             Chunk* c = world.getChunk(x, z);
-            return c ? c->snapshot() : nullptr;
+            for (int sy = 0; sy < SECTIONS; sy++)
+                out[sy] = c ? c->snapshot(sy) : nullptr;
         };
-        MeshInput in;
-        in.center = snap(cx,     cz);
-        in.west   = snap(cx - 1, cz);
-        in.east   = snap(cx + 1, cz);
-        in.south  = snap(cx, cz - 1);
-        in.north  = snap(cx, cz + 1);
-        in.table  = table;
-        return in;
+        snap(job.cx,     job.cz,     job.center);
+        snap(job.cx - 1, job.cz,     job.west);
+        snap(job.cx + 1, job.cz,     job.east);
+        snap(job.cx,     job.cz - 1, job.south);
+        snap(job.cx,     job.cz + 1, job.north);
+        job.table = table;
     }
 };

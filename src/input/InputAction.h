@@ -51,6 +51,19 @@ enum class InputAction {
     GamemodeCycle,  // F4 — cycle gamemodes
     ReloadRegistry, // F6 — hot reload blocks.toml
     ReloadPack,     // F7 — hot reload resource pack
+    PickBlock,      // middle click — copy the block you look at
+    Undo,           // Z — undo the last dev edit
+    Redo,           // Y — redo
+    BrushBigger,    // = — dev brush / explosion radius up
+    BrushSmaller,   // - — dev brush / explosion radius down
+    NudgeForward,   // ↑ — move the paste away / tool size up
+    NudgeBack,      // ↓ — move the paste closer / tool size down
+    NudgeLeft,      // ← — move the paste left
+    NudgeRight,     // → — move the paste right
+    NudgeUp,        // Page Up — move the paste up
+    NudgeDown,      // Page Down — move the paste down
+    ToolCancel,     // Backspace — release a locked paste / cancel a prompt
+    RotatePiece,    // T — turn the hammer's structure a quarter turn
 
     // ── System ───────────────────────────────────────────
     Pause,

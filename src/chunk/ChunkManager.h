@@ -1,5 +1,6 @@
 #pragma once
 #include "Chunk.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <vector>
@@ -8,14 +9,19 @@
 // ── World size ────────────────────────────────────────────
 // 32 × 32 chunks of 128 voxels = 4096 × 4096 voxels
 // = 1365 ft per side at 4 inches per voxel
-constexpr int WORLD_SIZE_X = 32;
-constexpr int WORLD_SIZE_Z = 32;
+// World size in chunks. Set when a world is opened (its
+// world type decides: Classic 32, Island 72 / 96 / 128) and
+// before the ChunkManager for it is created. One world is
+// open at a time.
+inline int WORLD_SIZE_X = 32;
+inline int WORLD_SIZE_Z = 32;
 
 // ── View distance (in chunks, measured from the player) ───
 // Chunks inside MESH_DISTANCE are drawn.
 // Chunk data is kept one ring further out, because a chunk
 // can only be meshed once all four neighbours exist.
-constexpr int MESH_DISTANCE = 4;
+// Beyond this the distant terrain (render/FarTerrain.h) takes over.
+constexpr int MESH_DISTANCE = 6;
 constexpr int LOAD_DISTANCE = MESH_DISTANCE + 1;
 
 // ── ChunkManager ──────────────────────────────────────────
@@ -61,29 +67,38 @@ public:
 
     // ── Dirty tracking ────────────────────────────────────
     // dirty     = changed since last save  → written on Save and Quit
-    // meshDirty = changed since last mesh  → remeshed by WorldStreamer
-    // Editing a block on a chunk border also remeshes the
-    // neighbour, because its border faces may have changed.
-    void markDirty(int cx, int cz) {
+    // meshDirty = sections changed since last mesh (one bit per
+    //             section) → remeshed by WorldStreamer
+    // 'sections' says which sections were edited. The sections
+    // just above and below are remeshed too, and so are the
+    // neighbouring columns, because faces on a border may have
+    // changed.
+    void markDirty(int cx, int cz, uint8_t sections = 0xFF) {
         if (!inWorld(cx, cz)) return;
         dirty[index(cx, cz)] = 1;
-        markMeshDirty(cx,     cz);
-        markMeshDirty(cx - 1, cz);
-        markMeshDirty(cx + 1, cz);
-        markMeshDirty(cx, cz - 1);
-        markMeshDirty(cx, cz + 1);
+        uint8_t m = (uint8_t)(sections | (sections << 1) | (sections >> 1));
+        markMeshDirty(cx,     cz, m);
+        markMeshDirty(cx - 1, cz, m);
+        markMeshDirty(cx + 1, cz, m);
+        markMeshDirty(cx, cz - 1, m);
+        markMeshDirty(cx, cz + 1, m);
     }
 
-    void markMeshDirty(int cx, int cz) {
-        if (inWorld(cx, cz)) meshDirty[index(cx, cz)] = 1;
+    // Which section a world height is in, as a bit
+    static uint8_t sectionBit(int y) {
+        return (uint8_t)(1u << std::clamp(y / VOXEL_DIM, 0, SECTIONS - 1));
+    }
+
+    void markMeshDirty(int cx, int cz, uint8_t sections = 0xFF) {
+        if (inWorld(cx, cz)) meshDirty[index(cx, cz)] |= sections;
     }
 
     bool isDirty(int cx, int cz) const {
         return inWorld(cx, cz) && dirty[index(cx, cz)];
     }
 
-    bool isMeshDirty(int cx, int cz) const {
-        return inWorld(cx, cz) && meshDirty[index(cx, cz)];
+    uint8_t meshDirtySections(int cx, int cz) const {
+        return inWorld(cx, cz) ? meshDirty[index(cx, cz)] : 0;
     }
 
     void clearDirty(int cx, int cz) {
@@ -99,7 +114,7 @@ public:
     // neighbouring chunk. Unloaded chunks read as air.
     uint16_t typeAtWorld(int cx, int cz,
                          int x, int y, int z) const {
-        if (y < 0 || y >= VOXEL_DIM) return BLOCK_AIR;
+        if (y < 0 || y >= WORLD_HEIGHT) return BLOCK_AIR;
 
         while (x < 0)          { cx--; x += VOXEL_DIM; }
         while (x >= VOXEL_DIM) { cx++; x -= VOXEL_DIM; }
@@ -120,7 +135,7 @@ public:
     }
 
     uint16_t typeAtVoxel(int wx, int wy, int wz) const {
-        if (wy < 0 || wy >= VOXEL_DIM) return BLOCK_AIR;
+        if (wy < 0 || wy >= WORLD_HEIGHT) return BLOCK_AIR;
         int cx = chunkCoord(wx), cz = chunkCoord(wz);
         const Chunk* c = getChunk(cx, cz);
         if (!c) return BLOCK_AIR;

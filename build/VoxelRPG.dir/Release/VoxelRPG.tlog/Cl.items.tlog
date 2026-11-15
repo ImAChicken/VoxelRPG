@@ -1,4 +1,6 @@
 C:\Dev\VoxelRPG\src\chunk\ChunkLoader.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\ChunkLoader.obj
+C:\Dev\VoxelRPG\src\game\ItemRegistry.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\ItemRegistry.obj
+C:\Dev\VoxelRPG\src\game\StructureRegistry.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\StructureRegistry.obj
 C:\Dev\VoxelRPG\src\glad\src\glad\src\glad.c;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\glad.obj
 C:\Dev\VoxelRPG\src\input\InputManager.cpp;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\InputManager.obj
 C:\Dev\VoxelRPG\src\lz4\lz4.c;C:\Dev\VoxelRPG\build\VoxelRPG.dir\Release\lz4.obj

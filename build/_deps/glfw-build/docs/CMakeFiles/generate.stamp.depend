@@ -1,5 +1,5 @@
 # CMake generation dependency list for this directory.
 C:/Dev/VoxelRPG/build/_deps/glfw-src/docs/CMakeLists.txt
-C:/Program Files/CMake/share/cmake-4.3/Modules/FindDoxygen.cmake
-C:/Program Files/CMake/share/cmake-4.3/Modules/FindPackageHandleStandardArgs.cmake
-C:/Program Files/CMake/share/cmake-4.3/Modules/FindPackageMessage.cmake
+C:/Program Files/CMake/share/cmake-4.5/Modules/FindDoxygen.cmake
+C:/Program Files/CMake/share/cmake-4.5/Modules/FindPackageHandleStandardArgs.cmake
+C:/Program Files/CMake/share/cmake-4.5/Modules/FindPackageMessage.cmake

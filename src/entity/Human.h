@@ -74,11 +74,20 @@ public:
 
     // ── Fly mode ──────────────────────────────────────────
     static constexpr float FLY_SPEED      = 22.0f;
-    static constexpr float FLY_SPEED_FAST = 60.0f;
+    static constexpr float FLY_SPEED_FAST = 240.0f;   // 4x: crossing a big island
+
+    // ── Health ────────────────────────────────────────────
+    static constexpr float MAX_HEALTH = 100.0f;
 
     // ── State ─────────────────────────────────────────────
     float height    = STAND_HEIGHT;   // current collision height
     float eyeHeight = STAND_EYE;      // eases between stand and crouch
+
+    // Health lives here rather than on Player because
+    // enemies and NPCs are humans too. Nothing deals damage
+    // yet; game modes that track health just display it.
+    float health    = MAX_HEALTH;
+    float maxHealth = MAX_HEALTH;
 
     bool grounded  = false;
     bool crouching = false;

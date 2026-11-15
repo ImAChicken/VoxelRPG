@@ -1,0 +1,8 @@
+# VoxelRPG settings — change in game: Esc -> Settings
+
+[hud]
+toolbar_scale   = 1.69741   # 0.5 - 2.0
+toolbar_opacity = 1   # 0.1 - 1.0
+
+[controls]
+mouse_sensitivity = 0.1   # 0.02 - 0.4

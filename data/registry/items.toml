@@ -1,0 +1,174 @@
+# VoxelRPG Item Registry
+# Every block in blocks.toml is an item automatically (same ID).
+# This file adds everything else. IDs 1000 and up only.
+#
+# categories:  block, tool, weapon, dev  (an item may have several)
+# tool:        pickaxe | shovel | axe | hoe      (digging tools)
+#              hammer: the Builder's Hammer (build menu + placing structures)
+# tool_power:  dig speed multiplier on blocks the tool suits
+#              pickaxe → stone, shovel → dirt, axe → wood, hoe → organic
+# weapon_class / damage: used in the combat stance only
+# dev_tool:    wand | fill | replace | brush | copy | paste | explode | breaker
+# color:       swatch shown in menus until items have icons
+# No recompile needed after editing — F6 reloads blocks and items.
+
+# ── Player tools ──────────────────────────────────────────
+[[item]]
+id = 1000
+name = "wooden_pickaxe"
+categories = ["tool"]
+tool = "pickaxe"
+tool_power = 2.0
+color = [0.60, 0.45, 0.25]
+
+[[item]]
+id = 1001
+name = "stone_pickaxe"
+categories = ["tool"]
+tool = "pickaxe"
+tool_power = 4.0
+color = [0.55, 0.55, 0.55]
+
+[[item]]
+id = 1002
+name = "iron_pickaxe"
+categories = ["tool"]
+tool = "pickaxe"
+tool_power = 8.0
+color = [0.80, 0.80, 0.85]
+
+[[item]]
+id = 1010
+name = "wooden_shovel"
+categories = ["tool"]
+tool = "shovel"
+tool_power = 2.0
+color = [0.60, 0.45, 0.25]
+
+[[item]]
+id = 1011
+name = "iron_shovel"
+categories = ["tool"]
+tool = "shovel"
+tool_power = 8.0
+color = [0.80, 0.80, 0.85]
+
+[[item]]
+id = 1020
+name = "hoe"
+categories = ["tool"]
+tool = "hoe"
+tool_power = 3.0
+color = [0.50, 0.40, 0.30]
+
+# Right click: build menu. Left click: place. T: turn.
+[[item]]
+id = 1040
+name = "builders_hammer"
+display = "Builder's Hammer"
+categories = ["tool"]
+tool = "hammer"
+color = [0.70, 0.55, 0.35]
+
+# An axe is both: a tool for wood, and a weapon in combat
+[[item]]
+id = 1030
+name = "iron_axe"
+categories = ["tool", "weapon"]
+tool = "axe"
+tool_power = 6.0
+weapon_class = "axe"
+damage = 14.0
+color = [0.75, 0.70, 0.65]
+
+# ── Weapons (combat stance only) ──────────────────────────
+[[item]]
+id = 1100
+name = "iron_sword"
+categories = ["weapon"]
+weapon_class = "sword"
+damage = 12.0
+color = [0.85, 0.85, 0.90]
+
+[[item]]
+id = 1101
+name = "wooden_club"
+categories = ["weapon"]
+weapon_class = "club"
+damage = 8.0
+color = [0.55, 0.40, 0.25]
+
+[[item]]
+id = 1102
+name = "spear"
+categories = ["weapon"]
+weapon_class = "spear"
+damage = 10.0
+color = [0.70, 0.60, 0.45]
+
+# ── Dev tools (Test Play only) ────────────────────────────
+[[item]]
+id = 1200
+name = "dev_wand"
+display = "Selection Wand"
+categories = ["dev"]
+dev_tool = "wand"
+color = [0.95, 0.80, 0.20]
+
+[[item]]
+id = 1201
+name = "dev_fill"
+display = "Fill Tool"
+categories = ["dev"]
+dev_tool = "fill"
+color = [0.30, 0.70, 0.95]
+
+[[item]]
+id = 1202
+name = "dev_replace"
+display = "Replace Tool"
+categories = ["dev"]
+dev_tool = "replace"
+color = [0.55, 0.40, 0.90]
+
+[[item]]
+id = 1203
+name = "dev_brush"
+display = "Sphere Brush"
+categories = ["dev"]
+dev_tool = "brush"
+color = [0.30, 0.85, 0.45]
+
+[[item]]
+id = 1204
+name = "dev_copy"
+display = "Copy Tool"
+categories = ["dev"]
+dev_tool = "copy"
+color = [0.90, 0.90, 0.90]
+
+[[item]]
+id = 1205
+name = "dev_paste"
+display = "Paste Tool"
+categories = ["dev"]
+dev_tool = "paste"
+color = [0.85, 0.55, 0.85]
+
+[[item]]
+id = 1206
+name = "dev_explode"
+display = "Explosion Tester"
+categories = ["dev"]
+dev_tool = "explode"
+color = [0.95, 0.35, 0.20]
+
+# Works like a pickaxe, but breaks anything instantly and
+# drops nothing — a test tool, not a survival tool
+[[item]]
+id = 1207
+name = "dev_breaker"
+display = "Dev Pickaxe"
+categories = ["dev"]
+dev_tool = "breaker"
+color = [0.95, 0.95, 0.40]

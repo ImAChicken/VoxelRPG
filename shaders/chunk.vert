@@ -11,10 +11,12 @@ layout(location = 1) in uvec4 aTile;      // tileX, tileY, -, -
 uniform mat4 uView;
 uniform mat4 uProjection;
 uniform vec3 uChunkOrigin;     // world position of the chunk corner
+uniform vec3 uCamPos;          // for the distance haze
 
 out      vec2  vFacePos;       // position across the face, in voxels
 flat out vec2  vTile;          // atlas tile (column, row)
 flat out float vShade;
+out      float vDist;          // distance from the camera
 
 // Fake directional light: top brightest, bottom darkest
 // Order matches enum Face: +Y, -Y, +Z, -Z, -X, +X
@@ -38,6 +40,7 @@ void main() {
     vTile  = vec2(aTile.xy);
     vShade = FACE_SHADE[min(face, 5u)];
 
-    gl_Position = uProjection * uView *
-                  vec4(local + uChunkOrigin, 1.0);
+    vec3 world = local + uChunkOrigin;
+    vDist = length(world - uCamPos);
+    gl_Position = uProjection * uView * vec4(world, 1.0);
 }
