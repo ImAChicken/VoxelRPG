@@ -5,6 +5,7 @@
 #include "../physics/IPhysics.h"
 #include "../entity/Player.h"
 #include "ItemRegistry.h"
+#include "CubeTool.h"
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <cctype>
@@ -39,6 +40,7 @@ public:
     // at the centre, fading to nothing at the edge
     static constexpr float EXPLOSION_PUSH = 60.0f;
     static constexpr float BRUSH_MIN = 1.0f, BRUSH_MAX = 48.0f;
+    static constexpr int   CUBE_MIN = 1, CUBE_MAX = 64;
 
     // Where structure files live
     static constexpr const char* STRUCTURE_DIR = "data/structures";
@@ -48,6 +50,8 @@ public:
     glm::ivec3 pos1 = {0, 0, 0}, pos2 = {0, 0, 0};
     uint16_t   material    = BLOCK_STONE;
     float      brushRadius = 6.0f;
+    int        cubeSize    = 8;        // Cube Tool width, voxels
+    bool       cubeFree    = false;    // Shift held: off the grid
     std::shared_ptr<VoxelVolume> clipboard;
 
     // Copy tool: a clicked point waiting for "corner 1 or 2?"
@@ -302,6 +306,14 @@ public:
     void setBrush(float r) {
         brushRadius = std::clamp(r, BRUSH_MIN, BRUSH_MAX);
     }
+    void setCube(int n) {
+        cubeSize = std::clamp(n, CUBE_MIN, CUBE_MAX);
+    }
+
+    // The Cube Tool's cube for a hit ('placing' = left button)
+    CubeBox cubeTarget(const RaycastResult& hit, bool placing) const {
+        return cubeFor(hit.blockPos, glm::ivec3(hit.normal), cubeSize, !cubeFree, placing);
+    }
 
     // ── Dev tool items ────────────────────────────────────
     // What a held dev tool does on a click. 'primary' is the
@@ -357,6 +369,17 @@ public:
                     primary ? brushRadius : brushRadius * 2.0f,
                     EditSource::Explosion, &player);
             break;
+        case DevToolKind::Cube: {
+            // left: fill the cube's empty voxels with material
+            // right: clear the cube
+            if (!hit.hit) return;
+            CubeBox c = cubeTarget(hit, primary);
+            EditBatch b = WorldEditor::box(c.lo, c.hi, primary ? material : BLOCK_AIR, src,
+                                           primary ? "cube" : "break cube");
+            if (primary) b.onlyReplace = BLOCK_AIR;
+            editor->submit(std::move(b));
+            break;
+        }
         case DevToolKind::Breaker:
             if (!hit.hit) return;
             if (primary)
@@ -382,6 +405,7 @@ public:
         case DevToolKind::Paste:   return "L: paste   R: turn 90   arrows/PgUp/PgDn: move   Bksp: release";
         case DevToolKind::Explode: return "L: blast   R: double blast   Up/Down: size";
         case DevToolKind::Breaker: return "L: break   R: break 3x3x3";
+        case DevToolKind::Cube:    return "L: place cube   R: break cube   Up/Down: size   Shift: off grid";
         default:                   return "";
         }
     }
@@ -390,6 +414,7 @@ public:
     void write(std::ostream& out) const {
         out << "devtools.material=" << blockName(material) << "\n";
         out << "devtools.brush=" << brushRadius << "\n";
+        out << "devtools.cube=" << cubeSize << "\n";
         if (hasPos1) out << "devtools.pos1=" << pos1.x << " " << pos1.y
                          << " " << pos1.z << "\n";
         if (hasPos2) out << "devtools.pos2=" << pos2.x << " " << pos2.y
@@ -402,6 +427,8 @@ public:
             if (id) material = id;
         } else if (key == "devtools.brush") {
             setBrush((float)std::atof(value.c_str()));
+        } else if (key == "devtools.cube") {
+            setCube(std::atoi(value.c_str()));
         } else if (key == "devtools.pos1" || key == "devtools.pos2") {
             glm::ivec3 p;
             if (std::sscanf(value.c_str(), "%d %d %d",
@@ -420,6 +447,7 @@ public:
         hasPos1 = hasPos2 = false;
         material    = BLOCK_STONE;
         brushRadius = 6.0f;
+        cubeSize = 8;
         clipboard.reset();
     }
 

@@ -9,7 +9,10 @@
 #include "../world/StructureManager.h"
 #include "BuildTool.h"
 #include <glm/glm.hpp>
+#include <algorithm>
 #include <cmath>
+#include <utility>
+#include <vector>
 #include <functional>
 #include <string>
 
@@ -24,6 +27,11 @@
 //   right click   break (use_right "remove")
 //   left click    place the held block, or use the held tool
 //   middle click  pick: copy the block you look at
+//
+// Pickaxes break a whole cube (the item's "cube" size, see
+// game/CubeTool.h): on a grid of that size, or off the grid
+// while Shift is held. Doors, building pieces and trees are
+// still taken down whole, as with any other tool.
 //
 // Survival
 //   Breaking takes time: block hardness, sped up by the
@@ -69,6 +77,10 @@ public:
     // Set when the hammer's right click asks for the build menu
     bool wantBuildMenu = false;
 
+    // Cube tools (pickaxe, dev Cube Tool): outlines to draw
+    bool    cubeBreakShown = false, cubePlaceShown = false;
+    CubeBox cubeBreak, cubePlace;
+
     std::function<void(const std::string&)> log =
         [](const std::string&) {};
 
@@ -95,6 +107,7 @@ public:
         noticeAge += dt;
         treeAge   += dt;
         hammerActive = false;
+        cubeBreakShown = cubePlaceShown = false;
         aimLabel.clear();
         const GameModeRules rules = player.rules();
         if (!rules.worldInteraction) { breakProgress = 0.0f; return; }
@@ -143,10 +156,35 @@ public:
             breakProgress = 0.0f;
             if (survival) return;   // dev items do nothing in Survival
             devToolKeys(dev, tool, player, dt);
+            if (tool == DevToolKind::Cube) {
+                dev.cubeFree = gInput.isHeld(InputAction::Sprint);
+                if (target.hit) {
+                    cubePlace = dev.cubeTarget(target, true);
+                    cubeBreak = dev.cubeTarget(target, false);
+                    cubePlaceShown = cubeBreakShown = true;
+                }
+            }
             if (gInput.isPressed(InputAction::UseLeft))
                 dev.useTool(held.devTool, true, target, player);
             if (gInput.isPressed(InputAction::UseRight))
                 dev.useTool(held.devTool, false, target, player);
+            return;
+        }
+
+        // ── Pickaxe: a cube at a time ─────────────────────
+        bool pick = held.is(IC_TOOL) && held.tool == ToolKind::Pickaxe && held.cubeSize > 0;
+        if (pick && target.hit && !aimed && !isTreeWood(structs, target.blockPos, (uint16_t)target.blockID)) {
+            cubeBreak = cubeFor(target.blockPos, glm::ivec3(target.normal), held.cubeSize,
+                                !gInput.isHeld(InputAction::Sprint), false);
+            cubeBreakShown = true;
+            if (survival) {
+                if (cubeDigTimer(editor, held, dt))
+                    breakCube(player, editor, structs, cubeBreak, true);
+            } else {
+                devRepeat(InputAction::UseRight, breakTimer, dt, [&] {
+                    breakCube(player, editor, structs, cubeBreak, false);
+                });
+            }
             return;
         }
 
@@ -230,6 +268,13 @@ private:
             if (gInput.isPressed(InputAction::ToolCancel)) dev.releasePaste();
         }
 
+        if (tool == DevToolKind::Cube) {
+            if (repeatKey(InputAction::NudgeForward, nudgeTimers[0], dt, 0.09f))
+                dev.setCube(dev.cubeSize + 1);
+            if (repeatKey(InputAction::NudgeBack, nudgeTimers[1], dt, 0.09f))
+                dev.setCube(dev.cubeSize - 1);
+        }
+
         if (tool == DevToolKind::Explode || tool == DevToolKind::Brush) {
             if (repeatKey(InputAction::NudgeForward, nudgeTimers[0], dt, 0.09f))
                 dev.setBrush(dev.brushRadius + 1.0f);
@@ -254,6 +299,82 @@ private:
         if (!target.hit) return;
         editor.apply(WorldEditor::box(target.blockPos, target.blockPos,
                                       BLOCK_AIR, EditSource::Dev, "break"));
+    }
+
+    // ── Cube digging ──────────────────────────────────────
+    glm::ivec3 cubeDigging = {0, -1, 0};   // lo corner of the cube being dug
+    int   cubeDiggingSize = 0;
+    float cubeNeed = 0.0f;                 // seconds for that cube
+
+    // Wood that is part of a natural tree (chopped, not mined)
+    static bool isTreeWood(const StructureManager& structs, glm::ivec3 p, uint16_t id) {
+        if (id == BLOCK_AIR || id == BLOCK_LEAVES) return false;
+        if (gRegistry.get(id).material != "wood") return false;
+        return structs.naturalTreeTypeAt(p) != nullptr;
+    }
+
+    // Survival: hold the button on a cube until its time has
+    // run — as long as its hardest voxel would take alone, so
+    // a cube of stone digs as fast as one stone voxel used to.
+    bool cubeDigTimer(WorldEditor& editor, const ItemDef& held, float dt) {
+        if (!gInput.isHeld(InputAction::UseRight)) { breakProgress = 0.0f; return false; }
+        if (cubeBreak.lo != cubeDigging || cubeBreak.size() != cubeDiggingSize) {
+            cubeDigging = cubeBreak.lo;
+            cubeDiggingSize = cubeBreak.size();
+            breakProgress = 0.0f;
+            cubeNeed = -1.0f;                      // nothing breakable
+            for (int y = cubeBreak.lo.y; y <= cubeBreak.hi.y; y++)
+            for (int z = cubeBreak.lo.z; z <= cubeBreak.hi.z; z++)
+            for (int x = cubeBreak.lo.x; x <= cubeBreak.hi.x; x++) {
+                uint16_t id = editor.typeAt({ x, y, z });
+                if (id == BLOCK_AIR) continue;
+                const VoxelTypeDef& b = gRegistry.get(id);
+                if (!b.isDestructible()) continue;
+                cubeNeed = std::max(cubeNeed, breakSeconds(b, held));
+            }
+        }
+        if (cubeNeed < 0.0f) { breakProgress = 0.0f; return false; }
+        breakProgress += cubeNeed > 0.0f ? dt / cubeNeed : 1.0f;
+        if (breakProgress < 1.0f) return false;
+        breakProgress = 0.0f;
+        cubeDiggingSize = 0;                       // measure again next time
+        return true;
+    }
+
+    // Break every voxel in the cube, except indestructible
+    // ones and anything belonging to a door, building piece or
+    // tree. Survival: the voxels go into the inventory.
+    void breakCube(Player& player, WorldEditor& editor, StructureManager& structs,
+                   const CubeBox& c, bool survival) {
+        EditBatch b;
+        b.source = survival ? EditSource::Player : EditSource::Dev;
+        b.label  = "pickaxe";
+        b.undoable    = !survival;
+        b.wantChanges = survival;
+        b.respectIndestructible = true;
+        for (int y = c.lo.y; y <= c.hi.y; y++)
+        for (int z = c.lo.z; z <= c.hi.z; z++)
+        for (int x = c.lo.x; x <= c.hi.x; x++) {
+            glm::ivec3 p(x, y, z);
+            uint16_t id = editor.typeAt(p);
+            if (id == BLOCK_AIR) continue;
+            if (structs.instanceAt(p) || isTreeWood(structs, p, id)) continue;
+            b.set(x, y, z, BLOCK_AIR);
+        }
+        if (b.empty()) return;
+        EditResult r = editor.apply(std::move(b));
+        if (!survival) return;
+        // tally the drops, then add them a stack at a time
+        std::vector<std::pair<uint16_t, int>> drops;
+        for (const VoxelChange& ch : r.changes) {
+            uint16_t item = gItems.itemForBlock(ch.oldID);
+            if (!item) continue;
+            auto it = std::find_if(drops.begin(), drops.end(), [&](auto& d) { return d.first == item; });
+            if (it == drops.end()) drops.push_back({ item, 1 }); else it->second++;
+        }
+        int lost = 0;
+        for (auto& [item, n] : drops) lost += player.inventory.add(item, n);
+        if (lost) say("inventory full - " + std::to_string(lost) + " lost");
     }
 
     // Survival digging: hold the button on one block until

@@ -411,7 +411,9 @@ int main() {
                           uint64_t seed,
                           GameMode mode,
                           WorldType type,
-                          int size) {
+                          int size,
+                          int biome = -1,
+                          TerrainStyle terrain = TerrainStyle::GuidedRivers) {
         streamer.reset();
         farView.reset();
         gPhysics.reset();
@@ -419,7 +421,7 @@ int main() {
         if (isNew) {
             std::cout << "Creating world: " << name
                       << " seed=" << seed << "\n";
-            gWorldSave.createWorld(name, seed, mode, type, size);
+            gWorldSave.createWorld(name, seed, mode, type, size, biome, terrain);
         } else {
             std::cout << "Loading world: " << name << "\n";
             gWorldSave.loadWorld(name);
@@ -435,7 +437,22 @@ int main() {
         std::cout << worldTypeName(type) << " world, " << size << " x "
                   << size << " chunks\n";
 
-        gen   = makeGenerator(type, seed, size);
+        // (island ground is baked with erosion here: a few
+        // seconds, so say so on screen first)
+        if (type != WorldType::Classic && gWorldSave.getTerrainStyle() != TerrainStyle::NoErosion) {
+            gRenderer->beginFrame();
+            UIRenderer* ui = gRenderer->getUIRenderer();
+            const auto& theme = gResourcePacks.getTheme();
+            float sw = (float)ui->getWidth(), sh = (float)ui->getHeight();
+            ui->begin();
+            ui->drawRect(0, 0, sw, sh, theme.bg);
+            ui->drawTextCentered("Shaping the land...", 0, sh * 0.5f - 30, sw, 30, theme.title, 3);
+            ui->drawTextCentered("rivers are carving their valleys", 0, sh * 0.5f + 10, sw, 20, theme.textDim, 2);
+            ui->end();
+            gRenderer->endFrame();
+            glfwSwapBuffers(window);
+        }
+        gen   = makeGenerator(type, seed, size, gWorldSave.getWorldBiome(), gWorldSave.getTerrainStyle());
         world = std::make_unique<ChunkManager>();
 
         // Where each chunk's voxels come from. Runs on worker
@@ -531,7 +548,7 @@ int main() {
                 (float)spawnX, (float)ground + above, (float)spawnZ);
             // A starter kit in the dev inventory
             const char* kit[] = { "dev_wand", "dev_fill", "dev_brush",
-                                  "dev_copy", "dev_paste", "dev_breaker",
+                                  "dev_copy", "dev_paste", "dev_cube",
                                   "stone", "builders_hammer" };
             for (int i = 0; i < Inventory::TOOLBAR_SLOTS; i++)
                 if (uint16_t id = gItems.find(kit[i]))
@@ -539,6 +556,9 @@ int main() {
             // Every player starts with a Builder's Hammer
             if (uint16_t h = gItems.find("builders_hammer"))
                 player.inventory.setSlot(0, h, 1);
+            // …and a pickaxe
+            if (uint16_t pk = gItems.find("stone_pickaxe"))
+                player.inventory.setSlot(1, pk, 1);
         }
         changeMode(mode);
 
@@ -581,7 +601,7 @@ int main() {
                     nearMask[(size_t)cz * WORLD_SIZE_X + cx] = 1;
             farView->setNearMask(nearMask);
             farView->draw(glr->getViewMatrix(), Camera::FOV_DEG, aspect, camera.position,
-                          OpenGLRenderer::FOG_COLOR, OpenGLRenderer::FOG_DENSITY);
+                          OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
             glClear(GL_DEPTH_BUFFER_BIT);
         }
 
@@ -641,7 +661,7 @@ int main() {
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
             glm::mat4 view = glr->getViewMatrix();
             charRenderer.draw(*playerBody, proj * view, controller.renderPosition, camera.position,
-                              OpenGLRenderer::FOG_COLOR, OpenGLRenderer::FOG_DENSITY);
+                              OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
             // toon edge lines (hidden behind anything in front)
             int fw = gRenderer->getScreenWidth(), fh = gRenderer->getScreenHeight();
             charRenderer.drawEdges({ { playerBody.get(), controller.renderPosition } }, view, proj,
@@ -694,6 +714,16 @@ int main() {
             gState != GameState::DevMenu) {
             glm::vec3 b(hands.target.blockPos);
             wire(b - 0.01f, b + 1.01f, glm::vec3(0.05f));
+        }
+        // Cube tools: what will break (orange) and what the
+        // Cube Tool would fill (green)
+        if (rules.worldInteraction && gState != GameState::DevMenu) {
+            if (hands.cubeBreakShown)
+                wire(glm::vec3(hands.cubeBreak.lo) - 0.03f, glm::vec3(hands.cubeBreak.hi) + 1.03f,
+                     glm::vec3(1.0f, 0.55f, 0.15f));
+            if (hands.cubePlaceShown)
+                wire(glm::vec3(hands.cubePlace.lo) - 0.12f, glm::vec3(hands.cubePlace.hi) + 1.12f,
+                     glm::vec3(0.3f, 0.95f, 0.4f));
         }
         if (player.mode == GameMode::Dev) {
             if (dev.hasSelection())
@@ -862,6 +892,19 @@ int main() {
             glm::ivec2 pc =
                 world->worldToChunk(camera.position);
             streamer->update(pc.x, pc.y);
+            // View distances from the settings (they can change
+            // while the game runs: the streamer and the far view
+            // simply adjust)
+            MESH_DISTANCE = gSettings.chunkDistanceInt();
+            {
+                float farVox = gSettings.renderAll() ? 0.0f : gSettings.renderDistance * VOXEL_DIM;
+                if (farView) farView->setMaxDistance(farVox);
+                // a short render distance thickens the fog so
+                // the land fades out instead of ending in a line
+                OpenGLRenderer::fogDensity = farVox > 0.0f
+                    ? std::max(OpenGLRenderer::FOG_DENSITY, 2.6f / farVox)
+                    : OpenGLRenderer::FOG_DENSITY;
+            }
             if (farView) farView->update(camera.position);
 
             // Big edits are spread over frames: a few
@@ -889,7 +932,9 @@ int main() {
                            mainMenu.getNewWorldSeed(),
                            mainMenu.getNewWorldMode(),
                            mainMenu.getNewWorldType(),
-                           mainMenu.getNewWorldSize());
+                           mainMenu.getNewWorldSize(),
+                           mainMenu.getNewWorldBiome(),
+                           mainMenu.getNewWorldTerrain());
             } else if (r == ScreenResult::LoadWorld) {
                 // Seed and mode come from the save file
                 enterWorld(false,

@@ -122,6 +122,12 @@ public:
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 
+    // How far out the distant terrain reaches, in voxels
+    // (0 = the whole world). Regions past it are not built,
+    // and their meshes are freed. Settings -> Render distance.
+    void setMaxDistance(float voxels) { maxDistance = std::max(0.0f, voxels); }
+    float getMaxDistance() const { return maxDistance; }
+
     // Once per frame: take finished regions, ask for new ones
     void update(glm::vec3 cam) {
         std::vector<Result> done;
@@ -148,6 +154,11 @@ public:
             int i = rz * regionsX + rx;
             Region& reg = regions[(size_t)i];
             float d = distanceTo(rx, rz, cam);
+            if (maxDistance > 0.0f && d > maxDistance) {      // past the render distance
+                reg.wanted = 0;
+                if (reg.step && !reg.building) { reg.gpu.release(); reg.step = 0; }
+                continue;
+            }
             int want = stepFor(d);
             // Hysteresis: stay at the current detail while
             // the camera is near a boundary
@@ -202,6 +213,7 @@ public:
         for (int rx = 0; rx < regionsX; rx++) {
             const Region& reg = regions[(size_t)(rz * regionsX + rx)];
             if (!reg.gpu.count) continue;
+            if (maxDistance > 0.0f && distanceTo(rx, rz, cam) > maxDistance) continue;
             glm::vec3 lo((float)(rx * REGION), reg.minY, (float)(rz * REGION));
             glm::vec3 hi(lo.x + REGION, reg.maxY, lo.z + REGION);
             if (!boxInFrustum(lo, hi)) continue;
@@ -220,6 +232,7 @@ public:
 
 private:
     static constexpr int MAX_IN_FLIGHT = 4;
+    float maxDistance = 0.0f;
 
     struct Vertex {
         float   x, y, z;

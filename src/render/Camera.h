@@ -20,7 +20,7 @@ public:
     // measured corner to corner).
     static constexpr float FOV_DEG    = 70.0f;
     static constexpr float NEAR_PLANE = 0.2f;
-    static constexpr float FAR_PLANE  = 3072.0f;   // voxel chunks only; FarTerrain has its own
+    static constexpr float FAR_PLANE  = 4096.0f;   // voxel chunks only (16 chunks out); FarTerrain has its own
 
     glm::mat4 getViewMatrix() const {
         return glm::lookAt(position,

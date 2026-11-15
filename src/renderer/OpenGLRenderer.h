@@ -143,7 +143,7 @@ public:
         glUniform1f(locVoxelsPerTile, atlas.voxelsPerTile());
         glUniform3f(locCamPos, cameraPos.x, cameraPos.y, cameraPos.z);
         glUniform3f(locFogColor, FOG_COLOR.r, FOG_COLOR.g, FOG_COLOR.b);
-        glUniform1f(locFogDensity, FOG_DENSITY);
+        glUniform1f(locFogDensity, fogDensity);
         atlas.bind(0);
 
         extractFrustum(projMatrix * viewMatrix);
@@ -232,6 +232,10 @@ public:
     // Density: about 75% haze at 12,000 voxels (4,000 ft).
     static constexpr glm::vec3 FOG_COLOR   = glm::vec3(0.58f, 0.72f, 0.93f);
     static constexpr float     FOG_DENSITY = 1.15e-4f;
+    // The fog used this frame: thicker than FOG_DENSITY when
+    // the render distance is short, so the world fades out
+    // before it ends. Set by main from the settings.
+    static inline float        fogDensity  = FOG_DENSITY;
 
     const glm::mat4& getViewMatrix() const { return viewMatrix; }
 

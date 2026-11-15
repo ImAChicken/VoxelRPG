@@ -318,6 +318,11 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             if (!a.empty()) c.dev.setBrush((float)std::atof(a[0].c_str()));
             c.log("brush radius " + std::to_string((int)c.dev.brushRadius));
         });
+    reg.add("cube", "cube <size>", "width of the Cube Tool's cube, in voxels",
+        [](C& c, const Args& a) {
+            if (!a.empty()) c.dev.setCube(std::atoi(a[0].c_str()));
+            c.log("cube " + std::to_string(c.dev.cubeSize) + " voxels");
+        });
 
     // ── Player ────────────────────────────────────────────
     reg.add("give", "give <item> [count] [player|dev]", "put items in an inventory",

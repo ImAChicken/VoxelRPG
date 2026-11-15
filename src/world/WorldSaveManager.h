@@ -22,8 +22,11 @@ public:
     //          world is opened
     //   type, size — world type and its size in chunks
     bool createWorld(const std::string& name, uint64_t seed,
-                     GameMode mode, WorldType type, int size) {
+                     GameMode mode, WorldType type, int size, int biome = -1,
+                     TerrainStyle terrain = TerrainStyle::GuidedRivers) {
         worldName   = name;
+        worldBiome  = biome;
+        worldTerrain = terrain;
         worldSeed   = seed;
         defaultMode = mode;
         worldType   = type;
@@ -58,6 +61,9 @@ public:
         // Saves from before world types are Classic
         worldType = WorldType::Classic;
         worldSize = CLASSIC_WORLD_SIZE;
+        worldBiome = -1;
+        // worlds from before erosion keep their old ground
+        worldTerrain = TerrainStyle::NoErosion;
         return loadDescriptor();
     }
 
@@ -138,6 +144,8 @@ public:
     uint64_t    getSeed()  const { return worldSeed; }
     GameMode    getDefaultMode() const { return defaultMode; }
     WorldType   getWorldType() const { return worldType; }
+    int         getWorldBiome() const { return worldBiome; }
+    TerrainStyle getTerrainStyle() const { return worldTerrain; }
     int         getWorldSize() const { return worldSize; }
     std::string getName()  const { return worldName; }
     bool        isLoaded() const { return !worldPath.empty(); }
@@ -149,6 +157,8 @@ private:
     GameMode    defaultMode = GameMode::Survival;
     WorldType   worldType   = WorldType::Classic;
     int         worldSize   = CLASSIC_WORLD_SIZE;
+    int         worldBiome  = -1;     // single-biome worlds
+    TerrainStyle worldTerrain = TerrainStyle::GuidedRivers;
 
     bool saveDescriptor() {
         std::ofstream f(worldPath + "/world.vxrp");
@@ -158,6 +168,8 @@ private:
         f << "mode="    << gameModeKey(defaultMode) << "\n";
         f << "type="    << worldTypeKey(worldType) << "\n";
         f << "size="    << worldSize << "\n";
+        if (worldBiome >= 0) f << "biome=" << island::biomeInfo(worldBiome).name << "\n";
+        if (worldType != WorldType::Classic) f << "terrain=" << terrainStyleKey(worldTerrain) << "\n";
         f << "version=" << 2        << "\n";
         return true;
     }
@@ -177,6 +189,13 @@ private:
                 worldType = worldTypeFromKey(line.substr(5));
             if (line.substr(0,5) == "size=")
                 worldSize = std::atoi(line.substr(5).c_str());
+            if (line.substr(0,8) == "terrain=")
+                worldTerrain = terrainStyleFromKey(line.substr(8));
+            if (line.substr(0,6) == "biome=") {
+                std::string bn = line.substr(6);
+                for (int b = 0; b < island::BIOME_COUNT; b++)
+                    if (bn == island::biomeInfo(b).name) worldBiome = b;
+            }
             if (line.substr(0,5) == "mode=") {
                 std::string key = line.substr(5);
                 // Tolerate Windows line endings

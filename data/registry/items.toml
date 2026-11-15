@@ -7,8 +7,10 @@
 #              hammer: the Builder's Hammer (build menu + placing structures)
 # tool_power:  dig speed multiplier on blocks the tool suits
 #              pickaxe → stone, shovel → dirt, axe → wood, hoe → organic
+# cube:        pickaxes: breaks a cube this many voxels wide in one go,
+#              lined up on a grid of that size (hold Shift for off-grid)
 # weapon_class / damage: used in the combat stance only
-# dev_tool:    wand | fill | replace | brush | copy | paste | explode | breaker
+# dev_tool:    wand | fill | replace | brush | copy | paste | explode | breaker | cube
 # color:       swatch shown in menus until items have icons
 # No recompile needed after editing — F6 reloads blocks and items.
 
@@ -18,6 +20,7 @@ id = 1000
 name = "wooden_pickaxe"
 categories = ["tool"]
 tool = "pickaxe"
+cube = 6                 # 24 inch (2 ft) cube
 tool_power = 2.0
 color = [0.60, 0.45, 0.25]
 
@@ -26,6 +29,7 @@ id = 1001
 name = "stone_pickaxe"
 categories = ["tool"]
 tool = "pickaxe"
+cube = 6                 # 24 inch (2 ft) cube
 tool_power = 4.0
 color = [0.55, 0.55, 0.55]
 
@@ -34,6 +38,7 @@ id = 1002
 name = "iron_pickaxe"
 categories = ["tool"]
 tool = "pickaxe"
+cube = 6                 # 24 inch (2 ft) cube
 tool_power = 8.0
 color = [0.80, 0.80, 0.85]
 
@@ -172,3 +177,13 @@ display = "Dev Pickaxe"
 categories = ["dev"]
 dev_tool = "breaker"
 color = [0.95, 0.95, 0.40]
+
+# Breaks or places a cube of any size, on a grid or not
+# (Shift). Up / Down change the size.
+[[item]]
+id = 1208
+name = "dev_cube"
+display = "Cube Tool"
+categories = ["dev"]
+dev_tool = "cube"
+color = [0.40, 0.80, 0.95]

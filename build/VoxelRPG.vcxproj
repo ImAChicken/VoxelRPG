@@ -398,6 +398,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\entity\PlayerController.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\BuildTool.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\Commands.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\CubeTool.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\DevTools.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\GameMode.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\Inventory.h" />
@@ -458,8 +459,11 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\Dev\VoxelRPG\src\world\WorldSaveManage.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldSaveManager.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldStreamer.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\BiomeCollapse.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\BiomeTable.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\IslandChart.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\IslandGenerator.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\TerrainBake.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\worldgen\WorldType.h" />
   </ItemGroup>
   <ItemGroup />

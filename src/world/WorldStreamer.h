@@ -341,7 +341,7 @@ private:
         for (int cx = 0; cx < WORLD_SIZE_X; cx++)
         for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
             if (!world.isLoaded(cx, cz)) continue;
-            if (ringDistance(cx, cz, pcx, pcz) <= LOAD_DISTANCE + UNLOAD_SLACK) continue;
+            if (ringDistance(cx, cz, pcx, pcz) <= loadDistance() + UNLOAD_SLACK) continue;
             const Slot& s = slot(cx, cz);
             if (s.loading || s.meshing || world.isDirty(cx, cz)) continue;
             world.setChunk(cx, cz, nullptr);
@@ -372,10 +372,10 @@ private:
     void scheduleWork(int pcx, int pcz) {
         std::vector<Candidate> candidates;
 
-        for (int cx = pcx - LOAD_DISTANCE;
-                 cx <= pcx + LOAD_DISTANCE; cx++)
-        for (int cz = pcz - LOAD_DISTANCE;
-                 cz <= pcz + LOAD_DISTANCE; cz++) {
+        for (int cx = pcx - loadDistance();
+                 cx <= pcx + loadDistance(); cx++)
+        for (int cz = pcz - loadDistance();
+                 cz <= pcz + loadDistance(); cz++) {
             if (!ChunkManager::inWorld(cx, cz)) continue;
             const Slot& s = slot(cx, cz);
             int d = ringDistance(cx, cz, pcx, pcz);

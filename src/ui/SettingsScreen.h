@@ -3,6 +3,7 @@
 #include "../game/Settings.h"
 #include <GLFW/glfw3.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <string>
@@ -26,6 +27,11 @@ public:
                   [](float v) { return outOf100(v); });
         addSlider("Mouse sensitivity", &gSettings.mouseSensitivity, 0.02f, 0.4f,
                   [](float v) { return times(v / GameSettings::DEF_SENSITIVITY); });
+        addSlider("Chunk distance", &gSettings.chunkDistance, 2.0f, 16.0f,
+                  [](float v) { return chunks(v, false); });
+        addSlider("Render distance", &gSettings.renderDistance,
+                  GameSettings::RENDER_MIN, GameSettings::RENDER_ALL,
+                  [](float v) { return chunks(v, v >= GameSettings::RENDER_ALL - 0.5f); });
         addChoice("Character edges", &gSettings.charEdges, { "Off", "Lines", "Lines + echo" });
         addChoice("Edge line colour", &gSettings.charLineColor, { "Black", "Tinted" });
         addChoice("Hair mesh", &gSettings.charHairMesh, { "Voxels", "Shards", "Soft shards" });
@@ -158,6 +164,14 @@ private:
     static std::string times(float v) {
         char b[16];
         std::snprintf(b, sizeof(b), "x%.2f", v);
+        return b;
+    }
+    // "6 chunks  256 ft" (a chunk is 128 voxels of 4 inches)
+    static std::string chunks(float v, bool all) {
+        if (all) return "whole world";
+        int n = (int)std::lround(v);
+        char b[40];
+        std::snprintf(b, sizeof(b), "%d chunks  %d ft", n, (int)std::lround(n * 128 / 3.0));
         return b;
     }
     static std::string outOf100(float v) {

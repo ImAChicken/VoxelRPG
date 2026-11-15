@@ -309,6 +309,11 @@ private:
             std::snprintf(b, sizeof(b), "brush radius %d", (int)dev.brushRadius);
             centred(b, y, theme.accent);
             break;
+        case DevToolKind::Cube:
+            std::snprintf(b, sizeof(b), "cube %d voxels = %d in   %s", dev.cubeSize, dev.cubeSize * 4,
+                          dev.cubeFree ? "off grid" : "on grid");
+            centred(b, y, theme.accent);
+            break;
         default:
             break;
         }

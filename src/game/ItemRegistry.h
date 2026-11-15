@@ -53,6 +53,7 @@ enum class DevToolKind : uint8_t {
     Paste,      // left: paste at target   right: rotate clipboard
     Explode,    // left: explosion at target
     Breaker,    // left: break one block   right: break a 3×3×3
+    Cube,       // left: place a cube of material   right: break a cube
 };
 
 struct ItemDef {
@@ -66,6 +67,7 @@ struct ItemDef {
 
     ToolKind    tool        = ToolKind::None;
     float       toolPower   = 1.0f;         // dig speed multiplier
+    int         cubeSize    = 0;            // pickaxes: breaks a cube this many voxels wide
 
     std::string weaponClass;                // "sword", "axe", "spear"
     float       damage      = 0.0f;
@@ -197,6 +199,7 @@ private:
                 else if (tool == "hoe")     d.tool = ToolKind::Hoe;
                 else if (tool == "hammer")  d.tool = ToolKind::Hammer;
                 d.toolPower = (float)(*t)["tool_power"].value_or(1.0);
+                d.cubeSize  = (int)(*t)["cube"].value_or((int64_t)0);
 
                 d.weaponClass = (*t)["weapon_class"].value_or(std::string());
                 d.damage      = (float)(*t)["damage"].value_or(0.0);
@@ -210,6 +213,7 @@ private:
                 else if (dev == "paste")   d.devTool = DevToolKind::Paste;
                 else if (dev == "explode") d.devTool = DevToolKind::Explode;
                 else if (dev == "breaker") d.devTool = DevToolKind::Breaker;
+                else if (dev == "cube")    d.devTool = DevToolKind::Cube;
 
                 if (auto* col = (*t)["color"].as_array())
                     for (int k = 0; k < 3 && k < (int)col->size(); k++)

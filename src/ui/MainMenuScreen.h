@@ -84,6 +84,8 @@ public:
     GameMode    getNewWorldMode() const { return worldMode; }
     WorldType   getNewWorldType() const { return worldType; }
     int         getNewWorldSize() const { return worldSizeFor(worldType, islandSize); }
+    int         getNewWorldBiome() const { return worldType == WorldType::SingleBiome ? singleBiome : -1; }
+    TerrainStyle getNewWorldTerrain() const { return terrain; }
 
     // Coming back from a world: always start at the main
     // page, not whichever panel was open before
@@ -106,6 +108,9 @@ private:
     GameMode    worldMode   = GameMode::Survival;  // default mode
     WorldType   worldType   = WorldType::Island;
     int         islandSize  = 96;                  // chunks per side
+    int         singleBiome = island::Forest;      // single-biome worlds
+    TerrainStyle terrain    = TerrainStyle::GuidedRivers;
+    int         previewBiome = -1;
 
     // The island map shown on the right, rebuilt whenever
     // the seed or size changes
@@ -214,7 +219,8 @@ private:
             ui.drawBorder(cx, y, cw, ch, on ? theme.accent : theme.buttonBorder,
                           on ? 2.0f : 1.0f);
             ui.drawTextCentered(labels[i], cx, y, cw, ch,
-                                !enabled ? theme.textDim : on ? theme.textHover : theme.text, 2);
+                                !enabled ? theme.textDim : on ? theme.textHover : theme.text,
+                                ui.textWidth(labels[i], 2) <= cw + 4 ? 2 : 1);
             if (hov && justClicked()) clicked = (int)i;
         }
         return clicked;
@@ -274,11 +280,31 @@ private:
         }
         ly += theme.buttonH + 10.0f;
 
-        // ── Island size ───────────────────────────────────
-        bool isIsland = worldType == WorldType::Island;
-        ui.drawText("Island Size:", lx, ly, isIsland ? theme.text : theme.textDim, 2);
-        ly += 20.0f;
-        {
+        // ── Island size, or the biome of a single-biome world
+        if (worldType == WorldType::SingleBiome) {
+            ui.drawText("Biome:", lx, ly, theme.text, 2);
+            ly += 20.0f;
+            // < name >: click the left third for the previous
+            // biome, anywhere else for the next
+            std::vector<int> all = singleBiomeChoices();
+            int at = 0;
+            for (int k = 0; k < (int)all.size(); k++) if (all[k] == singleBiome) at = k;
+            float bh = (float)theme.buttonH;
+            bool hov = mouseX >= lx && mouseX <= lx + iw && mouseY >= ly && mouseY <= ly + bh;
+            ui.drawRect(lx, ly, iw, bh, hov ? theme.buttonBgHover : theme.inputBg);
+            ui.drawBorder(lx, ly, iw, bh, hov ? theme.accent : theme.border, 1.0f);
+            ui.drawText("<", lx + 8, ly + (bh - ui.textHeight(2)) * 0.5f, theme.textDim, 2);
+            ui.drawText(">", lx + iw - 8 - ui.textWidth(">", 2), ly + (bh - ui.textHeight(2)) * 0.5f, theme.textDim, 2);
+            ui.drawTextCentered(island::biomeInfo(singleBiome).name, lx, ly, iw, bh, hov ? theme.textHover : theme.accent, 2);
+            if (hov && justClicked()) {
+                int nAll = (int)all.size();
+                at = (mouseX < lx + iw / 3.0f) ? (at + nAll - 1) % nAll : (at + 1) % nAll;
+                singleBiome = all[at];
+            }
+        } else {
+            bool isIsland = worldType == WorldType::Island;
+            ui.drawText("Island Size:", lx, ly, isIsland ? theme.text : theme.textDim, 2);
+            ly += 20.0f;
             int sel = islandSize <= 72 ? 0 : islandSize <= 96 ? 1 : 2;
             int c = choiceRow(ui, theme, lx, ly, iw, { "Small", "Medium", "Large" }, sel, isIsland);
             if (c >= 0) islandSize = ISLAND_SIZES[c];
@@ -295,6 +321,18 @@ private:
                               { rulesFor(choices[0], false).name, rulesFor(choices[1], false).name,
                                 rulesFor(choices[2], false).name }, sel);
             if (c >= 0) worldMode = choices[c];
+        }
+        ly += theme.buttonH + 10.0f;
+
+        // ── Terrain: erosion, and how rivers are chosen ───
+        {
+            bool shaped = worldType != WorldType::Classic;
+            ui.drawText("Terrain:", lx, ly, shaped ? theme.text : theme.textDim, 2);
+            ly += 20.0f;
+            std::vector<std::string> opts;
+            for (int t = 0; t < (int)TerrainStyle::COUNT; t++) opts.push_back(terrainStyleName((TerrainStyle)t));
+            int c = choiceRow(ui, theme, lx, ly, iw, opts, (int)terrain, shaped);
+            if (c >= 0) terrain = (TerrainStyle)c;
         }
         ly += theme.buttonH + 18.0f;
 
@@ -327,22 +365,26 @@ private:
     // The right-hand column: the island map, or a note for
     // world types without a map
     void drawPreview(UIRenderer& ui, const UITheme& theme, float x, float y, float w, float h) {
-        if (worldType != WorldType::Island) {
+        if (worldType == WorldType::Classic) {
             ui.drawText("Classic", x, y, theme.title, 2);
             ui.drawText("Rolling hills and forest.", x, y + 30, theme.text, 2);
             ui.drawText("32 x 32 chunks, 0.26 mi", x, y + 52, theme.textDim, 2);
             return;
         }
 
-        // Rebuild the chart when the seed or size changes
+        // Rebuild the chart when the seed, size or biome changes
         uint64_t seed = getNewWorldSeed() % 1000000ull;
-        if (seed != previewSeed || islandSize != previewSize) {
+        int wantSize  = worldType == WorldType::SingleBiome ? CLASSIC_WORLD_SIZE : islandSize;
+        int wantBiome = worldType == WorldType::SingleBiome ? singleBiome : -1;
+        if (seed != previewSeed || wantSize != previewSize || wantBiome != previewBiome) {
             auto t0 = std::chrono::steady_clock::now();
-            preview = island::generateIsland((int)seed, islandSize);
+            preview = wantBiome >= 0 ? island::singleBiomeChart((int)seed, wantBiome, wantSize)
+                                     : island::collapseIsland((int)seed, wantSize);
             previewMs = std::chrono::duration<float, std::milli>(
                 std::chrono::steady_clock::now() - t0).count();
             previewSeed = seed;
-            previewSize = islandSize;
+            previewSize = wantSize;
+            previewBiome = wantBiome;
         }
 
         const int S = preview.size;
@@ -398,8 +440,14 @@ private:
         if (mouseX >= mx && mouseY >= my && mouseX < mx + map && mouseY < my + map) {
             int ci = (int)((mouseX - mx) / cell), cj = (int)((mouseY - my) / cell);
             int b = preview.at(ci, cj);
-            std::snprintf(buf, sizeof(buf), "%s, elev %.2f", island::biomeInfo(b).name,
-                          preview.elev[(size_t)cj * S + ci]);
+            int lb = preview.baseAt(ci, cj);
+            float hv = preview.height.empty() ? 0.0f : preview.height[(size_t)cj * S + ci];
+            if (lb != b)
+                std::snprintf(buf, sizeof(buf), "%s + %s, %d ft", island::biomeInfo(lb).name,
+                              island::biomeInfo(b).name, (int)std::lround((hv - 160.0f) / 3.0f));
+            else
+                std::snprintf(buf, sizeof(buf), "%s, %d ft", island::biomeInfo(b).name,
+                              (int)std::lround((hv - 160.0f) / 3.0f));
             fitText(ui, buf, mx, ty, map, theme.textHover);
         } else {
             fitText(ui, "Point at the map for details", mx, ty, map, theme.textDim);

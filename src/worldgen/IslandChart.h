@@ -101,6 +101,21 @@ struct Chart {
     int roleMountain = 0, rolePlains = 0, roleVolcanic = 0, roleForest = 0;
     std::vector<Marker> markers;
 
+    // ── Filled by the biome collapse (worldgen/BiomeCollapse.h) ──
+    // 'biomes' above is still the combined map (water, roads
+    // and settlements drawn over the land), so older code keeps
+    // working. These add what the collapse knows on top:
+    bool collapsed = false;
+    std::vector<uint8_t> base;       // the land / sea biome under any overlay
+    std::vector<float>   height;     // ground height per cell, voxels
+    std::vector<std::vector<int>> rivers;   // cell paths, source to mouth
+    std::vector<int>     road;       // cell path, village to hamlet
+    int singleBiome = -1;            // single-biome world: its biome
+
+    int baseAt(int x, int y) const {
+        return collapsed ? base[(size_t)y * size + x] : biomes[(size_t)y * size + x];
+    }
+
     int at(int x, int y) const { return biomes[(size_t)y * size + x]; }
     bool inside(int x, int y) const { return x >= 0 && y >= 0 && x < size && y < size; }
     const Marker* marker(const std::string& kind) const {

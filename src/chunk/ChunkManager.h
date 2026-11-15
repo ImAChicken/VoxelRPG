@@ -21,8 +21,11 @@ inline int WORLD_SIZE_Z = 32;
 // Chunk data is kept one ring further out, because a chunk
 // can only be meshed once all four neighbours exist.
 // Beyond this the distant terrain (render/FarTerrain.h) takes over.
-constexpr int MESH_DISTANCE = 6;
-constexpr int LOAD_DISTANCE = MESH_DISTANCE + 1;
+// Set from Settings (Esc -> Settings -> Chunk distance); only
+// changed on the main thread, between frames.
+constexpr int MESH_DISTANCE_MIN = 2, MESH_DISTANCE_MAX = 16, MESH_DISTANCE_DEFAULT = 6;
+inline int MESH_DISTANCE = MESH_DISTANCE_DEFAULT;
+inline int loadDistance() { return MESH_DISTANCE + 1; }
 
 // ── ChunkManager ──────────────────────────────────────────
 // Owns the voxel data for the whole world. Pure data — no

@@ -6,3 +6,12 @@ toolbar_opacity = 1   # 0.1 - 1.0
 
 [controls]
 mouse_sensitivity = 0.1   # 0.02 - 0.4
+
+[view]
+chunk_distance  = 7   # chunks drawn as voxels, 2 - 16
+render_distance = 160   # distant terrain, chunks, 16 - 160 (160 = whole world)
+
+[characters]
+edges      = 1   # 0 off, 1 lines, 2 lines + colour echo
+line_color = 0   # 0 black, 1 tinted
+hair_mesh  = 1   # 0 voxels, 1 shards, 2 soft shards
