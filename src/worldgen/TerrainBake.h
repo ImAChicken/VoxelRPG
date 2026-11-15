@@ -104,6 +104,20 @@ public:
     static float quant(float v) { return std::round(v * 16.0f) / 16.0f; }
     int  size()  const { return S; }
 
+    // ── Touch-ups after the bake (sample grid, voxels) ────
+    // Used by the world type to settle river banks; never saved,
+    // so they are made again the same way on every load.
+    float sampleHeight(int x, int z) const { return h[(size_t)z * S + x]; }
+    bool  sampleLake(int x, int z) const   { return lakeFlag[(size_t)z * S + x] != 0; }
+    void  setSampleHeight(int x, int z, float v) { h[(size_t)z * S + x] = v; F[(size_t)z * S + x] = std::max(F[(size_t)z * S + x], v); }
+    float sampleWater(int x, int z) const  { return F[(size_t)z * S + x]; }
+    void  clearLakeSample(int x, int z)    { lakeFlag[(size_t)z * S + x] = 0; }
+    void  makeLakeSample(int x, int z, float surface) {
+        size_t i = (size_t)z * S + x;
+        lakeFlag[i] = 1;
+        F[i] = std::max(F[i], surface);
+    }
+
     // Ground height at a world point (smooth, between samples)
     float height(float wx, float wz) const { return cubic(h, wx, wz); }
     // Change from erosion: + where material was laid down, − where cut

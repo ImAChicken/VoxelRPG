@@ -32,6 +32,8 @@ public:
         addSlider("Render distance", &gSettings.renderDistance,
                   GameSettings::RENDER_MIN, GameSettings::RENDER_ALL,
                   [](float v) { return chunks(v, v >= GameSettings::RENDER_ALL - 0.5f); });
+        addSlider("Eye height", &gSettings.eyeHeight, 13.0f, 17.5f,
+                  [](float v) { return feetInches(v); });
         addChoice("Character edges", &gSettings.charEdges, { "Off", "Lines", "Lines + echo" });
         addChoice("Edge line colour", &gSettings.charLineColor, { "Black", "Tinted" });
         addChoice("Hair mesh", &gSettings.charHairMesh, { "Voxels", "Shards", "Soft shards" });
@@ -172,6 +174,13 @@ private:
         int n = (int)std::lround(v);
         char b[40];
         std::snprintf(b, sizeof(b), "%d chunks  %d ft", n, (int)std::lround(n * 128 / 3.0));
+        return b;
+    }
+    // "5 ft 4 in" (a voxel is 4 inches)
+    static std::string feetInches(float v) {
+        int in = (int)std::lround(v * 4.0f);
+        char b[24];
+        std::snprintf(b, sizeof(b), "%d ft %d in", in / 12, in % 12);
         return b;
     }
     static std::string outOf100(float v) {

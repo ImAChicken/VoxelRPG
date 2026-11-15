@@ -254,7 +254,7 @@ public:
 
 private:
     glm::vec3 prevPosition = {0, 0, 0};
-    float     prevEye      = Human::STAND_EYE;
+    float     prevEye      = Human::eyeStand;
     float     stepOffset   = 0.0f;
     float     cameraBack   = 0.0f;   // current third-person distance
 

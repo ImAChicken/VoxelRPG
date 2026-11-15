@@ -76,9 +76,9 @@ inline const std::array<TileDef, 25>& tiles() {
         { HighMountain,   7, 7, 700, 860, {1,1,1,1},          240, Relief::Ridged, 0.2f,  "" },
         { Plateau,        6, 6, 560, 700, {1,1,1,1},           30, Relief::Plateau,0.2f,  "Flat-topped" },
         { Peak,           8, 8, 850,1000, {1,1,1,1},          200, Relief::Ridged, 0.2f,  "Pinned; only next to high mountain" },
-        { Ashlands,       4, 4, 280, 420, {0.3f,0.02f,3,0.02f},50, Relief::Linear, 0.15f, "" },
+        { Karst,       4, 4, 280, 420, {0.3f,0.02f,3,0.02f},50, Relief::Linear, 0.15f, "" },
         { HighlandMoor,   4, 4, 280, 420, {0.6f,0.02f,3,0.05f},60, Relief::Flat,   0.2f,  "" },
-        { Scrubland,      3, 3, 200, 300, {0.3f,0.1f,3,0.1f},  40, Relief::Flat,   0.2f,  "" },
+        { Canyons,      3, 3, 200, 300, {0.3f,0.1f,3,0.1f},  40, Relief::Flat,   0.2f,  "" },
     }};
     return T;
 }

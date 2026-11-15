@@ -487,8 +487,8 @@ private:
 
     // The eye glides between standing and crouching height
     static void easeEye(Human& h, float dt) {
-        float target = h.crouching ? Human::CROUCH_EYE
-                                   : Human::STAND_EYE;
+        float target = h.crouching ? Human::eyeCrouch()
+                                   : Human::eyeStand;
         float step = 40.0f * dt;
         float diff = target - h.eyeHeight;
         h.eyeHeight = (std::fabs(diff) <= step)

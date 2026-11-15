@@ -29,6 +29,8 @@ struct GameSettings {
     float mouseSensitivity = DEF_SENSITIVITY;       // degrees per pixel
     float chunkDistance    = DEF_CHUNK_DISTANCE;    // 2 .. 16 chunks
     float renderDistance   = DEF_RENDER_DISTANCE;   // 16 .. 160 chunks (160 = all)
+    static constexpr float DEF_EYE_HEIGHT = 16.0f;  // voxels (5'4"); the body is 17 tall
+    float eyeHeight        = DEF_EYE_HEIGHT;        // 13 .. 17.5 voxels
 
     int  chunkDistanceInt() const { return (int)std::lround(chunkDistance); }
     bool renderAll()        const { return renderDistance >= RENDER_ALL - 0.5f; }
@@ -46,6 +48,7 @@ struct GameSettings {
         mouseSensitivity = DEF_SENSITIVITY;
         chunkDistance    = DEF_CHUNK_DISTANCE;
         renderDistance   = DEF_RENDER_DISTANCE;
+        eyeHeight        = DEF_EYE_HEIGHT;
         charEdges = 1; charLineColor = 0; charHairMesh = 1;
     }
 
@@ -55,6 +58,7 @@ struct GameSettings {
         mouseSensitivity = std::clamp(mouseSensitivity, 0.02f, 0.4f);
         chunkDistance    = std::clamp(chunkDistance, 2.0f, 16.0f);
         renderDistance   = std::clamp(renderDistance, RENDER_MIN, RENDER_ALL);
+        eyeHeight        = std::clamp(eyeHeight, 13.0f, 17.5f);
         charEdges     = std::clamp(charEdges, 0, 2);
         charLineColor = std::clamp(charLineColor, 0, 1);
         charHairMesh  = std::clamp(charHairMesh, 0, 2);
@@ -69,6 +73,7 @@ struct GameSettings {
             mouseSensitivity = (float)t["controls"]["mouse_sensitivity"].value_or((double)mouseSensitivity);
             chunkDistance  = (float)t["view"]["chunk_distance"].value_or((double)chunkDistance);
             renderDistance = (float)t["view"]["render_distance"].value_or((double)renderDistance);
+            eyeHeight      = (float)t["view"]["eye_height"].value_or((double)eyeHeight);
             charEdges     = (int)t["characters"]["edges"].value_or((int64_t)charEdges);
             charLineColor = (int)t["characters"]["line_color"].value_or((int64_t)charLineColor);
             charHairMesh  = (int)t["characters"]["hair_mesh"].value_or((int64_t)charHairMesh);
@@ -91,7 +96,8 @@ struct GameSettings {
           << "mouse_sensitivity = " << mouseSensitivity << "   # 0.02 - 0.4\n\n"
           << "[view]\n"
           << "chunk_distance  = " << chunkDistanceInt() << "   # chunks drawn as voxels, 2 - 16\n"
-          << "render_distance = " << (int)std::lround(renderDistance) << "   # distant terrain, chunks, 16 - 160 (160 = whole world)\n\n"
+          << "render_distance = " << (int)std::lround(renderDistance) << "   # distant terrain, chunks, 16 - 160 (160 = whole world)\n"
+          << "eye_height      = " << eyeHeight << "   # first-person eye height, voxels (4 in each), 13 - 17.5\n\n"
           << "[characters]\n"
           << "edges      = " << charEdges     << "   # 0 off, 1 lines, 2 lines + colour echo\n"
           << "line_color = " << charLineColor << "   # 0 black, 1 tinted\n"

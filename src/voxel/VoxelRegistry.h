@@ -13,6 +13,7 @@ constexpr uint32_t VF_FLUID        = 1 << 1;
 constexpr uint32_t VF_DESTRUCTIBLE = 1 << 2;
 constexpr uint32_t VF_CLIMBABLE    = 1 << 3;
 constexpr uint32_t VF_EMITS_LIGHT  = 1 << 4;
+constexpr uint32_t VF_PLANT        = 1 << 5;   // part of a plant (decorations.toml): walk-through, picked up whole
 
 // Opacity
 enum class VoxelOpacity : uint8_t {
@@ -47,10 +48,19 @@ struct VoxelTypeDef {
     uint8_t lightPass = 15;
     bool    glows() const { return light[0] | light[1] | light[2]; }
 
+    // render = "sprite": drawn as two crossed flat pictures (the
+    // atlas tile, with see-through pixels) standing in the voxel,
+    // like Minecraft flowers. A stack of the same sprite block is
+    // one picture as tall as the stack. spriteWidth: how many voxels
+    // wide the picture is (1 or 3), centred on the voxel.
+    bool    sprite      = false;
+    uint8_t spriteWidth = 1;
+
     bool isSolid()       const { return flags & VF_SOLID; }
     bool isFluid()       const { return flags & VF_FLUID; }
     bool isDestructible()const { return flags & VF_DESTRUCTIBLE; }
     bool emitsLight()    const { return flags & VF_EMITS_LIGHT; }
+    bool isPlant()       const { return flags & VF_PLANT; }
 };
 
 class VoxelRegistry {
@@ -103,6 +113,7 @@ public:
                         else if (fs == "destructible") def.flags |= VF_DESTRUCTIBLE;
                         else if (fs == "climbable")    def.flags |= VF_CLIMBABLE;
                         else if (fs == "emits_light")  def.flags |= VF_EMITS_LIGHT;
+                        else if (fs == "plant")        def.flags |= VF_PLANT;
                     }
                 }
 
@@ -136,6 +147,8 @@ public:
                 // how light passes: from opacity unless given
                 def.lightPass = def.opacity == VoxelOpacity::Full ? 15 : def.opacity == VoxelOpacity::Partial ? 1
                               : def.opacity == VoxelOpacity::Translucent ? 1 : 0;
+                def.sprite = (*tbl2)["render"].value_or(std::string()) == "sprite";
+                def.spriteWidth = (uint8_t)std::clamp<int64_t>((*tbl2)["sprite_width"].value_or((int64_t)1), 1, 5) | 1;
                 if (auto lp = (*tbl2)["light_pass"].value<std::string>()) {
                     if (*lp == "clear") def.lightPass = 0;
                     else if (*lp == "block") def.lightPass = 15;

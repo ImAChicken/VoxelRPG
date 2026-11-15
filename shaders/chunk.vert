@@ -21,6 +21,8 @@ out      vec3  vLocal;         // position in the section, voxels (for the light
 out      vec3  vWorld;
 flat out vec3  vNormal;
 flat out float vGlow;          // 1 for blocks that give off light: drawn at full brightness
+out      vec2  vSpriteUV;      // sprites: position in the picture, in tiles (0 = top left)
+flat out float vSprite;        // 1 for sprite quads (flowers, reeds)
 
 // Fake directional light: top brightest, bottom darkest
 // Order matches enum Face: +Y, -Y, +Z, -Z, -X, +X
@@ -30,6 +32,29 @@ const float FACE_SHADE[6] = float[6](
 void main() {
     vec3 local = vec3(aPosFace.xyz);
     uint face  = aPosFace.w;
+
+    // ── Sprites: two crossed pictures (see Mesher.h sprites()) ──
+    if (face >= 6u) {
+        local.xz -= 8.0;
+        float cu = float(aTile.w & 1u), cv = float((aTile.w >> 1) & 1u);
+        float tw = float(((aTile.w >> 2) & 3u) + 1u), th = float(((aTile.w >> 4) & 7u) + 1u);
+        if ((aTile.z & 2u) != 0u) cu = 1.0 - cu;
+        vSpriteUV = vec2(mix(0.01, tw - 0.01, cu), mix(0.01, th - 0.01, 1.0 - cv));   // never touch the next tile
+        vSprite   = 1.0;
+        vFacePos  = vec2(0.0);
+        vTile     = vec2(aTile.xy);
+        vShade    = 0.9;
+        vGlow     = float(aTile.z & 1u);
+        vNormal   = vec3(0, 1, 0);       // lit like the ground it grows from
+        vLocal    = local;
+        vec3 w = local + uChunkOrigin;
+        vWorld = w;
+        vDist  = length(w - uCamPos);
+        gl_Position = uProjection * uView * vec4(w, 1.0);
+        return;
+    }
+    vSprite = 0.0;
+    vSpriteUV = vec2(0.0);
 
     // Lay the texture across the face using the vertex
     // position itself, so it lines up from voxel to voxel

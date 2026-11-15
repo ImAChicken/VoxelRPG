@@ -1,5 +1,6 @@
 #pragma once
 #include "../voxel/VoxelRegistry.h"
+#include "../world/Decorations.h"
 #include <toml++/toml.hpp>
 #include <algorithm>
 #include <cctype>
@@ -35,9 +36,11 @@ constexpr uint32_t IC_BLOCK  = 1 << 0;
 constexpr uint32_t IC_TOOL   = 1 << 1;
 constexpr uint32_t IC_WEAPON = 1 << 2;
 constexpr uint32_t IC_DEV    = 1 << 3;
+constexpr uint32_t IC_DECOR  = 1 << 4;   // a decoration from decorations.toml: places it
 
 // IDs below this belong to block items
 constexpr uint16_t FIRST_NON_BLOCK_ITEM = 1000;
+constexpr uint16_t FIRST_DECOR_ITEM     = 3000;   // one per decoration, in registry order
 
 // What a digging tool is for
 enum class ToolKind : uint8_t { None, Pickaxe, Shovel, Axe, Hoe, Hammer };
@@ -73,6 +76,8 @@ struct ItemDef {
     float       damage      = 0.0f;
 
     DevToolKind devTool     = DevToolKind::None;
+
+    int         decor       = -1;           // decoration items: index in decor::Set
 
     float       color[3]    = {0.7f, 0.7f, 0.7f};   // menu swatch
 
@@ -113,6 +118,29 @@ public:
     }
 
     // The item for a block (0 for air or unknown)
+    // One item per decoration (plants, bushes, landmarks …), after
+    // load(). Plants stack; the rest are one at a time.
+    void addDecor(const decor::Set& set) {
+        for (size_t i = 0; i < set.defs.size(); i++) {
+            const decor::Def& dd = set.defs[i];
+            if (dd.layer == decor::Layer::Ground) continue;     // patches are not things to hold
+            ItemDef d;
+            d.id          = (uint16_t)(FIRST_DECOR_ITEM + i);
+            d.name        = dd.name;
+            if (find(d.name)) d.name += "_decor";               // never shadow a block item
+            d.displayName = dd.display;
+            d.categories  = IC_DECOR;
+            d.maxStack    = dd.layer == decor::Layer::Plant ? 99 : 1;
+            d.decor       = (int)i;
+            for (int k = 0; k < 3; k++) d.color[k] = dd.color[k];
+            add(d);
+        }
+    }
+    uint16_t itemForDecor(int decorIndex) const {
+        uint16_t id = (uint16_t)(FIRST_DECOR_ITEM + decorIndex);
+        return get(id).decor == decorIndex ? id : 0;
+    }
+
     uint16_t itemForBlock(uint16_t blockID) const {
         if (blockID == 0) return 0;
         return get(blockID).is(IC_BLOCK) ? blockID : 0;
@@ -151,6 +179,7 @@ private:
                             id < FIRST_NON_BLOCK_ITEM; id++) {
             const VoxelTypeDef& b = blocks.get((uint16_t)id);
             if (b.id == 0) continue;           // gap in blocks.toml
+            if (b.isPlant()) continue;         // plant parts: the plant is the item (decorations.toml)
             ItemDef d;
             d.id          = (uint16_t)id;
             d.name        = b.name;

@@ -67,9 +67,10 @@ public:
     static constexpr float SNOW_LINE   = SEA_LEVEL + 0.70f * (PEAK_HEIGHT - SEA_LEVEL);
 
     using Options = IslandOptions;
+    static inline int dbgOff = 0;   // testing: 1 bank settle, 2 bank slope, 4 lake rim
     // Bump when the chart, relief or anything feeding the bake
     // changes what a world looks like (cached bakes rebuild)
-    static constexpr int GEN_VERSION = 4;
+    static constexpr int GEN_VERSION = 6;   // 5: canyons  6: two canyons, mesa, rivers end at canyons
 
     //   singleBiome  ≥ 0: a single-biome world of that biome
     IslandGenerator(int seed, int chartSize, int singleBiome = -1, Options opt = Options())
@@ -114,7 +115,9 @@ public:
         prepare();
         if (options.erosion) bakeTerrain();
         buildRocks();
-        buildDecor();
+        plantScale    = gp.get("plants");
+        largeScale    = gp.get("decor");
+        landmarkScale = gp.get("landmarks");
     }
 
     const island::Chart& getChart() const { return chart; }
@@ -144,6 +147,7 @@ public:
 
         c.ground = (int)std::floor(h);
         const int eco = ecoAt(wx, wz, h);
+        c.eco = (uint8_t)eco;
         materials(eco, m, c);
         const island::TileDef* ecoTile = tileFor(eco);
         // lowland and upland biomes only show rock on really steep ground
@@ -177,6 +181,10 @@ public:
             if (dc < 22) { c.top = BLOCK_STONE; c.sub = BLOCK_STONE; }
             if (dc < 8)  { c.ground -= 30; c.top = BLOCK_VOLCANIC_ROCK; }
         }
+
+        // ── Karst, canyons, autumn uplands, ashlands ─────
+        surfaceDetail(eco, wx, wz, h, m, c);
+        canyonSurface(sh, eco, wx, wz, m, c);
 
         // ── Sea and lakes ────────────────────────────────
         if (c.ground <= SEA_LEVEL) c.waterLevel = std::max(c.waterLevel, SEA_LEVEL + 1);
@@ -227,7 +235,9 @@ public:
             // real cliff.
             const bool rocky = c.top == BLOCK_STONE || c.top == BLOCK_VOLCANIC_ROCK ||
                                (ecoTile && ecoTile->lvLo >= 5);
-            if (nearestSegment(riverSegs, (float)wx, (float)wz, ni, nj, rd, rw, rs)) {
+            float lsf; bool llv;
+            const bool inLake = bake.lake((float)wx, (float)wz, lsf, llv);
+            if (!inLake && nearestSegment(riverSegs, (float)wx, (float)wz, ni, nj, rd, rw, rs)) {
                 int surface = std::max(SEA_LEVEL + 1, (int)std::floor(rs));
                 float bankW = (5.0f + rw * 0.9f) * gp.get("banks");
                 if (rd < rw) {
@@ -243,14 +253,30 @@ public:
                     }
                     c.waterLevel = std::max(c.waterLevel, surface);
                     c.fluid = BLOCK_WATER;
-                } else if (rd < rw + bankW * 2.0f) {
+                } else if (rd < rw + bankW * 2.0f + 14.0f) {
                     int target = surface + 1;
                     float g = (float)c.ground;
-                    bool gorge = rocky && g - target > 3.0f;
-                    bool cliff = g - target > 14.0f && slopeAt(wx, wz) > 1.2f;
-                    if (!gorge && !cliff && bankW > 0.01f) {
-                        if (rd < rw + 3.0f * std::min(1.0f, gp.get("banks"))) g = (float)target;
-                        else if (g > target) g = target + (g - target) * smooth01(rw + 3.0f, rw + bankW * 2.0f, rd);
+                    // Rock walls (a gorge) and real cliffs keep their height.
+                    // Blended, not switched, so no step is left where the
+                    // flattening stops
+                    const float above = g - target;
+                    float keep = std::max(rocky ? smooth01(2.0f, 6.0f, above) : 0.0f,
+                                          smooth01(10.0f, 20.0f, above) * smooth01(0.9f, 1.5f, slopeAt(wx, wz)));
+                    if (sh.canyon > 1.0f) keep = 1.0f;          // canyon walls are cut to their own profile
+                    if (keep < 0.999f && bankW > 0.01f) {
+                        const float g0 = g;
+                        const float flat = rw + 3.0f * std::min(1.0f, gp.get("banks"));
+                        const float outer = rw + bankW * 2.0f + 14.0f;
+                        if (rd < flat) g = (float)target;
+                        else if (g > target && rd < rw + bankW * 2.0f) g = target + (g - target) * smooth01(rw + 3.0f, rw + bankW * 2.0f, rd);
+                        // low ground past the flat bank slopes up to it, so
+                        // the water is never held by a thin wall (fading out
+                        // before the edge of the zone, so no step there)
+                        else if (g < target && !(dbgOff & 2)) {
+                            float lift = std::max(0.0f, target - (rd - flat) * 0.55f - g);
+                            g += lift * (1.0f - smooth01(outer - 10.0f, outer, rd));
+                        }
+                        g = g + (g0 - g) * keep;
                         c.ground = (int)std::floor(g);
                         if (c.top == BLOCK_GRAVEL && !isSwampy(eco)) c.top = BLOCK_GRASS;   // no scree on a flat bank
                     }
@@ -271,9 +297,17 @@ public:
                 if (ring > 0.0f && !lv) {
                     int target = (int)sf + 1;
                     float g = (float)c.ground;
-                    if (!(rocky && g - target > 3.0f) && !(g - target > 14.0f)) {
+                    const float above = g - target;
+                    float keep = std::max(rocky ? smooth01(2.0f, 6.0f, above) : 0.0f, smooth01(10.0f, 20.0f, above));
+                    // low spots just past the rim are lifted only if shallow,
+                    // fading out with depth so no rim wall is built
+                    if (above < 0.0f) keep = std::max(keep, smooth01(3.0f, 7.0f, -above));
+                    if (keep < 0.999f && !(dbgOff & 4)) {
+                        const float g0 = g;
                         if (ring >= 1.0f) g = (float)target;
                         else if (g > target) g = target + (g - target) * (1.0f - ring);
+                        else g = std::max(g, target - (ring >= 0.6f ? 1.2f : 4.0f));
+                        g = g + (g0 - g) * keep;
                         c.ground = (int)std::floor(g);
                     }
                 }
@@ -375,13 +409,41 @@ protected:
         if (!biomeTrees(biome, cellRandom(cellX, cellZ, 4), chance, type)) return false;
         if (cellRandom(cellX, cellZ, 3) > chance * gp.get("trees")) return false;
 
-        // Only on dry land, clear of roads and rivers
+        // Only on dry land, clear of roads and rivers — except the
+        // swamp's trees that stand in shallow water (cypresses …)
         TerrainColumn c = column(wx, wz);
-        if (c.waterLevel > c.ground || c.deckY >= 0) return false;
+        const int depth = c.waterLevel - c.ground;
+        const bool wet = depth > 0;
+        if (c.deckY >= 0 || depth > 3 || (wet && (!isSwampy(c.eco) || c.fluid != BLOCK_WATER))) return false;
         if (c.top == BLOCK_GRAVEL || c.top == BLOCK_COBBLESTONE) return false;
 
-        // Must fit under the top of the world
         if (c.top == BLOCK_STONE || c.top == BLOCK_SNOW) return false;   // bare rock, snowfield
+        if (nearLandmark(wx, wz, 6)) return false;                        // landmarks stand clear
+
+        // Some of the biome's trees are decorations.toml trees
+        // (twisted oaks, maples, cypresses …) in place of the usual
+        if (decorSet && !firstTreeOfDef.empty()) {
+            float roll = cellRandom(cellX, cellZ, 5), acc = 0.0f;
+            for (const auto& [di, share] : decorSet->list(decor::Layer::Tree, c.eco)) {
+                acc += share;
+                if (roll < acc) {
+                    int first = firstTreeOfDef[(size_t)di];
+                    int nv = (int)decorSet->defs[(size_t)di].variants.size();
+                    if (wet && decorSet->defs[(size_t)di].water != decor::Water::Shallow) break;
+                    if (first >= 0 && nv > 0) {
+                        int t = first + (int)(cellRandom(cellX, cellZ, 6) * nv) % nv;
+                        if (c.ground + trees[(size_t)t].height <= WORLD_HEIGHT) { type = t; return true; }
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (wet) return false;                   // the usual trees keep their feet dry
+
+        type = replaceTree(type, cellX, cellZ);
+
+        // Must fit under the top of the world
         if (c.ground + trees[type].height > WORLD_HEIGHT) type = TREE_PINE;
         if (c.ground + trees[type].height > WORLD_HEIGHT) type = TREE_DEAD;
         return c.ground + trees[type].height <= WORLD_HEIGHT;
@@ -411,14 +473,17 @@ protected:
         case Grassland:   chance = 0.10f; type = TREE_OAK; break;
         case Plains:      chance = 0.05f; type = TREE_OAK; break;
         case Roadside:    chance = 0.08f; type = TREE_OAK; break;
-        case Swamp:       chance = 0.35f; type = roll < 0.7f ? TREE_DEAD : TREE_OAK; break;
-        case Marsh:       chance = 0.10f; type = TREE_DEAD; break;
+        case Swamp:       chance = 0.50f; type = roll < 0.7f ? TREE_DEAD : TREE_OAK; break;
+        case Marsh:       chance = 0.20f; type = TREE_DEAD; break;
         case Foothills:   chance = 0.30f; type = roll < 0.6f ? TREE_PINE : TREE_OAK; break;
         case LowMountain: chance = 0.35f; type = TREE_PINE; break;
         case MidMountain: chance = 0.15f; type = TREE_PINE; break;
-        case Scrubland:   chance = 0.05f; type = TREE_DEAD; break;
+        case Canyons:   chance = 0.06f; type = TREE_DEAD; break;
+        case AutumnUplands: chance = 0.55f; type = TREE_OAK; break;
+        case CanyonMesa:    chance = 0.12f; type = TREE_OAK; break;
         case HighlandMoor:chance = 0.04f; type = TREE_DEAD; break;
-        case Ashlands:    chance = 0.02f; type = TREE_DEAD; break;
+        case Karst:    chance = 0.12f; type = TREE_PINE; break;
+        case Ashlands: chance = 0.03f; type = TREE_DEAD; break;
         default:          return false;
         }
         return true;
@@ -497,6 +562,121 @@ protected:
         else if (!isSeaBiome(pick) && h < SEA_LEVEL - 2 && seaB >= 0) pick = seaB;
         else if (!isBeach(pick) && !isSeaBiome(pick) && beach >= 0 && h < SEA_LEVEL + 6 && pick != SeaCliffs) pick = beach;
         else if (isBeach(pick) && h > SEA_LEVEL + 9 && landB >= 0) pick = landB;
+        return surfaceBiome(pick, wx, wz);
+    }
+
+    // Block ids by name (0 → the fallback, e.g. before the registry loads)
+    static uint16_t blockId(const char* name, uint16_t fallback) {
+        uint16_t id = gRegistry.getIDByName(name);
+        return id ? id : fallback;
+    }
+
+    // Canyon walls in layered rock (limestone, sandstone in the canyon
+    // country), grass or red sand on the ledges, gravel and grass on
+    // the floor
+    void canyonSurface(const Shape& sh, int eco, int wx, int wz, float m, TerrainColumn& c) const {
+        using namespace island;
+        if (sh.canyonPart == 0 || sh.canyon < 1.0f) return;
+        static const uint16_t RSAND = blockId("red_sand", BLOCK_SAND);
+        const int kind = (eco == Canyons) ? 1 : 2;
+        c.strata = (uint8_t)kind;
+        c.strataOff = (int8_t)std::round(mix.GetNoise((float)wx * 0.03f, (float)wz * 0.03f) * 4.0f);
+        c.deep = strataBlock(0, kind);
+        switch (sh.canyonPart) {
+        case 1:   // floor
+            c.top = m > 0.15f ? BLOCK_GRAVEL : BLOCK_GRASS; c.strata = 0; c.sub = BLOCK_GRAVEL; c.subDepth = 3;
+            break;
+        case 2:   // wall
+            c.top = strataBlock(c.ground - 1 + c.strataOff, kind);
+            break;
+        case 3:   // ledge
+            c.top = kind == 1 ? (m > 0.0f ? RSAND : strataBlock(c.ground - 1 + c.strataOff, 1))
+                              : (m > -0.3f ? BLOCK_GRASS : BLOCK_MOSS_STONE);
+            break;
+        }
+    }
+
+    // The look of the four upland surfaces, on top of materials()
+    void surfaceDetail(int eco, int wx, int wz, float h, float m, TerrainColumn& c) const {
+        using namespace island;
+        if (eco != Karst && eco != Canyons && eco != AutumnUplands && eco != Ashlands && eco != CanyonMesa) return;
+        static const uint16_t LIME   = blockId("limestone", BLOCK_STONE);
+        static const uint16_t RSAND  = blockId("red_sand", BLOCK_SAND);
+        static const uint16_t ASH    = blockId("ash", BLOCK_GRAVEL);
+        static const uint16_t CINDER = blockId("cinder", BLOCK_GRAVEL);
+        const float slope = slopeAt(wx, wz);
+        switch (eco) {
+        case Karst: {
+            // pale limestone wherever rock shows, and limestone pavement:
+            // flat slabs split by a warped grid of cracks (grikes) with
+            // grass in them
+            if (c.top == BLOCK_STONE || c.top == BLOCK_GRAVEL || slope > 0.55f) c.top = LIME;
+            if (c.sub == BLOCK_STONE || slope > 0.55f) c.sub = LIME;
+            c.deep = LIME;
+            float pave = mix.GetNoise((float)wx * 0.35f, (float)wz * 0.35f);
+            if (slope < 0.6f && pave > 0.12f) {
+                c.top = LIME; c.sub = LIME; c.subDepth = 3;
+                float gx = std::fmod(std::fabs(wx + 2.5f * std::sin(wz * 0.11f)), 7.0f);
+                float gz = std::fmod(std::fabs(wz + 2.5f * std::sin(wx * 0.13f)), 9.0f);
+                if (gx < 1.0f || gz < 1.0f) { c.ground -= 1; c.top = BLOCK_GRASS; }
+            }
+            break;
+        }
+        case Canyons:
+            // red ground and dry grass; banded sandstone only on real
+            // cliffs (the canyon walls are dressed in canyonSurface)
+            if (slope > 1.1f) {
+                c.strata = 1;
+                c.strataOff = (int8_t)std::round(mix.GetNoise((float)wx * 0.04f, (float)wz * 0.04f) * 5.0f);
+                c.top = strataBlock(c.ground - 1 + c.strataOff, 1);
+            } else c.top = m > -0.2f ? RSAND : BLOCK_GRASS;
+            break;
+        case CanyonMesa:
+            // open grassland with limestone breaking through here and there
+            if (c.top == BLOCK_STONE || c.top == BLOCK_GRAVEL || (m > 0.62f && slope < 0.5f)) c.top = LIME;
+            c.deep = LIME;
+            break;
+        case AutumnUplands:
+            if (c.top == BLOCK_STONE && m > 0.0f) c.top = BLOCK_MOSS_STONE;
+            if (c.top == BLOCK_GRAVEL) c.top = BLOCK_DIRT;
+            break;
+        case Ashlands: {
+            // basalt ridges and steep faces, pale ash drifted into the
+            // hollows, cinders between
+            float n = mix.GetNoise((float)wx * 0.8f, (float)wz * 0.8f) + (detail.GetNoise((float)wx * 3.0f, (float)wz * 3.0f)) * 0.25f;
+            if (slope > 0.8f || n > 0.3f) c.top = BLOCK_VOLCANIC_ROCK;
+            else if (n < -0.2f)           c.top = ASH;
+            else                          c.top = CINDER;
+            c.sub = BLOCK_VOLCANIC_ROCK; c.deep = BLOCK_VOLCANIC_ROCK; c.subDepth = 3;
+            break;
+        }
+        default: break;
+        }
+    }
+
+    // Surfaces that don't come from the chart: ground near a lava lake
+    // is ashlands, and big patches of the canyon country are autumn
+    // uplands instead (golden woods on the gentler ground)
+    int surfaceBiome(int pick, int wx, int wz) const {
+        using namespace island;
+        if (isSeaBiome(pick) || pick == LavaLake || pick == HotSpring || pick == Cave ||
+            pick == Village || pick == PlainsVillage) return pick;
+        if (!lavaCells.empty()) {
+            float jag = mix.GetNoise((float)wx * 0.6f, (float)wz * 0.6f) * 0.35f;
+            for (const auto& lc : lavaCells) {
+                float d = std::hypot(wx - lc.x, wz - lc.y) / VOXEL_DIM;
+                if (d < 2.2f + jag) return Ashlands;
+            }
+        }
+        if (!mesaCell.empty()) {
+            float u = (wx + warpX.GetNoise((float)wx, (float)wz) * WARP) / (float)VOXEL_DIM;
+            float v = (wz + warpZ.GetNoise((float)wx, (float)wz) * WARP) / (float)VOXEL_DIM;
+            if (mesaCell[cellIndex((int)std::floor(u), (int)std::floor(v))]) return CanyonMesa;
+        }
+        if (pick == Canyons) {
+            float n = autumnN.GetNoise((float)wx, (float)wz);
+            if (n > 0.05f) return AutumnUplands;
+        }
         return pick;
     }
 
@@ -515,6 +695,7 @@ protected:
         const TileDef* t = tileFor(chart.base[cellIndex(out.ni, out.nj)]);
         float amp = t ? t->relief : 10.0f;
         h += detail.GetNoise((float)wx, (float)wz) * std::clamp(amp * 0.02f, 0.5f, 3.0f);
+        { float cut; h = canyonCut(wx, wz, out.ni, out.nj, h, false, cut, &out.canyonPart); out.canyon = cut; }
         const float knee = MAX_GROUND - 60.0f;
         if (h > knee) h = knee + (h - knee) * 0.4f;
         out.h = std::min(h, (float)MAX_GROUND);
@@ -529,12 +710,17 @@ protected:
         if (ov == Village || ov == PlainsVillage || ov == HotSpring || ov == Cave || ov == MountainPass) return 0.0f;
         float d, w, f;
         if (nearestSegment(roadSegs, (float)wx, (float)wz, idx % chart.size, idx / chart.size, d, w, f) && d < w + 6) return 0.0f;
+        if (!canyonSegs.empty())
+            for (const Seg& sg : canyonSegs[idx]) {
+                float t;
+                if (segDistance(sg, (float)wx, (float)wz, t) < CANYON_REACH) return 0.06f;   // sheer walls stay sheer
+            }
         switch (chart.base[idx]) {
         case Peak: case HighMountain:              return 1.0f;
         case MidMountain: case LowMountain:        return 0.9f;
         case Plateau:                              return 0.35f;
         case Foothills: case HighlandMoor:         return 0.7f;
-        case Ashlands: case Scrubland:             return 0.6f;
+        case Karst: case Canyons:             return 0.6f;
         case SeaCliffs:                            return 0.12f;   // the faces stay sheer
         case DenseForest: case Forest: case Shrubland: return 0.45f;
         case Grassland: case Plains:               return 0.25f;
@@ -599,13 +785,52 @@ protected:
                 }
                 all.push_back(std::move(g));
             }
+        size_t guidedPieces = all.size();
+        drainCanyonLakes();
         for (const auto& l : bake.rivers()) all.push_back(l);
+        // A river ends at a lake's edge and starts again where the
+        // water leaves it, instead of running on across the lake
+        {
+            std::vector<TerrainBake::RiverLine> split;
+            size_t guided = 0;
+            for (size_t li = 0; li < all.size(); li++) {
+                const auto& l = all[li];
+                TerrainBake::RiverLine run;
+                bool prevIn = false;
+                TerrainBake::RiverPoint lastIn{};
+                auto flush = [&]() {
+                    if (run.size() >= 2) { split.push_back(run); if (li < guidedPieces) guided++; }
+                    run.clear();
+                };
+                const bool canyonLine = options.guidedRivers && li < canyonGuides;
+                bool ended = false;
+                for (const auto& p : l) {
+                    if (ended) break;
+                    // reaching a canyon (from above its floor): the river
+                    // ends there, pouring over the rim
+                    if (!canyonLine && crossesCanyon(p.x, p.z, p.surface, p.halfWidth + 8.0f)) { ended = true; break; }
+                    float sf; bool lv;
+                    bool in = bake.lake(p.x, p.z, sf, lv);
+                    if (in) {
+                        if (!prevIn && !run.empty()) { run.push_back(p); flush(); }   // the mouth
+                        prevIn = true; lastIn = p;
+                        continue;
+                    }
+                    if (prevIn) { run.clear(); run.push_back(lastIn); }              // the outlet
+                    prevIn = false;
+                    run.push_back(p);
+                }
+                flush();
+            }
+            all.swap(split);
+            guidedPieces = guided;
+        }
         // Waterfalls: where the surface drops 9+ voxels (3 ft) within
         // ~18 along the river, hold it level to the middle of the
         // drop, then fall in one step
         falls.clear();
         fallTable.assign((size_t)chart.size * chart.size, {});
-        const size_t firstTraced = options.guidedRivers ? guideLines.size() : 0;
+        const size_t firstTraced = options.guidedRivers ? guidedPieces : 0;
         for (size_t li = firstTraced; li < all.size(); li++) {   // traced streams follow the real ground
             auto& l = all[li];
             for (size_t k = 0; k + 1 < l.size(); k++) {
@@ -674,6 +899,7 @@ protected:
             }
             if (o.size() > 1) stepped.push_back(std::move(o));
         }
+        settleRiverBanks(stepped);
         for (const auto& l : stepped)
             for (size_t k = 0; k + 1 < l.size(); k++) {
                 const auto &a = l[k], &b = l[k + 1];
@@ -694,10 +920,121 @@ protected:
                   << (options.guidedRivers ? "guided" : "natural") << " rivers" << (cached ? ", from the saved bake" : "") << ")\n";
     }
 
+    // ── River banks ───────────────────────────────────────
+    // A river is held one voxel below its banks. Where the land
+    // beside it dips lower than the water, the bank would be a thin
+    // wall with the river perched on it. Each such dip is settled
+    // on the bake's grid, one of two ways:
+    //   enclosed (a hollow next to the river)  it fills with water
+    //       at the river's level: a pond opening off the river, a
+    //       wider bend
+    //   open (the river runs along a slope, or the dip runs off)
+    //       the ground is built up into a sloped embankment, flat
+    //       by the water and falling away at about 1 in 2
+    void settleRiverBanks(const std::vector<TerrainBake::RiverLine>& lines) {
+        if (!bake.ready() || (dbgOff & 1)) return;
+        const int S = bake.size(), ST = TerrainBake::STEP;
+        const size_t n = (size_t)S * S;
+        std::vector<float> dist(n, 1e9f), surf(n, 0.0f), half(n, 0.0f);
+        const float REACH = 64.0f;            // how far from a river a dip is looked at
+        for (const auto& l : lines)
+            for (size_t k = 0; k + 1 < l.size(); k++) {
+                const auto &a = l[k], &b = l[k + 1];
+                float len = std::hypot(b.x - a.x, b.z - a.z);
+                int steps = std::max(1, (int)(len / 3.0f));
+                for (int q = 0; q <= steps; q++) {
+                    float t = (float)q / steps;
+                    float px = a.x + (b.x - a.x) * t, pz = a.z + (b.z - a.z) * t;
+                    float hw = a.halfWidth + (b.halfWidth - a.halfWidth) * t;
+                    float sfc = std::floor(t < 0.5f ? a.surface : b.surface);
+                    float R = hw + REACH;
+                    int x0 = std::max(0, (int)std::floor((px - R) / ST)), x1 = std::min(S - 1, (int)std::ceil((px + R) / ST));
+                    int z0 = std::max(0, (int)std::floor((pz - R) / ST)), z1 = std::min(S - 1, (int)std::ceil((pz + R) / ST));
+                    for (int z = z0; z <= z1; z++)
+                        for (int x = x0; x <= x1; x++) {
+                            float d = std::hypot(x * (float)ST - px, z * (float)ST - pz);
+                            size_t i = (size_t)z * S + x;
+                            if (d < dist[i]) { dist[i] = d; half[i] = hw; if (surf[i] == 0.0f) surf[i] = sfc; }
+                            // the lowest water close by: never build up to a
+                            // higher stretch of river (a step, a confluence)
+                            if (d < hw + 12.0f) surf[i] = surf[i] == 0.0f ? sfc : std::min(surf[i], sfc);
+                        }
+                }
+            }
+        const float sea = (float)SEA_LEVEL + 1.0f;
+        std::vector<uint8_t> seen(n, 0);
+        std::vector<int> q;
+        int ponds = 0, banks = 0;
+        for (size_t i = 0; i < n; i++) {
+            if (seen[i] || dist[i] > half[i] + 10.0f || dist[i] < half[i]) continue;
+            int x = (int)(i % S), z = (int)(i / S);
+            float s0 = surf[i];
+            if (bake.sampleLake(x, z) || bake.sampleHeight(x, z) >= s0 - 0.75f || s0 <= sea) continue;
+            // flood the dip: lower than the water, off the channel, near the river
+            q.clear(); q.push_back((int)i); seen[i] = 1;
+            bool open = false, wetEdge = false;
+            float deepest = 0.0f;
+            for (size_t h = 0; h < q.size(); h++) {
+                int c = q[h], cx = c % S, cz = c / S;
+                static const int N4[4][2] = {{1,0},{-1,0},{0,1},{0,-1}};
+                for (auto& o : N4) {
+                    int nx = cx + o[0], nz = cz + o[1];
+                    if (nx < 0 || nz < 0 || nx >= S || nz >= S) { open = true; continue; }
+                    size_t j = (size_t)nz * S + nx;
+                    if (seen[j] || bake.sampleLake(nx, nz)) continue;
+                    float hj = bake.sampleHeight(nx, nz);
+                    if (hj >= s0 - 0.25f) continue;                   // the rim
+                    if (dist[j] < half[j]) continue;                  // the river itself
+                    if (hj <= sea || dist[j] > half[j] + REACH) { open = true; if (hj <= sea) wetEdge = true; continue; }
+                    seen[j] = 1; q.push_back((int)j);
+                }
+                if (q.size() > 4000) { open = true; break; }
+            }
+            for (int c : q) {
+                deepest = std::max(deepest, s0 - bake.sampleHeight(c % S, c / S));
+                int cx = c % S, cz = c / S;
+                for (int dz = -1; dz <= 1 && !wetEdge; dz++) for (int dx = -1; dx <= 1; dx++) {
+                    int nx = cx + dx, nz = cz + dz;
+                    if (nx >= 0 && nz >= 0 && nx < S && nz < S && bake.sampleLake(nx, nz)) { wetEdge = true; break; }
+                }
+            }
+            if (!open && q.size() >= 3) {
+                // a pond at the river's level, opened to the river
+                ponds++;
+                for (int c : q) bake.makeLakeSample(c % S, c / S, s0);
+                for (int c : q) {
+                    int cx = c % S, cz = c / S;
+                    for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) {
+                        int nx = cx + dx, nz = cz + dz;
+                        if (nx < 0 || nz < 0 || nx >= S || nz >= S) continue;
+                        size_t j = (size_t)nz * S + nx;
+                        if (dist[j] < half[j] + 6.0f && !bake.sampleLake(nx, nz) && bake.sampleHeight(nx, nz) < s0 + 2.0f) {
+                            bake.setSampleHeight(nx, nz, std::min(bake.sampleHeight(nx, nz), s0 - 1.5f));
+                            bake.makeLakeSample(nx, nz, s0);
+                        }
+                    }
+                }
+            } else if (!wetEdge && deepest <= 4.0f && q.size() <= 400) {
+                // a shallow dip: built up into a gentle bank. Deep
+                // drops, and land falling away to other water (the sea,
+                // a lake), are left as they are: no walls
+                banks++;
+                for (int c : q) {
+                    int cx = c % S, cz = c / S;
+                    float d = dist[(size_t)c] - half[(size_t)c];
+                    float target = s0 + 1.0f - std::max(0.0f, d - 4.0f) * 0.55f;
+                    if (bake.sampleHeight(cx, cz) < target) bake.setSampleHeight(cx, cz, target);
+                }
+            }
+        }
+        if (ponds || banks)
+            std::cout << "River banks: " << ponds << " dips became ponds, " << banks << " built up\n";
+    }
+
     // ── Rock formations ───────────────────────────────────
     // Made once from noise; placed by rockInCell() below
     enum RockKind { RockBoulder, RockBigBoulder, RockOutcrop, RockSpire, RockLedge, ROCK_KINDS };
-    enum RockStone { StonePlain, StoneVolcanic, StoneMossy, ROCK_STONES };
+    enum RockStone { StonePlain, StoneVolcanic, StoneMossy, StoneLimestone, StoneSandstone, ROCK_STONES };
     static constexpr int ROCK_VARIANTS = 4;    // per kind and stone (ledges: one per direction)
     int rockIndex(int stone, int kind, int variant) const {
         return (stone * ROCK_KINDS + kind) * ROCK_VARIANTS + variant;
@@ -783,8 +1120,12 @@ protected:
             }
             // into a stamp: the top of each column gets the stone's
             // top block (moss on mossy stone)
-            uint16_t body = stone == StoneVolcanic ? BLOCK_VOLCANIC_ROCK : BLOCK_STONE;
-            uint16_t topB = stone == StoneMossy ? BLOCK_MOSS_STONE : body;
+            uint16_t body = stone == StoneVolcanic ? BLOCK_VOLCANIC_ROCK
+                          : stone == StoneLimestone ? blockId("limestone", BLOCK_STONE)
+                          : stone == StoneSandstone ? blockId("sandstone_orange", BLOCK_STONE) : BLOCK_STONE;
+            uint16_t topB = stone == StoneMossy ? BLOCK_MOSS_STONE
+                          : stone == StoneLimestone ? BLOCK_MOSS_STONE
+                          : stone == StoneSandstone ? blockId("sandstone_cream", BLOCK_STONE) : body;
             TreeShape& sh = rockShapes[(size_t)rockIndex(stone, kind, var)];
             for (int y = 0; y < H; y++) for (int z = -R; z <= R; z++) for (int x = -R; x <= R; x++) {
                 if (!filled(x, y, z)) continue;
@@ -832,7 +1173,8 @@ protected:
         float slope = slopeAt(wx, wz);
         float change = baked ? bake.change((float)wx, (float)wz) : 0.0f;
 
-        int stone = (eco == Ashlands || eco == Scrubland) ? StoneVolcanic
+        int stone = eco == Ashlands ? StoneVolcanic : eco == Karst ? StoneLimestone : eco == Canyons ? StoneSandstone
+                  : eco == AutumnUplands ? StoneMossy
                   : (eco == Forest || eco == DenseForest || eco == Shrubland || eco == HighlandMoor || eco == Riparian ||
                      eco == Plains || eco == Grassland || eco == Marsh) ? StoneMossy : StonePlain;
         bool cliff = (slope > 1.1f && t->lvHi >= 3) || (eco == SeaCliffs && slope > 0.8f);
@@ -845,9 +1187,11 @@ protected:
         } else {
             float chance = 0.0f;
             switch (eco) {
-            case Ashlands:     chance = 0.10f; break;
+            case Karst:     chance = 0.12f; break;
+            case Ashlands:  chance = 0.06f; break;
+            case AutumnUplands: chance = 0.03f; break;
             case HighlandMoor: chance = 0.10f; break;
-            case Scrubland:    chance = 0.06f; break;
+            case Canyons:    chance = 0.06f; break;
             case Foothills:    chance = 0.07f; break;
             case LowMountain: case MidMountain: case HighMountain: chance = 0.12f; break;
             case Plateau:      chance = 0.05f; break;
@@ -858,7 +1202,7 @@ protected:
             default: break;
             }
             if (roll < chance) {
-                if ((eco == Ashlands || eco == Scrubland) && pick < 0.35f) kind = RockSpire;
+                if (eco == Karst && pick < 0.25f) kind = RockOutcrop;
                 else if ((eco == HighlandMoor || t->lvLo >= 5) && pick < 0.35f) kind = RockOutcrop;
                 else kind = pick < 0.75f ? RockBoulder : RockBigBoulder;
             }
@@ -969,140 +1313,107 @@ protected:
         for (int vi : carved) if (state[vi] == 1) vox[vi] = cols[0].deep == BLOCK_VOLCANIC_ROCK ? BLOCK_VOLCANIC_ROCK : BLOCK_STONE;
     }
 
-    // ── Decorations ───────────────────────────────────────
-    enum DecorKind { DecBush, DecBigBush, DecLogX, DecLogZ, DecStones, DecMossStones, DecAshStones, DECOR_KINDS };
-    static constexpr int DECOR_VARIANTS = 4;
-    int decorIndex(int kind, int variant) const { return kind * DECOR_VARIANTS + variant; }
-
-    void buildDecor() {
-        FastNoiseLite n3;
-        n3.SetSeed(seed + 919);
-        n3.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
-        n3.SetFrequency(0.35f);
-        decorShapes.assign((size_t)DECOR_KINDS * DECOR_VARIANTS, TreeShape());
-        for (int kind = 0; kind < DECOR_KINDS; kind++)
-        for (int var = 0; var < DECOR_VARIANTS; var++) {
-            uint32_t h = (uint32_t)(kind * 97 + var * 13 + 5);
-            auto rnd = [&]() { h = h * 1664525u + 1013904223u; return (h >> 8) / 16777216.0f; };
-            TreeShape& sh = decorShapes[(size_t)decorIndex(kind, var)];
-            auto add = [&](int x, int y, int z, uint16_t id) {
-                for (const auto& v : sh.voxels) if (v.dx == x && v.dz == z && v.dy == y) return;
-                sh.voxels.push_back({ (int8_t)x, (int8_t)z, (uint8_t)y, id });
-                sh.height = std::max(sh.height, y + 1);
-                sh.radius = std::max({ sh.radius, std::abs(x), std::abs(z) });
-            };
-            float ox = var * 31.0f + kind * 7.0f;
-            switch (kind) {
-            case DecBush: case DecBigBush: {
-                float r = kind == DecBush ? 1.6f + rnd() * 1.0f : 2.8f + rnd() * 1.2f;
-                float hgt = kind == DecBush ? 1.8f + rnd() * 1.0f : 3.0f + rnd() * 1.5f;
-                int R = (int)std::ceil(r) + 1;
-                for (int y = 0; y <= (int)hgt + 1; y++) for (int z = -R; z <= R; z++) for (int x = -R; x <= R; x++) {
-                    float dy = (y - hgt * 0.45f) / (hgt * 0.6f);
-                    float d = std::sqrt((x * x + z * z) / (r * r) + dy * dy) + n3.GetNoise(x + ox, y * 1.0f, z + ox) * 0.3f;
-                    if (d < 1.0f) add(x, y, z, BLOCK_LEAVES);
-                }
-                if (kind == DecBigBush) add(0, 0, 0, BLOCK_LOG_Y);
-                break;
-            }
-            case DecLogX: case DecLogZ: {
-                int len = 6 + (int)(rnd() * 8);
-                uint16_t id = kind == DecLogX ? BLOCK_LOG_X : BLOCK_LOG_Z;
-                bool thick = rnd() < 0.5f;
-                for (int i = -len / 2; i <= len / 2; i++)
-                    for (int a = 0; a <= (thick ? 1 : 0); a++)
-                        for (int y = 0; y <= (thick ? 1 : 0); y++) {
-                            int x = kind == DecLogX ? i : a, z = kind == DecLogX ? a : i;
-                            add(x, y, z, id);
-                        }
-                // a few leaves still clinging near one end
-                if (rnd() < 0.5f)
-                    for (int k = 0; k < 4; k++) {
-                        int i = len / 2 - (int)(rnd() * 3), a = (int)(rnd() * 3) - 1;
-                        int x = kind == DecLogX ? i : a, z = kind == DecLogX ? a : i;
-                        add(x, (thick ? 2 : 1), z, BLOCK_LEAVES);
-                    }
-                break;
-            }
-            default: {        // a small pile of stones
-                uint16_t body = kind == DecAshStones ? BLOCK_VOLCANIC_ROCK : kind == DecMossStones ? BLOCK_MOSS_STONE : BLOCK_COBBLESTONE;
-                int count = 3 + (int)(rnd() * 4);
-                for (int k = 0; k < count; k++) {
-                    int x = (int)(rnd() * 5) - 2, z = (int)(rnd() * 5) - 2;
-                    add(x, 0, z, body);
-                    if (rnd() < 0.35f) add(x, 1, z, kind == DecMossStones ? BLOCK_MOSS_STONE : BLOCK_STONE);
-                }
-                break;
-            }
-            }
-        }
-        maxDecorRadius = 0;
-        for (const TreeShape& t : decorShapes) maxDecorRadius = std::max(maxDecorRadius, t.radius);
-    }
-
-    // Where decorations go: bushes and fallen logs where things
-    // grow, stones on rough and dry ground, driftwood on beaches
-    bool decorInCell(int cellX, int cellZ, RockPlace& out) const override {
+    // ── Decorations (world/Decorations.h) ─────────────────
+    // Bushes, logs, stones and the like: which one a 10-voxel
+    // cell holds, from decorations.toml's [[decor]] entries
+    bool decorInCell(int cellX, int cellZ, DecorPlace& out) const override {
         using namespace island;
+        if (!decorSet || largeScale <= 0.0f) return false;
         const int margin = 1, span = DECOR_CELL - margin * 2;
-        float roll = cellRandom(cellX, cellZ, 31) / std::max(gp.get("decor"), 1e-4f);
-        if (roll > 0.55f) return false;
+        float roll = cellRandom(cellX, cellZ, 31) / largeScale;
+        if (roll > 0.6f) return false;
         int wx = cellX * DECOR_CELL + margin + (int)(cellRandom(cellX, cellZ, 32) * span);
         int wz = cellZ * DECOR_CELL + margin + (int)(cellRandom(cellX, cellZ, 33) * span);
         const int W = chart.size * VOXEL_DIM;
         if (wx < 4 || wz < 4 || wx >= W - 4 || wz >= W - 4) return false;
-        float pick = cellRandom(cellX, cellZ, 34), var = cellRandom(cellX, cellZ, 35);
         TerrainColumn c = column(wx, wz);
-        if (c.waterLevel > c.ground || c.deckY >= 0 || c.ground <= SEA_LEVEL + 1) return false;
-        if (c.top == BLOCK_SNOW || c.top == BLOCK_COBBLESTONE || c.top == BLOCK_LAVA) return false;
+        if (c.waterLevel > c.ground || c.deckY >= 0) return false;
+        int eco = c.eco;
+        const auto& list = decorSet->list(decor::Layer::Large, eco);
+        if (list.empty()) return false;
+        float acc = 0.0f;
+        int pick = -1;
+        for (const auto& [di, dens] : list) { acc += dens; if (roll < acc) { pick = di; break; } }
+        if (pick < 0) return false;
+        const decor::Def& d = decorSet->defs[(size_t)pick];
+        if (d.variants.empty()) return false;
+        if (std::find(d.on.begin(), d.on.end(), c.top) == d.on.end()) return false;
         Shape sh = shape(wx, wz);
         int b = sh.biome;
         if (b == Village || b == PlainsVillage || b == HotSpring || b == Cave || b == MountainPass) return false;
-        float d, w, f;
-        if (nearestSegment(roadSegs, (float)wx, (float)wz, sh.ni, sh.nj, d, w, f) && d < w + 2.0f) return false;
-        if (slopeAt(wx, wz) > 1.0f) return false;
-        int eco = ecoAt(wx, wz, sh.h);
-        float bush = 0, big = 0, log = 0, stones = 0;
-        switch (eco) {
-        case DenseForest:  bush = 0.45f; big = 0.15f; log = 0.12f; break;
-        case Forest:       bush = 0.35f; big = 0.10f; log = 0.08f; stones = 0.03f; break;
-        case Shrubland:    bush = 0.50f; big = 0.15f; stones = 0.04f; break;
-        case Riparian:     bush = 0.40f; big = 0.08f; break;
-        case Grassland:    bush = 0.08f; stones = 0.01f; break;
-        case Plains:       bush = 0.04f; stones = 0.01f; break;
-        case Swamp: case Marsh: bush = 0.15f; log = 0.10f; break;
-        case Foothills:    bush = 0.12f; stones = 0.06f; break;
-        case HighlandMoor: bush = 0.10f; stones = 0.08f; break;
-        case Scrubland:    bush = 0.12f; stones = 0.05f; break;
-        case Ashlands:     stones = 0.06f; break;
-        case LowMountain:  bush = 0.08f; stones = 0.08f; break;
-        case MidMountain: case Plateau: stones = 0.10f; break;
-        case Beach:        stones = 0.02f; log = 0.02f; break;
-        default: break;
-        }
-        if (isSwampy(eco) && c.ground < SEA_LEVEL + 3) return false;   // only on hummocks clear of the water
-        int kind = -1;
-        if (roll < bush) kind = DecBush;
-        else if (roll < bush + big) kind = DecBigBush;
-        else if (roll < bush + big + log) kind = pick < 0.5f ? DecLogX : DecLogZ;
-        else if (roll < bush + big + log + stones)
-            kind = (eco == Ashlands || eco == Scrubland) ? DecAshStones
-                 : (eco == Forest || eco == HighlandMoor || eco == Shrubland) ? DecMossStones : DecStones;
-        if (kind < 0) return false;
-        int variant = (int)(var * DECOR_VARIANTS) % DECOR_VARIANTS;
-        out.shape = decorIndex(kind, variant);
-        out.wx = wx; out.wz = wz;
-        out.wy = c.ground - (kind >= DecStones ? 1 : 0);
-        return out.wy + decorShapes[(size_t)out.shape].height <= WORLD_HEIGHT;
+        float dd, w, f;
+        if (nearestSegment(roadSegs, (float)wx, (float)wz, sh.ni, sh.nj, dd, w, f) && dd < w + 2.0f) return false;
+        if (slopeAt(wx, wz) > d.maxSlope) return false;
+        if (isSwampy(eco) && c.ground < SEA_LEVEL + 3 && d.recipe != "log") return false;   // hummocks clear of the water
+        if (nearLandmark(wx, wz, 3)) return false;
+        int var = (int)(cellRandom(cellX, cellZ, 35) * d.variants.size()) % (int)d.variants.size();
+        out.shape = &d.variants[(size_t)var];
+        out.wx = wx; out.wz = wz; out.wy = c.ground;
+        return out.wy + out.shape->top <= WORLD_HEIGHT;
     }
 
+    // Landmarks keep off roads, villages and other set pieces
+    bool landmarkSpotOk(int wx, int wz) const override {
+        using namespace island;
+        const int W = chart.size * VOXEL_DIM;
+        if (wx < 40 || wz < 40 || wx >= W - 40 || wz >= W - 40) return false;
+        Shape sh = shape(wx, wz);
+        int b = sh.biome;
+        if (b == Village || b == PlainsVillage || b == HotSpring || b == Cave || b == MountainPass ||
+            b == Road || b == Bridge) return false;
+        float dd, w, f;
+        if (nearestSegment(roadSegs, (float)wx, (float)wz, sh.ni, sh.nj, dd, w, f) && dd < w + 24.0f) return false;
+        if (nearestSegment(riverSegs, (float)wx, (float)wz, sh.ni, sh.nj, dd, w, f) && dd < w + 10.0f) return false;
+        const island::Marker* s = chart.marker("spawn");
+        if (s) {
+            float sx = s->x * VOXEL_DIM + VOXEL_DIM / 2.0f, sz = s->y * VOXEL_DIM + VOXEL_DIM / 2.0f;
+            if (std::hypot(wx - sx, wz - sz) < 80.0f) return false;      // the spawn has its own
+        }
+        return true;
+    }
+
+    // The spawn willow: a few steps from where players appear, on
+    // the first dry, level spot in a ring around it
+    bool spawnLandmarkSpot(int& wx, int& wz) const override {
+        glm::ivec3 sp = spawnPoint(chart.size, chart.size);
+        for (int ring : { 11, 14, 18, 23 })
+            for (int k = 0; k < 12; k++) {
+                float a = k * 0.5236f + 0.3f;
+                int x = sp.x + (int)std::round(std::cos(a) * ring), z = sp.z + (int)std::round(std::sin(a) * ring);
+                TerrainColumn c = column(x, z);
+                if (c.waterLevel > c.ground || c.deckY >= 0 || c.top == BLOCK_COBBLESTONE) continue;
+                int hi = c.ground, lo = c.ground;
+                bool wet = false;
+                for (int q = 0; q < 4; q++) {
+                    TerrainColumn o = column(x + (q == 0 ? 5 : q == 1 ? -5 : 0), z + (q == 2 ? 5 : q == 3 ? -5 : 0));
+                    wet |= o.waterLevel > o.ground;
+                    hi = std::max(hi, o.ground); lo = std::min(lo, o.ground);
+                }
+                if (wet || hi - lo > 4) continue;
+                wx = x; wz = z;
+                return true;
+            }
+        return false;
+    }
+
+public:
+    // Canyon river segments (x0, z0, x1, z1, floor0, floor1), for tests and tools
+    std::vector<std::array<float, 6>> canyonLines() const {
+        std::vector<std::array<float, 6>> v;
+        for (const auto& list : canyonSegs) for (const Seg& sg : list) {
+            std::array<float, 6> e{ sg.ax, sg.az, sg.bx, sg.bz, sg.ha, sg.hb };
+            if (std::find(v.begin(), v.end(), e) == v.end()) v.push_back(e);
+        }
+        return v;
+    }
     const TerrainBake& getBake() const { return bake; }
     bool isBaked() const { return baked; }
 
 private:
     WorldGenParams gp;
     island::Chart chart;
-    FastNoiseLite warpX, warpZ, detail, mix, hills, ridges, reliefN, overhangN;
+    FastNoiseLite warpX, warpZ, detail, mix, hills, ridges, reliefN, overhangN, autumnN;
+    std::vector<glm::vec2> lavaCells;    // centres of lava lake cells (world voxels)
     Options options;
     TerrainBake bake;
     bool baked = false;
@@ -1120,6 +1431,13 @@ private:
     // listed under every chart cell they pass near
     struct Seg { float ax, az, bx, bz, halfWidth, ha, hb; };   // ha/hb: valley floor at each end
     std::vector<std::vector<Seg>> riverSegs, roadSegs;
+    // Canyons: their rivers' paths, listed under nearby cells like
+    // riverSegs, but kept after the bake (the ground is cut along
+    // them every time a column is built)
+    std::vector<std::vector<Seg>> canyonSegs;
+    size_t canyonGuides = 0;                 // the first guideLines are the canyons' rivers
+    std::vector<uint8_t> mesaCell;           // chart cells between the two canyons
+    static constexpr float CANYON_REACH = 110.0f;   // furthest a canyon wall reaches from its river
 
     int cellIndex(int ci, int cj) const {
         ci = std::clamp(ci, 0, chart.size - 1);
@@ -1178,6 +1496,8 @@ private:
         int   ni = 0, nj = 0, biome = 0;   // nearest chart cell
         float lakeW = 0, lakeLvl = -1;
         uint16_t lakeFluid = BLOCK_WATER;
+        float canyon = 0;                  // how far a canyon cut the ground down here (voxels)
+        uint8_t canyonPart = 0;            // 0 outside, 1 floor, 2 wall, 3 ledge
     };
 
     //   forBake  the ground before erosion: no fine bumps, and
@@ -1294,6 +1614,9 @@ private:
             }
         }
 
+        // ── Canyons ───────────────────────────────────────
+        { float cut; h = canyonCut(wx, wz, out.ni, out.nj, h, forBake, cut, &out.canyonPart); out.canyon = cut; }
+
         // ── Lake basins ──────────────────────────────────
         // The crags around a mountain lake can dip below its
         // surface, which would leave a wall of standing water.
@@ -1323,6 +1646,15 @@ private:
     void prepare() {
         using namespace island;
         const int S = chart.size, n = S * S;
+        lavaCells.clear();
+        for (int i = 0; i < n; i++)
+            if (chart.biomes[i] == LavaLake)
+                lavaCells.push_back({ (i % S + 0.5f) * VOXEL_DIM, (i / S + 0.5f) * VOXEL_DIM });
+        autumnN.SetSeed(seed + 1111);
+        autumnN.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+        autumnN.SetFrequency(1.0f / 380.0f);
+        autumnN.SetFractalType(FastNoiseLite::FractalType_FBm);
+        autumnN.SetFractalOctaves(2);
         cellHeight.assign(n, 0.0f);
         lakeLevel.assign(n, -1.0f);
         if (chart.collapsed) cellHeight = chart.height;   // already smoothed into each biome's range
@@ -1448,14 +1780,15 @@ private:
             // road bend instead of turning at right angles
             struct P { float x, z, floor, hw; };
             auto smoothPath = [&](const std::vector<int>& path, bool river,
-                                  std::vector<std::vector<Seg>>& table) {
+                                  std::vector<std::vector<Seg>>& table,
+                                  const std::vector<float>* floors = nullptr) {
                 if (path.size() < 2) return;
                 std::vector<P> pts;
                 for (size_t k = 0; k < path.size(); k++) {
                     int c = path[k];
                     P p; centre(c, p.x, p.z);
-                    p.floor = floorAt(c);
-                    p.hw = river ? riverWidth(chart.biomes[c]) : 7.0f;
+                    p.floor = floors ? (*floors)[k] : floorAt(c);
+                    p.hw = floors ? 10.0f : river ? riverWidth(chart.biomes[c]) : 7.0f;
                     // wander off the cell centres (not at the ends),
                     // so long straight runs bend
                     if (k > 0 && k + 1 < path.size()) {
@@ -1495,6 +1828,11 @@ private:
                     out.push_back(pts.back());
                     pts.swap(out);
                 }
+                // a river that reaches a canyon ends at its rim: it pours in,
+                // it never runs across
+                if (river && !floors)
+                    for (size_t k = 0; k < pts.size(); k++)
+                        if (crossesCanyon(pts[k].x, pts[k].z, pts[k].floor, pts[k].hw + 8.0f)) { pts.resize(std::max<size_t>(k, 2)); break; }
                 if (river) {
                     TerrainBake::RiverLine g;
                     for (const P& p : pts) g.push_back({ p.x, p.z, p.floor, p.hw });
@@ -1514,8 +1852,15 @@ private:
                     for (int c : cells) table[c].push_back(sg);
                 }
             };
+            // canyons first (their own table; the guide lines carry their
+            // water), so the other rivers can end where they meet one
+            canyonSegs.assign(n, {});
+            auto canyons = planCanyons(landH);
+            for (const auto& cp : canyons) smoothPath(cp.first, true, canyonSegs, &cp.second);
+            canyonGuides = guideLines.size();
             for (const auto& rp : chart.rivers) smoothPath(rp, true, riverSegs);
             smoothPath(chart.road, false, roadSegs);
+            planMesa(canyons);
         }
         else for (int i = 0; i < n; i++) {
             int b = chart.biomes[i];
@@ -1536,6 +1881,296 @@ private:
                 }
             }
         }
+    }
+
+    // ── Canyons ───────────────────────────────────────────
+    // Up to three canyons through the uplands of the volcanic
+    // quadrant (karst, canyon country, moor): each starts high, near
+    // the middle of the island, and runs to the sea along the cheapest
+    // mostly-downhill route over the chart. Returned as cell paths
+    // with the floor height at each cell: cut deep in the middle
+    // (up to ~55 voxels below the land), coming out at sea level.
+    std::vector<std::pair<std::vector<int>, std::vector<float>>> planCanyons(const std::vector<float>& landH) const {
+        using namespace island;
+        std::vector<std::pair<std::vector<int>, std::vector<float>>> out;
+        const int S = chart.size, n = S * S;
+        auto upland = [&](int i) { int b = chart.base[i]; return b == Karst || b == Canyons || b == HighlandMoor; };
+        auto passable = [&](int i) {
+            int b = chart.biomes[i];
+            if (isSeaBiome(b)) return true;
+            return b != LavaLake && b != Village && b != PlainsVillage && b != HotSpring && b != Cave &&
+                   b != MountainLake && b != LowMountainLake && b != PlainsLake && b != ForestLake && b != Road && b != Bridge;
+        };
+        // Dijkstra inland from the sea: climbing is free, dropping is
+        // dear, so the route back out to sea is mostly downhill
+        std::vector<float> cost(n, 1e30f);
+        std::vector<int> pred(n, -1);
+        using E = std::pair<float, int>;
+        std::priority_queue<E, std::vector<E>, std::greater<E>> pq;
+        for (int i = 0; i < n; i++) if (isSeaBiome(chart.biomes[i])) { cost[i] = 0; pq.push({ 0, i }); }
+        while (!pq.empty()) {
+            auto [c, i] = pq.top(); pq.pop();
+            if (c > cost[i]) continue;
+            for (int j : neighbors(S, i)) {
+                if (!passable(j) || isSeaBiome(chart.biomes[j])) continue;
+                float drop = std::max(0.0f, landH[i] - landH[j]);          // inland step going down = route going up
+                float rivers = isRiver(chart.biomes[j]) ? 30.0f : 0.0f;       // keep apart from the designed rivers
+                float nc = c + 1.0f + drop * 0.35f + rivers + (upland(j) ? 0.0f : 2.0f);
+                if (nc < cost[j]) { cost[j] = nc; pred[j] = i; pq.push({ nc, j }); }
+            }
+        }
+        // Exactly two canyons, side by side with land between them (the
+        // mesa). Tried with strict rules first, then looser ones, so
+        // every island of this type gets its two.
+        struct Rules { int sepMin, sepMax, len, uplands; bool anyLand; };
+        const Rules tries[] = { { 6, 16, 8, 5, false }, { 5, 20, 6, 3, false }, { 4, 26, 5, 2, false }, { 3, 40, 4, 1, true } };
+        auto pathFrom = [&](int src) {
+            std::vector<int> path;
+            for (int c = src; c >= 0; c = pred[c]) {
+                path.push_back(c);
+                if (isSeaBiome(chart.biomes[c])) break;
+            }
+            return path;
+        };
+        auto minDist2 = [&](const std::vector<int>& a, const std::vector<int>& b) {
+            int best = 1 << 30;
+            for (int x : a) for (int y : b) {
+                if (isSeaBiome(chart.biomes[x]) || isSeaBiome(chart.biomes[y])) continue;
+                int dx = x % S - y % S, dz = x / S - y / S;
+                best = std::min(best, dx * dx + dz * dz);
+            }
+            return best;
+        };
+        std::vector<std::vector<int>> chosen;
+        for (const Rules& r : tries) {
+            std::vector<int> cand;
+            for (int i = 0; i < n; i++)
+                if ((r.anyLand ? !isSeaBiome(chart.biomes[i]) : upland(i)) && chart.biomes[i] == chart.base[i] && cost[i] < 1e29f)
+                    cand.push_back(i);
+            std::sort(cand.begin(), cand.end(), [&](int a, int b) { return landH[a] > landH[b]; });
+            auto ok = [&](const std::vector<int>& path) {
+                int up = 0;
+                for (int c : path) up += upland(c);
+                return (int)path.size() >= r.len && up >= r.uplands;
+            };
+            chosen.clear();
+            // the best pair: most open upland between the two (the mesa)
+            std::vector<std::vector<int>> paths;
+            for (size_t i = 0; i < cand.size() && paths.size() < 40; i++) {
+                auto pa = pathFrom(cand[i]);
+                if (ok(pa)) paths.push_back(pa);
+            }
+            std::vector<std::vector<int>> dist(paths.size());
+            auto distOf = [&](size_t k) -> const std::vector<int>& {
+                if (dist[k].empty()) {
+                    dist[k].assign(n, 1 << 20);
+                    std::vector<int> q;
+                    for (int c : paths[k]) if (!isSeaBiome(chart.biomes[c])) { dist[k][c] = 0; q.push_back(c); }
+                    for (size_t h = 0; h < q.size(); h++)
+                        for (int j : neighbors(S, q[h]))
+                            if (dist[k][j] > dist[k][q[h]] + 1 && !isSeaBiome(chart.biomes[j])) { dist[k][j] = dist[k][q[h]] + 1; q.push_back(j); }
+                }
+                return dist[k];
+            };
+            auto mesaGround = [&](int i) {
+                int b = chart.base[i];
+                if (b != Karst && b != Canyons && b != HighlandMoor && b != Foothills) return false;
+                for (const auto& lc : lavaCells)
+                    if (std::hypot((i % S + 0.5f) * VOXEL_DIM - lc.x, (i / S + 0.5f) * VOXEL_DIM - lc.y) < 4.5f * VOXEL_DIM) return false;
+                return true;
+            };
+            int bestScore = -1;
+            for (size_t a = 0; a < paths.size(); a++)
+                for (size_t b = a + 1; b < paths.size(); b++) {
+                    int sa = paths[a][0], sb = paths[b][0];
+                    int dx = sa % S - sb % S, dz = sa / S - sb / S;
+                    if (dx * dx + dz * dz > r.sepMax * r.sepMax) continue;
+                    // the two may meet near the sea, but not up in the hills
+                    std::vector<int> aUp(paths[a].begin(), paths[a].begin() + std::max<size_t>(1, paths[a].size() * 2 / 3));
+                    std::vector<int> bUp(paths[b].begin(), paths[b].begin() + std::max<size_t>(1, paths[b].size() * 2 / 3));
+                    if (minDist2(aUp, bUp) < r.sepMin * r.sepMin) continue;
+                    const auto& dA = distOf(a); const auto& dB = distOf(b);
+                    int gap = 1 << 20;
+                    for (int i = 0; i < n; i++) gap = std::min(gap, dA[i] + dB[i]);
+                    int score = 0;
+                    for (int i = 0; i < n; i++)
+                        if (dA[i] && dB[i] && dA[i] + dB[i] <= gap + 2 && dA[i] <= 9 && dB[i] <= 9 && mesaGround(i)) score++;
+                    if (score > bestScore) { bestScore = score; chosen = { paths[a], paths[b] }; }
+                }
+            if (chosen.size() == 2 && bestScore < 12 && &r != &tries[3]) chosen.clear();   // try looser rules for a better mesa
+            if (chosen.size() == 2) break;
+        }
+        for (auto& path : chosen) {
+            // where the second canyon reaches the first, it ends (a fork)
+            if (&path == &chosen[1]) {
+                std::vector<int> cut;
+                for (int c : path) {
+                    cut.push_back(c);
+                    if (std::find(chosen[0].begin(), chosen[0].end(), c) != chosen[0].end()) break;
+                }
+                path.swap(cut);
+            }
+            const size_t L = path.size();
+            if (L < 2) continue;
+            // floors: below the real ground along the route (the lowest
+            // of a few samples round each cell centre), deep in the
+            // middle, never rising downstream, out at the sea
+            std::vector<float> fl(path.size());
+            for (size_t k = 0; k < L; k++) {
+                float cx = (path[k] % S + 0.5f) * VOXEL_DIM, cz = (path[k] / S + 0.5f) * VOXEL_DIM;
+                float g = 1e9f;
+                for (int a = -1; a <= 1; a++) for (int b = -1; b <= 1; b++)
+                    g = std::min(g, shape((int)(cx + a * 36.0f), (int)(cz + b * 36.0f), true).h);
+                float depth = std::min(70.0f, 16.0f + 9.0f * k) * std::clamp((float)(L - 1 - k) / 3.0f, 0.15f, 1.0f);
+                float f = g - depth;
+                if (k > 0) f = std::min(f, fl[k - 1] - 0.4f);
+                fl[k] = std::max(f, (float)SEA_LEVEL + 3.0f);
+            }
+            fl[L - 1] = SEA_LEVEL + 3.0f;
+            // a fork: it comes out on the first canyon's floor
+            if (!out.empty() && !isSeaBiome(chart.biomes[path.back()])) {
+                const auto& first = out[0];
+                auto it = std::find(first.first.begin(), first.first.end(), path.back());
+                if (it != first.first.end()) {
+                    float joinF = first.second[(size_t)(it - first.first.begin())];
+                    for (size_t k = 0; k < L; k++) fl[k] = std::max(fl[k], joinF + 0.4f * (L - 1 - k));
+                    fl[L - 1] = joinF;
+                }
+            }
+            out.push_back({ path, fl });
+        }
+        return out;
+    }
+
+    // A lake that a canyon cuts through can't hold its water: drained
+    // (it becomes a dry hollow beside the canyon)
+    void drainCanyonLakes() {
+        if (canyonSegs.empty() || !bake.ready()) return;
+        const int S = bake.size(), ST = TerrainBake::STEP;
+        std::vector<uint8_t> seen((size_t)S * S, 0);
+        int drained = 0;
+        for (int z = 0; z < S; z++) for (int x = 0; x < S; x++) {
+            size_t i = (size_t)z * S + x;
+            if (seen[i] || !bake.sampleLake(x, z)) continue;
+            std::vector<int> q{ (int)i };
+            seen[i] = 1;
+            bool cut = false;
+            for (size_t h = 0; h < q.size(); h++) {
+                int cx = q[h] % S, cz = q[h] / S;
+                if (!cut && crossesCanyon((float)(cx * ST), (float)(cz * ST), bake.sampleWater(cx, cz), 4.0f)) cut = true;
+                static const int N4[4][2] = {{1,0},{-1,0},{0,1},{0,-1}};
+                for (auto& o : N4) {
+                    int nx = cx + o[0], nz = cz + o[1];
+                    if (nx < 0 || nz < 0 || nx >= S || nz >= S) continue;
+                    size_t j = (size_t)nz * S + nx;
+                    if (!seen[j] && bake.sampleLake(nx, nz)) { seen[j] = 1; q.push_back((int)j); }
+                }
+            }
+            if (!cut) continue;
+            drained++;
+            for (int c : q) bake.clearLakeSample(c % S, c / S);
+        }
+        if (drained) std::cout << "Canyons drained " << drained << " lake(s)\n";
+    }
+
+    // Would water at this height, here, be running over a canyon
+    // (above its floor, inside its walls)?
+    //   margin  extra room (a river's own width, so its water stops short of the rim)
+    bool crossesCanyon(float x, float z, float surface, float margin = 0.0f) const {
+        if (canyonSegs.empty()) return false;
+        int ci = std::clamp((int)(x / VOXEL_DIM), 0, chart.size - 1), cj = std::clamp((int)(z / VOXEL_DIM), 0, chart.size - 1);
+        for (const Seg& sg : canyonSegs[cellIndex(ci, cj)]) {
+            float t, d = segDistance(sg, x, z, t);
+            float floorH = sg.ha + (sg.hb - sg.ha) * t;
+            if (surface > floorH + 3.0f && d < sg.halfWidth + 13.0f + margin + 0.45f * (surface - floorH)) return true;
+        }
+        return false;
+    }
+
+    // The land between the two canyons: the canyon mesa, with a
+    // village at its heart. Cells no more than a few cells from both
+    // canyons and lying between them (the two distances add up to
+    // little more than the gap between the canyons).
+    void planMesa(const std::vector<std::pair<std::vector<int>, std::vector<float>>>& canyons) {
+        using namespace island;
+        const int S = chart.size, n = S * S;
+        mesaCell.assign(n, 0);
+        if (canyons.size() < 2) return;
+        auto distFrom = [&](const std::vector<int>& path) {
+            std::vector<int> d(n, 1 << 20);
+            std::vector<int> q;
+            for (int c : path) if (!isSeaBiome(chart.biomes[c])) { d[c] = 0; q.push_back(c); }
+            for (size_t h = 0; h < q.size(); h++)
+                for (int j : neighbors(S, q[h]))
+                    if (d[j] > d[q[h]] + 1 && !isSeaBiome(chart.biomes[j])) { d[j] = d[q[h]] + 1; q.push_back(j); }
+            return d;
+        };
+        auto dA = distFrom(canyons[0].first), dB = distFrom(canyons[1].first);
+        int gap = 1 << 20;
+        for (int i = 0; i < n; i++) gap = std::min(gap, dA[i] + dB[i]);
+        int best = -1, bestScore = -1;
+        for (int i = 0; i < n; i++) {
+            if (isSeaBiome(chart.biomes[i]) || dA[i] == 0 || dB[i] == 0) continue;
+            if (dA[i] + dB[i] > gap + 2 || dA[i] > 9 || dB[i] > 9) continue;
+            { int b = chart.base[i];   // uplands only, not the mountains the canyons start in
+              if (b != Karst && b != Canyons && b != HighlandMoor && b != Foothills) continue; }
+            bool nearLava = false;      // the ashlands keep their ground
+            for (const auto& lc : lavaCells)
+                if (std::hypot((i % S + 0.5f) * VOXEL_DIM - lc.x, (i / S + 0.5f) * VOXEL_DIM - lc.y) < 4.5f * VOXEL_DIM) nearLava = true;
+            if (nearLava) continue;
+            mesaCell[i] = 1;
+            int b = chart.biomes[i];
+            bool free = b == chart.base[i] && !isRiver(b);
+            int score = std::min(dA[i], dB[i]) * 4 - std::abs(dA[i] - dB[i]);
+            if (free && std::min(dA[i], dB[i]) >= 2 && score > bestScore) { bestScore = score; best = i; }
+        }
+        if (best >= 0) {
+            chart.biomes[best] = Village;
+            chart.markers.push_back({ best % S, best / S, "Canyon village", "village" });
+        }
+        int cells = 0; long sx = 0, sz = 0;
+        for (int i = 0; i < n; i++) if (mesaCell[i]) { cells++; sx += i % S; sz += i / S; }
+        std::cout << "Canyon mesa: " << cells << " cells";
+        if (cells) std::cout << " around " << (sx / cells) * VOXEL_DIM + 64 << " " << (sz / cells) * VOXEL_DIM + 64;
+        std::cout << (best >= 0 ? ", village placed" : ", no room for a village") << "\n";
+    }
+
+    // Cut the ground at (wx, wz) down to the canyon profile: a flat
+    // floor either side of the river, then walls of steep rock with a
+    // ledge every 13 voxels of height. coarse: a plain slope instead
+    // (before erosion, at the bake's 8-voxel spacing). Returns the new
+    // height; 'cut' gets how far it went down.
+    float canyonCut(int wx, int wz, int ci, int cj, float h, bool coarse, float& cut, uint8_t* part = nullptr) const {
+        cut = 0.0f;
+        if (part) *part = 0;
+        if (canyonSegs.empty()) return h;
+        float target = h;
+        uint8_t bestPart = 0;
+        for (const Seg& sg : canyonSegs[cellIndex(ci, cj)]) {
+            float t, d = segDistance(sg, (float)wx, (float)wz, t);
+            if (d > CANYON_REACH) continue;
+            float floorH = sg.ha + (sg.hb - sg.ha) * t;
+            if (h <= floorH) continue;
+            float half = sg.halfWidth + 9.0f;
+            float x = d - half;
+            float tgt;
+            uint8_t pt = 1;
+            if (x <= 0.0f) tgt = floorH;
+            else if (coarse) tgt = floorH + x * 4.0f;     // just a steep channel: the land stays high to the rim
+            else {
+                x += detail.GetNoise((float)wx * 0.9f, (float)wz * 0.9f) * 3.5f;    // ragged walls
+                x = std::max(0.0f, x);
+                const float rise = 14.0f, steep = 6.0f, ledge = 3.5f;
+                const float run = rise / steep, period = run + ledge;
+                float k = std::floor(x / period), fx = x - k * period;
+                tgt = floorH + k * rise + std::min(fx * steep, rise);
+                pt = fx * steep >= rise ? 3 : 2;
+            }
+            if (tgt < target) { target = tgt; bestPart = pt; }
+        }
+        cut = h - target;
+        if (part && cut > 0.5f) *part = bestPart;
+        return target;
     }
 
     // Distance from a point to a segment; t = where along it
@@ -1602,12 +2237,16 @@ private:
             c.top = BLOCK_SNOW; c.sub = BLOCK_STONE; break;
         case MountainPass:
             c.top = BLOCK_GRAVEL; c.sub = BLOCK_STONE; break;
-        case Ashlands:
+        case Karst:          // grassy limestone upland; the rock shows through (see column)
+            c.top = BLOCK_GRASS; c.sub = BLOCK_DIRT; c.subDepth = 3; break;
+        case Ashlands:       // ash, cinders and basalt (see column)
             c.top = BLOCK_VOLCANIC_ROCK; c.sub = BLOCK_VOLCANIC_ROCK; c.deep = BLOCK_VOLCANIC_ROCK; break;
+        case AutumnUplands: case CanyonMesa:
+            c.top = BLOCK_GRASS; c.sub = BLOCK_DIRT; break;
         case HighlandMoor:
             c.top = m > 0.1f ? BLOCK_MOSS_STONE : BLOCK_GRASS; c.sub = BLOCK_STONE; break;
-        case Scrubland:
-            c.top = m > 0.2f ? BLOCK_SAND : BLOCK_DIRT; break;
+        case Canyons:        // red sand and dry grass over banded sandstone (see column)
+            c.top = BLOCK_GRASS; c.sub = BLOCK_DIRT; c.subDepth = 2; break;
         case LavaLake: case Cave:
             c.top = BLOCK_VOLCANIC_ROCK; c.sub = BLOCK_VOLCANIC_ROCK; break;
         default: break;

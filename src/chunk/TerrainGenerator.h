@@ -4,6 +4,9 @@
 #include "Chunk.h"
 #include "StructureGenerator.h"
 #include "../noise/FastNoiseLite.h"
+#include "../world/Decorations.h"
+#include <mutex>
+#include <unordered_map>
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -42,7 +45,31 @@ struct TerrainColumn {
     uint16_t fluid      = BLOCK_WATER;
     int      deckY      = -1;          // -1 = no deck
     uint16_t deck       = BLOCK_PLANKS;
+    uint8_t  eco        = decor::ECO_NONE;   // biome for decorations (island::Biome)
+    // Layered rock: the sub and deep layers take a block by height
+    // instead (canyon walls show bands). strataOff tilts the bands.
+    uint8_t  strata     = 0;                  // 0 none, 1 sandstone, 2 limestone
+    int8_t   strataOff  = 0;
 };
+
+// Sandstone bands by height: a repeating 37-voxel sequence of beds
+// of different thickness (red, orange, cream, a thin dark seam)
+// Limestone (kind 2): thick pale beds with thinner grey ones
+inline uint16_t strataBlock(int y, int kind = 1) {
+    static uint16_t ids[6] = { 0, 0, 0, 0, 0, 0 };
+    if (!ids[0]) {
+        const char* n[6] = { "sandstone_red", "sandstone_orange", "sandstone_cream", "sandstone_dark", "limestone", "limestone_dark" };
+        for (int k = 0; k < 6; k++) { ids[k] = gRegistry.getIDByName(n[k]); if (!ids[k]) ids[k] = BLOCK_STONE; }
+    }
+    if (kind == 2) {
+        static const uint8_t lime[] = { 4,4,4,4,4,4,4,5,5,4,4,4,4,4,5,4,4,4,4,4,4,4,4,5,5,5,4,4,4 };
+        int k = ((y % 29) + 29) % 29;
+        return ids[lime[k]];
+    }
+    static const uint8_t beds[] = { 0,0,0,0,0,0,1,1,1,1,0,0,0,2,2,2,2,2,1,1,1,1,1,1,3,0,0,0,0,2,2,2,1,1,0,0,3 };
+    int k = ((y % 37) + 37) % 37;
+    return ids[beds[k]];
+}
 
 class TerrainGenerator {
 public:
@@ -88,10 +115,40 @@ public:
         typeNoise.SetFrequency(0.006f);
 
         // Build each tree once, keep only its solid voxels
+        trees.resize(TREE_COUNT);
         trees[TREE_OAK]     = makeTreeShape(*generateOakTree());
         trees[TREE_PINE]    = makeTreeShape(*generatePineTree());
         trees[TREE_DEAD]    = makeTreeShape(*generateDeadTree());
         trees[TREE_ANCIENT] = makeTreeShape(*generateAncientOak());
+        treeNames = { "oak_tree", "pine_tree", "dead_tree", "ancient_oak" };
+        // ... then the trees from decorations.toml ([[tree]]): each
+        // variant of each is a kind of its own, named <name>_<variant>
+        // (the structure registry makes a matching type for felling)
+        if (decorSet) {
+            firstTreeOfDef.assign(decorSet->defs.size(), -1);
+            for (size_t i = 0; i < decorSet->defs.size(); i++) {
+                const decor::Def& d = decorSet->defs[i];
+                if (d.layer != decor::Layer::Tree || d.variants.empty()) continue;
+                firstTreeOfDef[i] = (int)trees.size();
+                for (size_t v = 0; v < d.variants.size(); v++) {
+                    TreeShape t;
+                    for (const decor::Vox& q : d.variants[v].v) {
+                        t.voxels.push_back({ q.dx, q.dz, q.dy, q.id, (uint8_t)(isWood(q.id)) });
+                        t.height = std::max(t.height, q.dy + 1);
+                        t.radius = std::max({ t.radius, std::abs((int)q.dx), std::abs((int)q.dz) });
+                    }
+                    trees.push_back(std::move(t));
+                    treeNames.push_back(d.name + "_" + std::to_string(v));
+                }
+            }
+            // trees that take over from a built-in one (replaces = "oak_tree")
+            replacedBy.assign(TREE_COUNT, -1);
+            for (size_t i = 0; i < decorSet->defs.size(); i++) {
+                const decor::Def& d = decorSet->defs[i];
+                if (d.layer != decor::Layer::Tree || d.replaces.empty() || firstTreeOfDef[i] < 0) continue;
+                for (int k = 0; k < TREE_COUNT; k++) if (treeNames[(size_t)k] == d.replaces) replacedBy[(size_t)k] = (int)i;
+            }
+        }
 
         maxTreeRadius = 0;
         for (const TreeShape& t : trees)
@@ -99,9 +156,10 @@ public:
 
         // For naturalTreeAt(): which offsets from the trunk
         // base are wood, per tree kind
-        for (int k = 0; k < TREE_COUNT; k++)
+        woodAt.resize(trees.size());
+        for (size_t k = 0; k < trees.size(); k++)
             for (const TreeVoxel& v : trees[k].voxels)
-                if (v.id != BLOCK_LEAVES)
+                if (isWood(v.id))
                     woodAt[k].insert(packOffset(v.dx, v.dy, v.dz));
     }
 
@@ -124,13 +182,11 @@ public:
             if (!treeInCell(cx, cz, wx, wz, type)) continue;
             int gy = getSurfaceY(wx, wz);
             int dx = p.x - wx, dy = p.y - gy, dz = p.z - wz;
-            if (std::abs(dx) > 127 || std::abs(dz) > 127 || dy < 0 || dy > 255) continue;
-            if (!woodAt[type].count(packOffset(dx, dy, dz))) continue;
-            static const char* names[TREE_COUNT] =
-                { "oak_tree", "pine_tree", "dead_tree", "ancient_oak" };
+            if (std::abs(dx) > 127 || std::abs(dz) > 127 || dy < -32 || dy > 223) continue;
+            if (!woodAt[(size_t)type].count(packOffset(dx, dy, dz))) continue;
             out.cellX = cx; out.cellZ = cz;
             out.base = { wx, gy, wz };
-            out.typeName = names[type];
+            out.typeName = treeNames[(size_t)type].c_str();
             return true;
         }
         return false;
@@ -205,20 +261,35 @@ public:
                 treeTop = std::max(treeTop, rp.wy + sh.height);
             }
         }
-        // ── Small decorations: bushes, fallen logs, stones ─
-        if (!decorShapes.empty()) {
-            int RR = maxDecorRadius;
+        // ── Decorations (world/Decorations.h) ─────────────
+        // Landmarks and bushes / logs / stones: stamped like trees,
+        // from world-wide grids, into every chunk they reach
+        struct DPlaced { const decor::Shape* shape; int lx, ly, lz; };
+        std::vector<DPlaced> dplaced;
+        std::vector<LandmarkPlace> landmarks;
+        if (decorSet) {
+            int LR = decorSet->maxLandmarkRadius + 40;      // + meadows
+            landmarksNear(x0 - LR, z0 - LR, x0 + D - 1 + LR, z0 + D - 1 + LR, landmarks);
+            for (const LandmarkPlace& lm : landmarks) {
+                int r = lm.shape->radius;
+                if (lm.wx + r < x0 || lm.wx - r >= x0 + D || lm.wz + r < z0 || lm.wz - r >= z0 + D) continue;
+                dplaced.push_back({ lm.shape, lm.wx - x0, lm.wy, lm.wz - z0 });
+                treeTop = std::max(treeTop, lm.wy + lm.shape->top);
+            }
+            int RR = decorSet->maxLargeRadius;
             int dx0 = floorDiv(x0 - RR, DECOR_CELL), dx1 = floorDiv(x0 + D - 1 + RR, DECOR_CELL);
             int dz0 = floorDiv(z0 - RR, DECOR_CELL), dz1 = floorDiv(z0 + D - 1 + RR, DECOR_CELL);
             for (int cellX = dx0; cellX <= dx1; cellX++)
             for (int cellZ = dz0; cellZ <= dz1; cellZ++) {
-                RockPlace rp;
-                if (!decorInCell(cellX, cellZ, rp)) continue;
-                const TreeShape& sh = decorShapes[(size_t)rp.shape];
-                placed.push_back({ &sh, rp.wx - x0, rp.wy, rp.wz - z0 });
-                treeTop = std::max(treeTop, rp.wy + sh.height);
+                DecorPlace dp;
+                if (!decorInCell(cellX, cellZ, dp) || !dp.shape) continue;
+                dplaced.push_back({ dp.shape, dp.wx - x0, dp.wy, dp.wz - z0 });
+                treeTop = std::max(treeTop, dp.wy + dp.shape->top);
             }
+            groundPatches(cols, x0, z0);
         }
+        std::vector<PlantPlace> plants;
+        if (decorSet) placePlants(cols, x0, z0, landmarks, plants, treeTop);
         int contentTop = std::max(highest, treeTop);
 
         // ── Step 2 — each section ─────────────────────────
@@ -259,6 +330,7 @@ public:
                         else                   id = BLOCK_AIR;
                     }
                     else if (y == h - 1)              id = c.top;
+                    else if (c.strata)                id = strataBlock(y + c.strataOff, c.strata);
                     else if (y >= h - 1 - c.subDepth) id = c.sub;
                     else                              id = c.deep;
                     slice[x * D + z] = id;
@@ -267,6 +339,9 @@ public:
             carveSection(vox, x0, z0, y0, cols);
             for (const Placed& p : placed)
                 stampTree(vox, *p.shape, p.lx, p.ly - y0, p.lz);
+            for (const DPlaced& p : dplaced)
+                decor::stamp(vox, *p.shape, p.lx, p.ly - y0, p.lz, false);
+            stampPlants(vox, plants, y0);
             sec.setRle(RleData::build(vox));
         }
         return chunk;
@@ -277,6 +352,8 @@ public:
         TerrainColumn c;
         c.ground   = getSurfaceY(wx, wz);
         c.subDepth = DIRT_DEPTH;
+        // decorations: forest under the trees, plains elsewhere
+        c.eco = forestCover(wx, wz) > 0.5f ? 12 /* Forest */ : 9 /* Plains */;
         return c;
     }
 
@@ -315,8 +392,9 @@ protected:
     // One solid voxel of a tree, relative to the trunk base
     struct TreeVoxel {
         int8_t   dx, dz;
-        uint8_t  dy;
+        int16_t  dy;       // a little below the base too (roots, a flared foot)
         uint16_t id;
+        uint8_t  wood = 0; // trunks and roots also push water aside (trees standing in a swamp)
     };
 
     struct TreeShape {
@@ -331,7 +409,19 @@ protected:
     FastNoiseLite treeNoise;
     FastNoiseLite typeNoise;
 
-    TreeShape trees[TREE_COUNT];
+    std::vector<TreeShape>   trees;        // TREE_COUNT built in, then decorations.toml trees
+    std::vector<std::string> treeNames;    // structure registry names
+    std::vector<int>         firstTreeOfDef;   // decor def → its first tree kind (-1: not a tree)
+    std::vector<int>         replacedBy;       // built-in kind → decor def that grows instead (-1: none)
+
+    // A built-in tree kind swapped for the decorations.toml tree that
+    // replaces it, if there is one (a variant picked per cell)
+    int replaceTree(int type, int cellX, int cellZ) const {
+        if (type < 0 || type >= (int)replacedBy.size() || replacedBy[(size_t)type] < 0) return type;
+        int di = replacedBy[(size_t)type];
+        int nv = (int)decorSet->defs[(size_t)di].variants.size();
+        return firstTreeOfDef[(size_t)di] + (int)(cellRandom(cellX, cellZ, 7) * nv) % nv;
+    }
 
     // Rock formations: shapes made by the world type, placed by
     // rockInCell() on a grid of ROCK_CELL voxels. Stamped like
@@ -349,23 +439,290 @@ protected:
         (void)vox; (void)x0; (void)z0; (void)y0; (void)cols;
     }
 
-    // Decorations: like rocks, on a finer grid
-    static constexpr int DECOR_CELL = 10;
-    std::vector<TreeShape> decorShapes;
-    int maxDecorRadius = 0;
-    virtual bool decorInCell(int cellX, int cellZ, RockPlace& out) const {
+    // ── Decorations (world/Decorations.h) ─────────────────
+    // The registry this world was opened with, and how dense each
+    // layer is (World Settings)
+    std::shared_ptr<const decor::Set> decorSet = decor::current();
+    float plantScale = 1.0f, largeScale = 1.0f, landmarkScale = 1.0f;
+
+    // Bushes, logs and stones: one possible piece per DECOR_CELL
+    // square, chosen by the world type
+    static constexpr int DECOR_CELL = decor::LARGE_CELL;
+    struct DecorPlace { const decor::Shape* shape = nullptr; int wx = 0, wy = 0, wz = 0; };
+    virtual bool decorInCell(int cellX, int cellZ, DecorPlace& out) const {
         (void)cellX; (void)cellZ; (void)out;
         return false;
+    }
+
+    // ── Landmarks ─────────────────────────────────────────
+    struct LandmarkPlace {
+        int def = -1;
+        const decor::Shape* shape = nullptr;
+        int wx = 0, wy = 0, wz = 0;
+        float meadow = 0.0f;
+    };
+    // Can a landmark stand here? (world types rule out roads, villages …)
+    virtual bool landmarkSpotOk(int wx, int wz) const { (void)wx; (void)wz; return true; }
+    // Where the spawn landmark grows, if this world type has a spawn
+    virtual bool spawnLandmarkSpot(int& wx, int& wz) const { (void)wx; (void)wz; return false; }
+
+    // Does this landmark cell hold a landmark? Cached: a world has
+    // few landmark cells and each is asked about many times.
+    bool landmarkInCell(int cellX, int cellZ, LandmarkPlace& out) const {
+        int64_t key = ((int64_t)cellX << 32) ^ (uint32_t)cellZ;
+        {
+            std::lock_guard<std::mutex> lock(lmMutex);
+            auto it = lmCache.find(key);
+            if (it != lmCache.end()) { out = it->second; return out.shape != nullptr; }
+        }
+        LandmarkPlace lp = findLandmark(cellX, cellZ);
+        std::lock_guard<std::mutex> lock(lmMutex);
+        lmCache[key] = lp;
+        out = lp;
+        return lp.shape != nullptr;
+    }
+
+    // Every landmark whose cell overlaps the box (world voxels), plus
+    // the spawn landmark if it is near
+    void landmarksNear(int xa, int za, int xb, int zb, std::vector<LandmarkPlace>& out) const {
+        if (!decorSet) return;
+        const int LC = decor::LANDMARK_CELL;
+        for (int cx = floorDiv(xa, LC) - 1; cx <= floorDiv(xb, LC) + 1; cx++)
+        for (int cz = floorDiv(za, LC) - 1; cz <= floorDiv(zb, LC) + 1; cz++) {
+            LandmarkPlace lp;
+            if (!landmarkInCell(cx, cz, lp)) continue;
+            int reach = std::max(lp.shape->radius, (int)lp.meadow);
+            if (lp.wx + reach < xa || lp.wx - reach > xb || lp.wz + reach < za || lp.wz - reach > zb) continue;
+            out.push_back(lp);
+        }
+        LandmarkPlace sp = spawnLandmark();
+        if (sp.shape) {
+            int reach = std::max(sp.shape->radius, (int)sp.meadow);
+            if (!(sp.wx + reach < xa || sp.wx - reach > xb || sp.wz + reach < za || sp.wz - reach > zb)) out.push_back(sp);
+        }
+    }
+
+    // Is (wx, wz) within a landmark's reach (its shape plus pad, or
+    // its meadow)? Trees and bushes keep clear of landmarks.
+    bool nearLandmark(int wx, int wz, int pad) const {
+        std::vector<LandmarkPlace> v;
+        int R = (decorSet ? decorSet->maxLandmarkRadius : 0) + 40;
+        landmarksNear(wx - R, wz - R, wx + R, wz + R, v);
+        for (const LandmarkPlace& lm : v) {
+            float r = std::max((float)lm.shape->radius + pad, lm.meadow);
+            float dx = (float)(wx - lm.wx), dz = (float)(wz - lm.wz);
+            if (dx * dx + dz * dz < r * r) return true;
+        }
+        return false;
+    }
+
+    LandmarkPlace spawnLandmark() const {
+        std::call_once(spawnOnce, [this] {
+            if (!decorSet || decorSet->spawnLandmark < 0) return;
+            int wx, wz;
+            if (!spawnLandmarkSpot(wx, wz)) return;
+            const decor::Def& d = decorSet->defs[(size_t)decorSet->spawnLandmark];
+            if (d.variants.empty()) return;
+            spawnLm.def = decorSet->spawnLandmark;
+            spawnLm.shape = &d.variants[0];
+            spawnLm.wx = wx; spawnLm.wz = wz;
+            spawnLm.wy = column(wx, wz).ground;
+            spawnLm.meadow = d.meadow;
+        });
+        return spawnLm;
+    }
+
+    // ── Plants ────────────────────────────────────────────
+    struct PlantPlace {
+        const decor::Shape* shape; int lx, ly, lz;
+        decor::Water water;
+        int8_t ok;              // -1 not decided yet, 0 no room, 1 grows
+    };
+
+    // Ground patches: another top block where the patch noise is high
+    void groundPatches(std::vector<TerrainColumn>& cols, int x0, int z0) const {
+        const int D = VOXEL_DIM;
+        for (int x = 0; x < D; x++)
+        for (int z = 0; z < D; z++) {
+            TerrainColumn& c = cols[(size_t)x * D + z];
+            if (c.eco >= decor::BIOMES || c.waterLevel > c.ground) continue;
+            for (const auto& [di, dens] : decorSet->list(decor::Layer::Ground, c.eco)) {
+                const decor::Def& d = decorSet->defs[(size_t)di];
+                if (d.blocks.empty() || std::find(d.on.begin(), d.on.end(), c.top) == d.on.end()) continue;
+                float n = decor::valueNoise(seed, (float)(x0 + x), (float)(z0 + z), d.patchSize, (uint32_t)di * 31u + 5u);
+                float n2 = decor::valueNoise(seed, (float)(x0 + x), (float)(z0 + z), d.patchSize * 0.35f, (uint32_t)di * 31u + 6u);
+                if (n * 0.75f + n2 * 0.25f > 1.0f - dens * 0.6f) { c.top = d.blocks[0]; break; }
+            }
+        }
+    }
+
+    // One possible plant per PLANT_CELL square, kept inside it
+    void placePlants(const std::vector<TerrainColumn>& cols, int x0, int z0,
+                     const std::vector<LandmarkPlace>& landmarks,
+                     std::vector<PlantPlace>& out, int& top) const {
+        if (plantScale <= 0.0f) return;
+        const int D = VOXEL_DIM, PC = decor::PLANT_CELL, N = D / PC;
+        auto colAt = [&](int x, int z) -> const TerrainColumn& {
+            return cols[(size_t)std::clamp(x, 0, D - 1) * D + std::clamp(z, 0, D - 1)];
+        };
+        for (int i = 0; i < N; i++)
+        for (int j = 0; j < N; j++) {
+            int gx = floorDiv(x0, PC) + i, gz = floorDiv(z0, PC) + j;
+            int lx = i * PC + 1 + (cellRandom(gx, gz, 102) < 0.5f ? 0 : 1);
+            int lz = j * PC + 1 + (cellRandom(gx, gz, 103) < 0.5f ? 0 : 1);
+            const TerrainColumn& c = colAt(lx, lz);
+            if (c.eco >= decor::BIOMES) continue;
+            int wx = x0 + lx, wz = z0 + lz;
+            float roll = cellRandom(gx, gz, 101);
+            int pick = -1;
+            // inside a landmark's meadow: flowers, thinning toward its edge
+            for (const LandmarkPlace& lm : landmarks) {
+                if (lm.meadow <= 0.0f) continue;
+                const decor::Def& ld = decorSet->defs[(size_t)lm.def];
+                if (ld.meadowPlants.empty()) continue;
+                float dx = (float)(wx - lm.wx), dz = (float)(wz - lm.wz);
+                float t = std::sqrt(dx * dx + dz * dz) / lm.meadow;
+                if (t >= 1.0f) continue;
+                float dens = 0.55f * (1.0f - t * t);
+                if (roll < dens) {
+                    float n = decor::valueNoise(seed, (float)wx, (float)wz, 6.0f, 900u + (uint32_t)lm.def);
+                    pick = ld.meadowPlants[(size_t)((int)(n * 997.0f) % (int)ld.meadowPlants.size())];
+                } else roll = (roll - dens) / (1.0f - dens);
+                break;
+            }
+            if (pick < 0) {
+                float acc = 0.0f;
+                for (const auto& [di, dens] : decorSet->list(decor::Layer::Plant, c.eco)) {
+                    const decor::Def& d = decorSet->defs[(size_t)di];
+                    float p = dens * plantScale;
+                    if (d.patch > 0.0f) {
+                        float n = decor::valueNoise(seed, (float)wx, (float)wz, d.patchSize, (uint32_t)di * 7919u + 13u);
+                        p *= std::max(0.0f, 1.0f - d.patch + d.patch * (n - 0.3f) * 3.0f);
+                    }
+                    acc += p;
+                    if (roll < acc) { pick = di; break; }
+                }
+            }
+            if (pick < 0) continue;
+            const decor::Def& d = decorSet->defs[(size_t)pick];
+            if (d.variants.empty()) continue;
+            int depth = c.waterLevel - c.ground, base = c.ground;
+            switch (d.water) {
+            case decor::Water::Dry:
+            case decor::Water::Shore:
+                if (depth > 0 || c.deckY >= 0) continue;
+                if (d.water == decor::Water::Shore) {
+                    bool wet = false;
+                    for (int q = -4; q <= 4 && !wet; q += 2)
+                        for (int r = -4; r <= 4 && !wet; r += 2) {
+                            const TerrainColumn& o = colAt(lx + q, lz + r);
+                            wet = o.waterLevel > o.ground;
+                        }
+                    if (!wet) continue;
+                }
+                break;
+            case decor::Water::Shallow:
+                if (depth < 1 || depth > 3 || c.fluid != BLOCK_WATER) continue;
+                break;
+            case decor::Water::Surface:
+                if (depth < 2 || c.fluid != BLOCK_WATER) continue;
+                base = c.waterLevel;
+                break;
+            }
+            if (d.water != decor::Water::Surface &&
+                std::find(d.on.begin(), d.on.end(), c.top) == d.on.end()) continue;
+            if (d.water == decor::Water::Dry || d.water == decor::Water::Shore) {
+                int g = c.ground, rise = 0;
+                rise = std::max({ std::abs(colAt(lx + 1, lz).ground - g), std::abs(colAt(lx - 1, lz).ground - g),
+                                  std::abs(colAt(lx, lz + 1).ground - g), std::abs(colAt(lx, lz - 1).ground - g) });
+                if ((float)rise > d.maxSlope + 0.01f) continue;
+            }
+            int var = (int)(cellRandom(gx, gz, 104) * (float)d.variants.size()) % (int)d.variants.size();
+            const decor::Shape& sh = d.variants[(size_t)var];
+            out.push_back({ &sh, lx, base, lz, d.water, -1 });
+            top = std::max(top, base + sh.top);
+        }
+    }
+
+    // Write the plants into a section. Whether a plant has room is
+    // decided in the section holding its base (sections go bottom
+    // up), so a plant never comes out half grown across a seam.
+    static void stampPlants(uint16_t* vox, std::vector<PlantPlace>& plants, int y0) {
+        const int D = VOXEL_DIM;
+        for (PlantPlace& p : plants) {
+            int ly = p.ly - y0;
+            if (ly + p.shape->top <= 0 || ly + p.shape->bottom >= D) continue;
+            if (p.ok < 0) {
+                if (ly < 0 || ly >= D) continue;          // base below this section: decided there
+                uint16_t at = vox[Chunk::index(p.lx, ly, p.lz)];
+                uint16_t below = ly > 0 ? vox[Chunk::index(p.lx, ly - 1, p.lz)] : (uint16_t)BLOCK_STONE;
+                bool room;
+                switch (p.water) {
+                case decor::Water::Shallow: room = at == BLOCK_WATER; break;
+                case decor::Water::Surface: room = at == BLOCK_AIR && below == BLOCK_WATER; break;
+                default: room = at == BLOCK_AIR && below != BLOCK_AIR && below != BLOCK_WATER && below != BLOCK_LAVA; break;
+                }
+                p.ok = room ? 1 : 0;
+            }
+            if (p.ok == 1) decor::stamp(vox, *p.shape, p.lx, ly, p.lz, p.water == decor::Water::Shallow);
+        }
+    }
+
+    mutable std::mutex lmMutex;
+    mutable std::unordered_map<int64_t, LandmarkPlace> lmCache;
+    mutable std::once_flag spawnOnce;
+    mutable LandmarkPlace spawnLm;
+
+    LandmarkPlace findLandmark(int cellX, int cellZ) const {
+        LandmarkPlace none;
+        if (!decorSet || landmarkScale <= 0.0f) return none;
+        const int LC = decor::LANDMARK_CELL;
+        int wx = cellX * LC + LC / 4 + (int)(cellRandom(cellX, cellZ, 71) * (LC / 2));
+        int wz = cellZ * LC + LC / 4 + (int)(cellRandom(cellX, cellZ, 72) * (LC / 2));
+        TerrainColumn c = column(wx, wz);
+        if (c.eco >= decor::BIOMES) return none;
+        float roll = cellRandom(cellX, cellZ, 73) / landmarkScale, acc = 0.0f;
+        int pick = -1;
+        for (const auto& [di, dens] : decorSet->list(decor::Layer::Landmark, c.eco)) {
+            acc += dens;
+            if (roll < acc) { pick = di; break; }
+        }
+        if (pick < 0) return none;
+        const decor::Def& d = decorSet->defs[(size_t)pick];
+        if (d.variants.empty()) return none;
+        if (c.waterLevel > c.ground || c.deckY >= 0) return none;
+        if (std::find(d.on.begin(), d.on.end(), c.top) == d.on.end()) return none;
+        // level enough across its footprint
+        int r = std::max(4, d.variants[0].radius / 2);
+        int hi = c.ground, lo = c.ground;
+        for (int k = 0; k < 4; k++) {
+            TerrainColumn o = column(wx + (k == 0 ? r : k == 1 ? -r : 0), wz + (k == 2 ? r : k == 3 ? -r : 0));
+            if (o.waterLevel > o.ground) return none;
+            hi = std::max(hi, o.ground); lo = std::min(lo, o.ground);
+        }
+        if ((float)(hi - lo) > d.maxSlope * 2.0f * r) return none;
+        if (!landmarkSpotOk(wx, wz)) return none;
+        LandmarkPlace lp;
+        lp.def = pick;
+        lp.shape = &d.variants[(size_t)((int)(cellRandom(cellX, cellZ, 74) * d.variants.size()) % (int)d.variants.size())];
+        lp.wx = wx; lp.wz = wz; lp.wy = lo;
+        lp.meadow = d.meadow;
+        return lp;
     }
 
     virtual bool rockInCell(int cellX, int cellZ, RockPlace& out) const {
         (void)cellX; (void)cellZ; (void)out;
         return false;
     }
-    std::unordered_set<uint32_t> woodAt[TREE_COUNT];
+    std::vector<std::unordered_set<uint32_t>> woodAt;
 
+    // Logs, or any block the registry calls wood (safe before it loads)
+    static bool isWood(uint16_t id) {
+        if (id == BLOCK_LOG_Y || id == BLOCK_LOG_X || id == BLOCK_LOG_Z) return true;
+        return id < gRegistry.size() && gRegistry.get(id).material == "wood";
+    }
     static uint32_t packOffset(int dx, int dy, int dz) {
-        return ((uint32_t)(dx + 128) << 16) | ((uint32_t)(dz + 128) << 8) | (uint32_t)dy;
+        return ((uint32_t)(dx + 128) << 16) | ((uint32_t)(dz + 128) << 8) | (uint32_t)((dy + 32) & 0xFF);
     }
     int       maxTreeRadius = 0;
 
@@ -415,6 +772,7 @@ protected:
         else                 type = (roll < 0.60f) ? TREE_OAK
                                   : (roll < 0.90f) ? TREE_ANCIENT : TREE_DEAD;
 
+        type = replaceTree(type, cellX, cellZ);
         // A tree must fit under the top of the world — on high
         // ground fall back to a shorter kind
         int ground = getSurfaceY(wx, wz);
@@ -461,7 +819,8 @@ protected:
             // Leaves only grow into open air; wood replaces
             // leaves so trunks stay whole where crowns overlap
             if (dst == BLOCK_AIR ||
-                (dst == BLOCK_LEAVES && v.id != BLOCK_LEAVES))
+                (dst == BLOCK_LEAVES && v.id != BLOCK_LEAVES) ||
+                (v.wood && dst == BLOCK_WATER))
                 dst = v.id;
         }
     }

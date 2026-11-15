@@ -548,8 +548,8 @@ inline Chart collapseIsland(int seed, int S, const WorldGenParams& gp = WorldGen
                           [&](int i) { return -std::fabs(landDist[i] - 6.0) + R() * 0.5 - (spawn >= 0 ? std::max(0.0, 6 - cellDist(i, spawn)) : 0); });
     if (hamlet >= 0) { stampDisk(hamlet, 0.8, PlainsVillage, [&](int j) { return !ov[j]; }); ch.markers.push_back({ hamlet % S, hamlet / S, "Plains hamlet", "village" }); }
 
-    auto volc = [&](int i) { return land[i] && (base[i] == Ashlands || base[i] == HighlandMoor) && !ov[i]; };
-    int lava = pickBest([&](int i) { return volc(i) && base[i] == Ashlands; }, [&](int i) { return landDist[i] + R(); });
+    auto volc = [&](int i) { return land[i] && (base[i] == Karst || base[i] == HighlandMoor) && !ov[i]; };
+    int lava = pickBest([&](int i) { return volc(i) && base[i] == Karst; }, [&](int i) { return landDist[i] + R(); });
     if (lava >= 0) { stampDisk(lava, 1.2, LavaLake, volc); ch.markers.push_back({ lava % S, lava / S, "Lava lake", "lava" }); }
     std::vector<int> placed;
     auto farFrom = [&](int i, double d) { for (int j : placed) if (cellDist(i, j) < d) return false; return true; };
@@ -569,7 +569,7 @@ inline Chart collapseIsland(int seed, int S, const WorldGenParams& gp = WorldGen
     for (int k = 0; k < 3; k++) {
         int cv = pickBest([&](int i) {
                 return land[i] && !ov[i] && farFrom(i, 5) &&
-                       (k < 2 ? (base[i] == Ashlands || base[i] == HighlandMoor || base[i] == Scrubland) : base[i] == SeaCliffs);
+                       (k < 2 ? (base[i] == Karst || base[i] == HighlandMoor || base[i] == Canyons) : base[i] == SeaCliffs);
             }, [&](int) { return R(); });
         if (cv >= 0) { ov[cv] = Cave; placed.push_back(cv); ch.markers.push_back({ cv % S, cv / S, "Cave", "cave" }); }
     }
@@ -670,8 +670,8 @@ inline Chart singleBiomeChart(int seed, int biome, int S = 32) {
         ch.markers.push_back({ v % S, v / S, "Hamlet", "village" });
     }
     if (has({ LowMountain, MidMountain, Plateau, HighMountain })) stampDisk(randCell(4), 1.3, MountainLake);
-    if (has({ Ashlands })) stampDisk(randCell(4), 1.4, LavaLake);
-    if (has({ Ashlands, HighlandMoor, Scrubland })) {
+    if (has({ Karst })) stampDisk(randCell(4), 1.4, LavaLake);
+    if (has({ Karst, HighlandMoor, Canyons })) {
         for (int k = 0; k < 2; k++) ov[randCell(4)] = HotSpring;
         ov[randCell(4)] = Cave;
     }

@@ -453,6 +453,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\voxel\Voxel.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\voxel\VoxelRegistry.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\voxel\VoxelRegistry.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\world\Decorations.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\LightBake.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\StructureCatalog.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\StructureManager.h" />

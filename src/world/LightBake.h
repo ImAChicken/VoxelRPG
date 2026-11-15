@@ -70,18 +70,42 @@ struct ColumnLight {
     static constexpr int SUM = VOXEL_DIM / 4;
     std::array<uint16_t, SUM * SUM> topY{};
     std::array<uint16_t, SUM * SUM> topId{};
+    // The canopy over each cell column (TEX × TEX, the section's
+    // cells plus a border, index z * TEX + x), 3 values each:
+    // leaf cells the sky crosses on its way down, and the lowest
+    // and highest of them (cell y, whole column). Leaves don't
+    // block the sky: the shader tints the light under them green
+    // by this instead. Empty when the column has no leaves.
+    std::vector<uint16_t> canopy;
 };
+
+// How much canopy shades a point at cell height cy (0..1). Same
+// sum as the chunk shader: the leaf cells above it, five or more
+// is full shade.
+inline float canopyShade(int count, int bottom, int top, float cy) {
+    if (!count || cy >= top + 1) return 0.0f;
+    float above = cy < bottom ? (float)count : count * (top + 1 - cy) / std::max(1.0f, (float)(top + 1 - bottom));
+    return std::clamp(above / 5.0f, 0.0f, 1.0f);
+}
 
 // What the baker needs per block ID (built once from the registry)
 struct LightTable {
     std::vector<uint8_t>  pass;       // 0 clear … 15 blocks
     std::vector<uint16_t> glow;       // packed r<<8|g<<4|b
+    std::vector<uint8_t>  skipTop;    // left out of the ground summary: plants, leaves, trunks
+    std::vector<uint8_t>  leaf;       // leaves of any kind: filter the sky (green) instead of blocking it
     static std::shared_ptr<const LightTable> build(const VoxelRegistry& reg) {
         auto t = std::make_shared<LightTable>();
         t->pass.assign(std::max<size_t>(reg.size(), 1), 15);
         t->glow.assign(t->pass.size(), 0);
+        t->skipTop.assign(t->pass.size(), 0);
+        t->leaf.assign(t->pass.size(), 0);
         for (size_t i = 0; i < reg.size(); i++) {
             const VoxelTypeDef& d = reg.get((uint16_t)i);
+            t->leaf[i] = d.material == "organic" && d.opacity == VoxelOpacity::Partial;
+            t->skipTop[i] = d.isPlant() || i == BLOCK_LEAVES || i == BLOCK_LOG_Y || i == BLOCK_LOG_X || i == BLOCK_LOG_Z ||
+                            d.name == "twigs" || d.name == "berries" || d.name == "dark_log" ||
+                            (d.material == "organic" && d.opacity == VoxelOpacity::Partial);   // every kind of leaves
             t->pass[i] = i == 0 ? 0 : d.lightPass;
             t->glow[i] = (uint16_t)((d.light[0] << 8) | (d.light[1] << 4) | d.light[2]);
         }
@@ -97,10 +121,10 @@ class Baker {
 public:
     // cx, cz: the column (for emitter world positions)
     static void bake(const Snap9& cols, const LightTable& lt, int cx, int cz, ColumnLight& out) {
-        thread_local std::vector<uint8_t>  opq, passv;
+        thread_local std::vector<uint8_t>  opq, passv, leafv;
         thread_local std::vector<uint16_t> glowv, L;
         const size_t N = (size_t)RX * RX * RY;
-        opq.assign(N, 0); passv.assign(N, 0); glowv.assign(N, 0);
+        opq.assign(N, 0); passv.assign(N, 0); glowv.assign(N, 0); leafv.assign(N, 0);
         auto ci = [](int x, int y, int z) { return ((size_t)y * RX + x) * RX + z; };
         int topCell = 0;
         out.topY.fill(0); out.topId.fill(0); out.emitters.clear();
@@ -127,6 +151,7 @@ public:
                     uint8_t p = id < lt.pass.size() ? lt.pass[id] : 15;
                     if (p >= 15) opq[c]++;
                     else passv[c] = std::max(passv[c], p);
+                    if (id < lt.leaf.size() && lt.leaf[id] && leafv[c] < 255) leafv[c]++;
                     uint16_t g = id < lt.glow.size() ? lt.glow[id] : 0;
                     if (g) {
                         uint16_t& e = glowv[c];
@@ -134,7 +159,7 @@ public:
                                        std::max(e & 15, g & 15));
                     }
                     topCell = std::max(topCell, ry);
-                    if (center && id != BLOCK_LEAVES && id != BLOCK_LOG_Y && id != BLOCK_LOG_X && id != BLOCK_LOG_Z) {
+                    if (center && !(id < lt.skipTop.size() && lt.skipTop[id])) {
                         int s = (z / 4) * ColumnLight::SUM + x / 4;
                         if (y0 + y + 1 > out.topY[s]) { out.topY[s] = (uint16_t)(y0 + y + 1); out.topId[s] = id; }
                     }
@@ -149,6 +174,7 @@ public:
                     for (int z = za; z < zb; z += CELL) {
                         size_t c = ci((ox * D + x + MARGIN * CELL) / CELL, (y0 + y) / CELL, (oz * D + z + MARGIN * CELL) / CELL);
                         if (p >= 15) opq[c] = 8; else passv[c] = std::max(passv[c], p);
+                        if (id < lt.leaf.size() && lt.leaf[id]) leafv[c] = 8;
                     }
                     topCell = std::max(topCell, (y0 + D) / CELL - 1);
                     if (center)
@@ -181,16 +207,32 @@ public:
         for (size_t c = 0; c < N; c++) passv[c] = opq[c] >= 5 ? 15 : passv[c];
 
         // ── sky: straight down, then sideways ─────────────
+        // Straight down, leaves let the sky through: they are
+        // counted for the canopy instead (shaded green, see canopy)
         L.assign(N, 0);
         std::vector<int> q;
         q.reserve(1 << 16);
+        out.canopy.clear();
+        bool anyLeaf = false;
+        std::vector<uint16_t> canopy((size_t)TEX * TEX * 3, 0);
         for (int x = 0; x < RX; x++)
         for (int z = 0; z < RX; z++) {
             int s = 15;
+            int tx = x - (MARGIN - 1), tz = z - (MARGIN - 1);
+            bool record = tx >= 0 && tx < TEX && tz >= 0 && tz < TEX;
+            uint16_t* cn = record ? &canopy[((size_t)tz * TEX + tx) * 3] : nullptr;
             for (int y = RY - 1; y >= 0; y--) {
                 size_t c = ci(x, y, z);
                 if (y <= topCell) {
                     int p = passv[c];
+                    if (p < 15 && leafv[c] >= 2 && s > 0) {
+                        p = 0;
+                        if (cn) {
+                            if (cn[0] == 0) cn[2] = (uint16_t)y;
+                            cn[0]++; cn[1] = (uint16_t)y;
+                            anyLeaf = true;
+                        }
+                    }
                     s = p >= 15 ? 0 : std::max(0, s - p);
                 }
                 L[c] = (uint16_t)s;
@@ -215,6 +257,7 @@ public:
                 if (passv[n] < 15 && (L[n] & 15) < s - 1) { q.push_back((int)c); break; }
             }
         }
+        if (anyLeaf) out.canopy.swap(canopy);
         spread(q, passv, L, [](uint16_t v) { return (int)(v & 15); },
                [](uint16_t v, int s) { return (uint16_t)((v & ~15) | s); }, ci);
 

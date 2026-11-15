@@ -21,6 +21,8 @@ in      vec3  vLocal;
 in      vec3  vWorld;
 flat in vec3  vNormal;
 flat in float vGlow;
+in      vec2  vSpriteUV;
+flat in float vSprite;
 
 out vec4 outColor;
 
@@ -28,6 +30,7 @@ uniform sampler2D uAtlas;
 uniform vec2  uTileUV;          // size of one tile in atlas UVs
 uniform vec3  uCamPos;
 uniform float uVoxelsPerTile;   // voxels one tile stretches over
+uniform usampler2D uCanopy;     // leaves over each cell column: count, lowest and highest leaf cell
 uniform sampler3D uLight;       // the baked light layer for this section (66³ cells, RGB = block light, A = sky)
 
 // ── Lighting and haze, shared with the distant terrain ──
@@ -41,14 +44,24 @@ vec3 fogColor(vec3 viewDir) {
     float s = pow(max(dot(viewDir, uSunDir), 0.0), 6.0);
     return mix(uFogHorizon, uFogSunGlow, s * 0.5 * (1.0 - uNight));
 }
+// Haze at the voxel / far-terrain seam: measured along the square
+// of voxel chunks (the larger of the X and Z distances), thickest
+// right at its edge, thinning again further out so the distance
+// stays clear
+float seamFog(vec3 world) {
+    vec2 d2 = abs(world.xz - uCamPos.xz);
+    float d = max(d2.x, d2.y);
+    return smoothstep(uSeamStart, uSeamEnd, d) * mix(1.0, 0.55, smoothstep(uSeamEnd + 200.0, uSeamEnd + 1400.0, d)) * uSeamHaze;
+}
 float fogAmount(float d) {
     float f = 1.0 - exp(-d * uFogDensity);
-    return max(f, smoothstep(uSeamStart, uSeamEnd, d) * uSeamHaze);
+    return max(f, seamFog(vWorld));
 }
 
 void main() {
     vec2 inTile = fract(vFacePos / uVoxelsPerTile);
     vec2 uv     = (vTile + inTile) * uTileUV;
+    if (vSprite > 0.5) uv = (vTile + vSpriteUV) * uTileUV;      // sprites: the whole picture once
 
     vec4 color = texture(uAtlas, uv);
 
@@ -67,11 +80,22 @@ void main() {
     vec3 tc = mix(p * 0.5 + 1.0, floor(p * 0.5) + 1.5, an);
     vec4 L  = max(texture(uLight, tc / 66.0), texture(uLight, (tc + vNormal) / 66.0));
     float sky = L.a * L.a;                       // a gentler fall-off into shade
+    // Under leaves the sky comes through filtered: dim, and mostly
+    // green (the bake lets it through and counts the leaves above)
+    uvec3 cn = texelFetch(uCanopy, clamp(ivec2(floor(p.xz * 0.5)) + 1, ivec2(0), textureSize(uCanopy, 0) - 1), 0).rgb;
+    vec3 skyTint = vec3(1.0);
+    if (cn.r > 0u) {
+        float cy = (vWorld.y + vNormal.y * 0.5) * 0.5;
+        float top = float(cn.b) + 1.0, bottom = float(cn.g);
+        float above = cy < bottom ? float(cn.r) : float(cn.r) * clamp((top - cy) / max(1.0, top - bottom), 0.0, 1.0);
+        float shade = clamp(above / 5.0, 0.0, 1.0);
+        skyTint = mix(vec3(1.0), vec3(0.30, 0.50, 0.24), shade);
+    }
     vec3 block = L.rgb * L.rgb * 1.5;
     // sun / moon side brighter, the rest lit by the sky dome
     float facing = 0.62 + 0.38 * max(dot(vNormal, uLightDir), 0.0);
     facing *= mix(1.0, vShade, 0.35);
-    vec3 lit = uSkyLight * sky * facing + block * mix(1.0, vShade, 0.5) + uAmbient;
+    vec3 lit = uSkyLight * skyTint * sky * facing + block * mix(1.0, vShade, 0.5) + uAmbient;
     if (vGlow > 0.5) lit = vec3(1.15);           // glowing blocks show at full brightness
 
     vec3 rgb = color.rgb * lit;

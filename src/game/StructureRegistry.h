@@ -174,6 +174,44 @@ public:
         }
     }
 
+    // A tree type for each variant of each decorations.toml tree,
+    // named like the generator names them (<name>_<variant>), so
+    // they can be chopped and felled like the built-in trees. Call
+    // after load() and after the decorations are loaded.
+    void addDecorTrees(const decor::Set& set) {
+        uint16_t log = gItems.find("log_y");
+        for (const decor::Def& d : set.defs) {
+            if (d.layer != decor::Layer::Tree) continue;
+            for (size_t v = 0; v < d.variants.size(); v++) {
+                const decor::Shape& sh = d.variants[v];
+                glm::ivec3 lo(1 << 20), hi(-(1 << 20));
+                int wood = 0;
+                for (const decor::Vox& q : sh.v) {
+                    lo = glm::min(lo, glm::ivec3(q.dx, q.dy, q.dz));
+                    hi = glm::max(hi, glm::ivec3(q.dx, q.dy, q.dz));
+                    if (gRegistry.get(q.id).material == "wood") wood++;
+                }
+                if (sh.v.empty()) continue;
+                VoxelVolume vol(hi - lo + glm::ivec3(1));
+                for (const decor::Vox& q : sh.v) vol.set(q.dx - lo.x, q.dy - lo.y, q.dz - lo.z, q.id);
+                vol.anchor = -lo;
+                StructureType st;
+                st.id          = (uint16_t)types.size();
+                st.name        = d.name + "_" + std::to_string(v);
+                st.displayName = d.display;
+                st.kind        = StructureKind::Tree;
+                st.size        = vol.size;
+                st.health      = std::clamp(wood / 8.0f, 30.0f, 160.0f);
+                st.dropItem    = log;
+                st.dropCount   = std::clamp(wood / 12, 8, 96);
+                for (int r = 0; r < 4; r++) st.shapes[0][r] = std::make_shared<const VoxelVolume>(vol.rotatedY(r));
+                st.states = 1;
+                index[st.name] = st.id;
+                types.push_back(std::move(st));
+            }
+        }
+    }
+
     const StructureType* get(uint16_t id) const {
         return (id > 0 && id < types.size()) ? &types[id] : nullptr;
     }

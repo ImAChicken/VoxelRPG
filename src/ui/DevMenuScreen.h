@@ -37,6 +37,7 @@ public:
         addItemPage("Player Tools", IC_TOOL);
         addItemPage("Weapons",      IC_WEAPON);
         addItemPage("Dev Tools",    IC_DEV);
+        addItemPage("Decorations",  IC_DECOR);
         addPage("Structures", [this](UIRenderer& ui, const PageArea& a) {
             drawStructures(ui, a);
         });
@@ -81,10 +82,13 @@ public:
         float ph = std::min(640.0f,  sh - 40.0f);
         float px = (sw - pw) * 0.5f, py = (sh - ph) * 0.5f;
         drawPanel(ui, px, py, pw, ph);
-        ui.drawText("Dev Menu", px + 16, py + 14, theme.title, 2);
-
         // ── Tabs ──────────────────────────────────────────
-        float tx = px + 170.0f;
+        // The title goes when the tabs need the whole row
+        float tabsW = 0.0f;
+        for (const Page& pg : pages) tabsW += (float)ui.textWidth(pg.title, 2) + 30.0f;
+        bool titleFits = tabsW < pw - 186.0f;
+        if (titleFits) ui.drawText("Dev Menu", px + 16, py + 14, theme.title, 2);
+        float tx = px + (titleFits ? 170.0f : 16.0f);
         for (size_t i = 0; i < pages.size(); i++) {
             float w = (float)ui.textWidth(pages[i].title, 2) + 24.0f;
             bool on = (i == current), hov = hovered(tx, py + 8, w, 30);
@@ -317,6 +321,7 @@ private:
         }
         int count = 1;
         if (d.is(IC_BLOCK) && !inv.infinite) count = 64;
+        if (d.is(IC_DECOR) && !inv.infinite) count = std::min<int>(16, d.maxStack);
         inv.setSlot(inv.selected, d.id, count);
         if (d.is(IC_BLOCK)) dev->setMaterial(d.blockID);
     }
@@ -367,12 +372,18 @@ private:
         float edge[4] = {0, 0, 0, 200};
         ui.drawRect(x, y, s, s, c);
         ui.drawBorder(x, y, s, s, edge, 1.0f);
-        const char* mark = d.is(IC_DEV) ? "D" : d.is(IC_WEAPON) && d.is(IC_TOOL) ? "X"
+        const char* mark = d.is(IC_DECOR) ? decorMark(d) : d.is(IC_DEV) ? "D" : d.is(IC_WEAPON) && d.is(IC_TOOL) ? "X"
                          : d.is(IC_WEAPON) ? "W" : d.is(IC_TOOL) ? "T" : nullptr;
         if (mark) {
             float ink[4] = {10, 10, 10, 255};
             ui.drawTextCentered(mark, x, y, s, s, ink, 2);
         }
+    }
+
+    static const char* decorMark(const ItemDef& d) {
+        const decor::Def* dd = decor::current()->get(d.decor);
+        if (!dd) return "?";
+        return dd->layer == decor::Layer::Plant ? "P" : dd->layer == decor::Layer::Landmark ? "L" : "B";
     }
 
     static std::string fit(const std::string& s, size_t n) {
@@ -389,6 +400,11 @@ private:
         };
         tag(d.is(IC_BLOCK), "block"); tag(d.is(IC_TOOL), "tool");
         tag(d.is(IC_WEAPON), "weapon"); tag(d.is(IC_DEV), "dev");
+        if (d.is(IC_DECOR)) {
+            const decor::Def* dd = decor::current()->get(d.decor);
+            tag(true, !dd ? "decoration" : dd->layer == decor::Layer::Plant ? "plant"
+                    : dd->layer == decor::Layer::Landmark ? "landmark" : "decoration");
+        }
         t += "]";
         char b[64];
         if (d.is(IC_TOOL)) { std::snprintf(b, sizeof(b), "  dig x%.0f", d.toolPower); t += b; }
@@ -399,6 +415,7 @@ private:
     // Second line: how to use it
     static std::string hint(const ItemDef& d) {
         if (d.is(IC_DEV))    return DevTools::toolHint(d.devTool);
+        if (d.is(IC_DECOR))  return "put in slot, then left click the ground to place it";
         if (d.is(IC_BLOCK))  return "left click: put in slot   right click: set dev material";
         if (d.is(IC_WEAPON) && !d.is(IC_TOOL)) return "left click: put in the weapon slot (used with R in Survival)";
         return "left click: put in the selected slot";

@@ -122,6 +122,12 @@ public:
         if (s.lightTex[sy]) return s.lightTex[sy];
         return uniformTexture(s.lightValue[sy]);
     }
+    // The canopy texture for a column (see light::ColumnLight::canopy),
+    // or 0 if it has no leaves
+    GLuint getCanopyTexture(int cx, int cz) const {
+        if (!ChunkManager::inWorld(cx, cz)) return 0;
+        return slots[(size_t)world.index(cx, cz)].canopyTex;
+    }
     bool lightIsUniform(int cx, int sy, int cz) const {
         const Slot& s = slots[(size_t)world.index(cx, cz)];
         return !s.lightTex[sy];
@@ -139,6 +145,16 @@ public:
         int lx = (int)std::floor(wx) - cx * VOXEL_DIM, lz = (int)std::floor(wz) - cz * VOXEL_DIM, ly = y - sy * VOXEL_DIM;
         int tx = lx / 2 + 1, ty = ly / 2 + 1, tz = lz / 2 + 1;
         return s.lightCpu[sy][light::SectionLight::at(tx, ty, tz)];
+    }
+    // 0..1: how much canopy is over a world point (for characters)
+    float canopyAt(float wx, float wy, float wz) const {
+        int cx = ChunkManager::chunkCoord((int)std::floor(wx)), cz = ChunkManager::chunkCoord((int)std::floor(wz));
+        if (!ChunkManager::inWorld(cx, cz)) return 0.0f;
+        const Slot& s = slots[(size_t)world.index(cx, cz)];
+        if (s.canopyCpu.empty()) return 0.0f;
+        int tx = ((int)std::floor(wx) - cx * VOXEL_DIM) / 2 + 1, tz = ((int)std::floor(wz) - cz * VOXEL_DIM) / 2 + 1;
+        const uint16_t* c = &s.canopyCpu[((size_t)tz * light::TEX + tx) * 3];
+        return light::canopyShade(c[0], c[1], c[2], wy * 0.5f);
     }
     // Glowing blocks found in each lit column, for distant lights
     // and the far view. Bumped whenever any column's list changes.
@@ -198,11 +214,15 @@ private:
         GLuint    lightTex[SECTIONS] = {};
         uint16_t  lightValue[SECTIONS] = {};
         std::array<std::vector<uint16_t>, SECTIONS> lightCpu;
+        GLuint    canopyTex = 0;
+        std::vector<uint16_t> canopyCpu;
 
         void cleanupMeshes() { for (auto& m : mesh) m.cleanup(); }
         void freeLight() {
             for (GLuint& t : lightTex) if (t) { glDeleteTextures(1, &t); t = 0; }
             for (auto& v : lightCpu) { v.clear(); v.shrink_to_fit(); }
+            if (canopyTex) { glDeleteTextures(1, &canopyTex); canopyTex = 0; }
+            canopyCpu.clear(); canopyCpu.shrink_to_fit();
             hasLight = false;
         }
     };
@@ -279,6 +299,22 @@ private:
             s.lightCpu[sy] = sl.cells;
         }
         glBindTexture(GL_TEXTURE_3D, 0);
+        if (L.canopy.empty()) {
+            if (s.canopyTex) { glDeleteTextures(1, &s.canopyTex); s.canopyTex = 0; }
+            s.canopyCpu.clear();
+        } else {
+            if (!s.canopyTex) glGenTextures(1, &s.canopyTex);
+            glBindTexture(GL_TEXTURE_2D, s.canopyTex);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16UI, light::TEX, light::TEX, 0, GL_RGB_INTEGER,
+                         GL_UNSIGNED_SHORT, L.canopy.data());
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            s.canopyCpu = L.canopy;
+        }
         glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
         s.hasLight = true;
         ColumnInfo ci;

@@ -41,8 +41,12 @@ public:
     static constexpr float RADIUS         = 1.5f;   // 6 in
     static constexpr float STAND_HEIGHT   = 17.0f;  // 5'8"
     static constexpr float CROUCH_HEIGHT  = 10.0f;  // 3'4"
-    static constexpr float STAND_EYE      = 15.0f;
+    static constexpr float STAND_EYE      = 16.0f;  // default eye height, 5'4"
     static constexpr float CROUCH_EYE     = 8.0f;
+    // The eye height in use (Settings: Eye height); crouching
+    // lowers the eyes by the same amount whatever it is
+    static inline float eyeStand = STAND_EYE;
+    static float eyeCrouch() { return eyeStand - (STAND_EYE - CROUCH_EYE); }
 
     // ── Ground movement ───────────────────────────────────
     static constexpr float WALK_SPEED     = 30.0f;

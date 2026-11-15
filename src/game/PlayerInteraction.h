@@ -173,7 +173,8 @@ public:
 
         // ── Pickaxe: a cube at a time ─────────────────────
         bool pick = held.is(IC_TOOL) && held.tool == ToolKind::Pickaxe && held.cubeSize > 0;
-        if (pick && target.hit && !aimed && !isTreeWood(structs, target.blockPos, (uint16_t)target.blockID)) {
+        bool aimPlant = target.hit && gRegistry.get((uint16_t)target.blockID).isPlant();
+        if (pick && target.hit && !aimed && !aimPlant && !isTreeWood(structs, target.blockPos, (uint16_t)target.blockID)) {
             cubeBreak = cubeFor(target.blockPos, glm::ivec3(target.normal), held.cubeSize,
                                 !gInput.isHeld(InputAction::Sprint), false);
             cubeBreakShown = true;
@@ -201,7 +202,10 @@ public:
         }
 
         // ── Place (left button) ───────────────────────────
-        if (held.is(IC_BLOCK)) {
+        if (held.is(IC_DECOR)) {
+            if (gInput.isPressed(InputAction::UseLeft)) placeDecor(player, editor, held, survival);
+        }
+        else if (held.is(IC_BLOCK)) {
             if (survival) {
                 if (gInput.isPressed(InputAction::UseLeft))
                     place(player, editor, held.blockID, EditSource::Player);
@@ -362,7 +366,9 @@ private:
             b.set(x, y, z, BLOCK_AIR);
         }
         if (b.empty()) return;
+        b.wantChanges = true;
         EditResult r = editor.apply(std::move(b));
+        popPlantsAbove(player, editor, r, survival);
         if (!survival) return;
         // tally the drops, then add them a stack at a time
         std::vector<std::pair<uint16_t, int>> drops;
@@ -391,8 +397,10 @@ private:
         }
         const VoxelTypeDef& block = gRegistry.get((uint16_t)target.blockID);
         if (!block.isDestructible()) { breakProgress = 0.0f; return false; }
-        float need = breakSeconds(block, held);
-        breakProgress += (need > 0.0f) ? dt / need : 1.0f;
+        // instant blocks (plants) still take a moment, so holding the
+        // button doesn't sweep away everything the crosshair passes
+        float need = std::max(breakSeconds(block, held), 0.18f);
+        breakProgress += dt / need;
         if (breakProgress < 1.0f) return false;
         breakProgress = 0.0f;
         return true;
@@ -448,8 +456,21 @@ private:
             return;
         }
 
+        // ── A plant: all of it, into the inventory ───────
+        if (gRegistry.get((uint16_t)target.blockID).isPlant()) {
+            breakPlant(player, editor, target.blockPos, survival, true);
+            return;
+        }
+
         // ── An ordinary voxel ─────────────────────────────
-        if (!survival) { devBreak(editor); return; }
+        if (!survival) {
+            glm::ivec3 at = target.blockPos;
+            devBreak(editor);
+            EditResult fake;
+            fake.changes.push_back({ at, 0, BLOCK_AIR });
+            popPlantsAbove(player, editor, fake, false);
+            return;
+        }
         EditBatch b = WorldEditor::box(target.blockPos, target.blockPos,
                                        BLOCK_AIR, EditSource::Player, "dig");
         b.undoable    = false;
@@ -460,6 +481,130 @@ private:
             if (item && player.inventory.add(item, 1) > 0)
                 say("inventory full - " + gItems.get(item).displayName + " lost");
         }
+        popPlantsAbove(player, editor, r, true);
+    }
+
+    // ── Plants (world/Decorations.h) ──────────────────────
+    // A plant lives inside its own 4 × 4 square of the world, so
+    // its voxels are the plant blocks joined to the one hit,
+    // within that square.
+    std::vector<glm::ivec3> plantVoxels(WorldEditor& editor, glm::ivec3 p, std::vector<uint16_t>& ids) {
+        std::vector<glm::ivec3> out;
+        const int PC = decor::PLANT_CELL;
+        auto fdiv = [](int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); };
+        int cx = fdiv(p.x, PC), cz = fdiv(p.z, PC);
+        std::vector<glm::ivec3> q{ p };
+        std::vector<glm::ivec3> seen{ p };
+        auto visited = [&](glm::ivec3 v) { return std::find(seen.begin(), seen.end(), v) != seen.end(); };
+        for (size_t h = 0; h < q.size() && out.size() < 200; h++) {
+            glm::ivec3 v = q[h];
+            uint16_t id = editor.typeAt(v);
+            if (!gRegistry.get(id).isPlant()) continue;
+            out.push_back(v);
+            if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+            // corners count too: a leaning grass tip only touches its stalk diagonally
+            for (int ox = -1; ox <= 1; ox++) for (int oy = -1; oy <= 1; oy++) for (int oz = -1; oz <= 1; oz++) {
+                if (!ox && !oy && !oz) continue;
+                glm::ivec3 n = v + glm::ivec3(ox, oy, oz);
+                if (fdiv(n.x, PC) != cx || fdiv(n.z, PC) != cz || std::abs(n.y - p.y) > 32 || visited(n)) continue;
+                seen.push_back(n);
+                q.push_back(n);
+            }
+        }
+        return out;
+    }
+
+    // Break the plant at p. It goes into the inventory: the player
+    // inventory in Survival, the dev toolbar in Test Play.
+    void breakPlant(Player& player, WorldEditor& editor, glm::ivec3 p, bool survival, bool collect) {
+        std::vector<uint16_t> ids;
+        auto vox = plantVoxels(editor, p, ids);
+        if (vox.empty()) return;
+        EditBatch b;
+        b.source = survival ? EditSource::Player : EditSource::Dev;
+        b.label = "pick plant";
+        b.undoable = !survival;
+        for (const glm::ivec3& v : vox) {
+            // under the water line (reeds), water flows back in
+            bool wet = false;
+            for (int k = 0; k < 4 && !wet; k++) {
+                glm::ivec3 n = v + glm::ivec3(k == 0 ? 1 : k == 1 ? -1 : 0, 0, k == 2 ? 1 : k == 3 ? -1 : 0);
+                wet = editor.typeAt(n) == BLOCK_WATER;
+            }
+            b.set(v.x, v.y, v.z, wet ? BLOCK_WATER : BLOCK_AIR);
+        }
+        editor.apply(std::move(b));
+        if (!collect) return;
+        const auto& set = *decor::current();
+        int def = set.plantFromBlocks(ids);
+        uint16_t item = def >= 0 ? gItems.itemForDecor(def) : 0;
+        if (!item) return;
+        Inventory& inv = survival ? player.inventory : player.devInventory;
+        if (!survival && inv.count(item) > 0) { say("picked " + gItems.get(item).displayName); return; }
+        if (inv.add(item, 1) > 0) say("inventory full - " + gItems.get(item).displayName + " lost");
+        else say("+1 " + gItems.get(item).displayName);
+    }
+
+    // Ground dug out from under plants: they come up too
+    void popPlantsAbove(Player& player, WorldEditor& editor, const EditResult& r, bool survival) {
+        std::vector<glm::ivec3> tops;
+        for (const VoxelChange& c : r.changes) {
+            glm::ivec3 up = c.pos + glm::ivec3(0, 1, 0);
+            if (gRegistry.get(editor.typeAt(up)).isPlant() &&
+                std::find(tops.begin(), tops.end(), up) == tops.end()) tops.push_back(up);
+            if (tops.size() > 64) break;
+        }
+        for (const glm::ivec3& t : tops)
+            if (gRegistry.get(editor.typeAt(t)).isPlant()) breakPlant(player, editor, t, survival, survival);
+    }
+
+    // Left click with a decoration: plants snap into their 4 × 4
+    // square on top of the ground (lily pads on water, reeds into
+    // shallow water); bushes and landmarks stand where you click.
+    int placeCount = 0;
+    void placeDecor(Player& player, WorldEditor& editor, const ItemDef& held, bool survival) {
+        if (!target.hit) return;
+        const decor::Def* d = decor::current()->get(held.decor);
+        if (!d || d->variants.empty()) return;
+        const decor::Shape& sh = d->variants[(size_t)(placeCount++ % (int)d->variants.size())];
+        glm::ivec3 base = target.blockPos + glm::ivec3(target.normal);
+        uint16_t hit = (uint16_t)target.blockID;
+        bool fillWater = false;
+        if (d->layer == decor::Layer::Plant) {
+            if (target.normal.y < 0.5f) { say("plants go on top of the ground"); return; }
+            if (d->water == decor::Water::Surface) {
+                if (hit != BLOCK_WATER) { say(d->display + " floats on water"); return; }
+            } else if (d->water == decor::Water::Shallow && hit == BLOCK_WATER) {
+                glm::ivec3 g = target.blockPos;                 // down to the floor
+                while (g.y > 0 && editor.typeAt(g - glm::ivec3(0, 1, 0)) == BLOCK_WATER) g.y--;
+                base = g;
+                fillWater = true;
+            } else if (hit == BLOCK_WATER || hit == BLOCK_LAVA || gRegistry.get(hit).isPlant()) {
+                say("no room for " + d->display); return;
+            }
+            const int PC = decor::PLANT_CELL;
+            auto fdiv = [](int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); };
+            int cx = fdiv(base.x, PC), cz = fdiv(base.z, PC);
+            base.x = cx * PC + std::clamp(base.x - cx * PC, 1, 2);
+            base.z = cz * PC + std::clamp(base.z - cz * PC, 1, 2);
+            for (int y = base.y - 1; y <= base.y + 8; y++)
+                for (int x = cx * PC; x < cx * PC + PC; x++)
+                    for (int z = cz * PC; z < cz * PC + PC; z++)
+                        if (gRegistry.get(editor.typeAt({ x, y, z })).isPlant()) { say("something is already growing there"); return; }
+        }
+        EditBatch b;
+        b.source = survival ? EditSource::Player : EditSource::Dev;
+        b.label = "place " + d->display;
+        b.undoable = !survival;
+        for (const decor::Vox& v : sh.v) {
+            glm::ivec3 q = base + glm::ivec3(v.dx, v.dy, v.dz);
+            uint16_t cur = editor.typeAt(q);
+            if (v.replace) { if (cur != BLOCK_AIR && cur != BLOCK_WATER && cur != BLOCK_LAVA) b.set(q.x, q.y, q.z, v.id); }
+            else if (cur == BLOCK_AIR || (fillWater && cur == BLOCK_WATER)) b.set(q.x, q.y, q.z, v.id);
+        }
+        if (b.empty()) return;
+        EditResult r = editor.apply(std::move(b));
+        if (survival && r.changed) player.inventory.consumeHeld();
     }
 
     // "Wooden Door (E: open)" etc. for the HUD

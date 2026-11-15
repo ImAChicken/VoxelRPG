@@ -7,6 +7,13 @@
 #   light_pass = "clear" | "dim" | "block"   how light gets through it
 #                (default from opacity: full blocks it, partial and
 #                translucent dim it, none lets it through)
+#
+# Plants (flags "plant"): the voxels that make up flowers, grass
+# tufts, ferns, reeds and mushrooms. They are not solid (you walk
+# through them), break instantly, and are never items themselves:
+# breaking one picks up the whole plant it belongs to (see
+# decorations.toml). Opacity "full" only so the mesher can hide the
+# faces between them; light_pass "clear" lets light straight through.
 
 [[block]]
 id = 1
@@ -376,9 +383,10 @@ light = [14, 14, 14]
 id = 36
 name = "glow_mushroom"
 material = "organic"
-hardness = 1
+hardness = 0
 opacity = "full"
-flags = ["solid", "destructible", "emits_light"]
+flags = ["destructible", "emits_light", "plant"]
+light_pass = "clear"
 on_destroy = 0
 color = [0.20, 0.60, 0.55]
 light = [2, 9, 8]
@@ -393,3 +401,736 @@ flags = ["solid", "destructible", "emits_light"]
 on_destroy = 0
 color = [0.92, 0.86, 0.70]
 light = [9, 6, 3]
+
+# ── Decorations: plants, ground cover and materials (decorations.toml) ──
+
+[[block]]
+id = 38
+name = "grass_blades"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.30, 0.62, 0.20]
+light_pass = "clear"
+
+[[block]]
+id = 39
+name = "tall_grass"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.48, 0.66, 0.24]
+light_pass = "clear"
+
+[[block]]
+id = 40
+name = "dry_grass"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.72, 0.64, 0.38]
+light_pass = "clear"
+
+[[block]]
+id = 41
+name = "plant_stem"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.22, 0.45, 0.16]
+light_pass = "clear"
+
+[[block]]
+id = 42
+name = "petal_red"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.85, 0.15, 0.15]
+light_pass = "clear"
+
+[[block]]
+id = 43
+name = "petal_yellow"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.95, 0.85, 0.20]
+light_pass = "clear"
+
+[[block]]
+id = 44
+name = "petal_white"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.95, 0.95, 0.92]
+light_pass = "clear"
+
+[[block]]
+id = 45
+name = "petal_blue"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.30, 0.45, 0.90]
+light_pass = "clear"
+
+[[block]]
+id = 46
+name = "petal_purple"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.60, 0.30, 0.80]
+light_pass = "clear"
+
+[[block]]
+id = 47
+name = "petal_pink"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.95, 0.55, 0.70]
+light_pass = "clear"
+
+[[block]]
+id = 48
+name = "petal_orange"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.95, 0.55, 0.15]
+light_pass = "clear"
+
+[[block]]
+id = 49
+name = "fern"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.20, 0.50, 0.22]
+light_pass = "clear"
+
+[[block]]
+id = 50
+name = "reed"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.55, 0.60, 0.30]
+light_pass = "clear"
+
+[[block]]
+id = 51
+name = "cattail"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.45, 0.30, 0.16]
+light_pass = "clear"
+
+[[block]]
+id = 52
+name = "lily_pad"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.22, 0.52, 0.20]
+light_pass = "clear"
+
+[[block]]
+id = 53
+name = "mushroom_red"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.80, 0.15, 0.12]
+light_pass = "clear"
+
+[[block]]
+id = 54
+name = "mushroom_brown"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.55, 0.40, 0.25]
+light_pass = "clear"
+
+[[block]]
+id = 55
+name = "mushroom_stem"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.90, 0.86, 0.76]
+light_pass = "clear"
+
+[[block]]
+id = 56
+name = "heather"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.58, 0.35, 0.60]
+light_pass = "clear"
+
+[[block]]
+id = 57
+name = "gorse"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.45, 0.52, 0.18]
+light_pass = "clear"
+
+[[block]]
+id = 58
+name = "bracken"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.55, 0.48, 0.20]
+light_pass = "clear"
+
+[[block]]
+id = 59
+name = "shell"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.95, 0.85, 0.78]
+light_pass = "clear"
+
+[[block]]
+id = 60
+name = "berries"
+material = "organic"
+hardness = 0
+opacity = "full"
+flags = ["destructible"]
+on_destroy = 0
+color = [0.70, 0.10, 0.20]
+light_pass = "clear"
+
+[[block]]
+id = 61
+name = "twigs"
+material = "wood"
+hardness = 1
+opacity = "full"
+flags = ["destructible"]
+on_destroy = 0
+color = [0.45, 0.35, 0.25]
+light_pass = "clear"
+
+[[block]]
+id = 62
+name = "moss"
+material = "dirt"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.25, 0.45, 0.18]
+
+[[block]]
+id = 63
+name = "leaf_litter"
+material = "dirt"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.45, 0.33, 0.18]
+
+[[block]]
+id = 64
+name = "sulphur"
+material = "stone"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.85, 0.80, 0.25]
+
+[[block]]
+id = 65
+name = "obsidian"
+material = "stone"
+hardness = 10
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.10, 0.08, 0.14]
+
+[[block]]
+id = 66
+name = "driftwood"
+material = "wood"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.72, 0.68, 0.60]
+
+[[block]]
+id = 67
+name = "ember"
+material = "stone"
+hardness = 4
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [1.00, 0.45, 0.10]
+light = [15, 6, 1]
+
+[[block]]
+id = 68
+name = "willow_leaves"
+material = "organic"
+hardness = 1
+opacity = "partial"
+flags = ["destructible"]
+on_destroy = 0
+color = [0.40, 0.62, 0.25]
+
+[[block]]
+id = 69
+name = "lichen_stone"
+material = "stone"
+hardness = 6
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.50, 0.52, 0.42]
+
+# ── Sprite plants: crossed flat pictures (render = "sprite") ──
+
+[[block]]
+id = 70
+name = "poppy_flower"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.85, 0.15, 0.15]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 71
+name = "buttercup_flower"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.95, 0.85, 0.20]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 72
+name = "daisy_flower"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.95, 0.95, 0.92]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 73
+name = "cornflower_flower"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.30, 0.45, 0.90]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 74
+name = "bellflower_flower"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.60, 0.30, 0.80]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 75
+name = "campion_flower"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.95, 0.55, 0.70]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 76
+name = "marigold_flower"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.95, 0.55, 0.15]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 77
+name = "short_grass"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.32, 0.62, 0.22]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 78
+name = "dry_grass_tuft"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.72, 0.64, 0.38]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 79
+name = "tall_grass_clump"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.46, 0.66, 0.26]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 80
+name = "dune_grass_clump"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.70, 0.66, 0.40]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 81
+name = "reed_clump"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.55, 0.60, 0.30]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 82
+name = "cattail_clump"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.45, 0.30, 0.16]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 83
+name = "fern_fronds"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.20, 0.50, 0.22]
+render = "sprite"
+sprite_width = 3
+
+[[block]]
+id = 84
+name = "bracken_fronds"
+material = "organic"
+hardness = 0
+opacity = "none"
+flags = ["destructible", "plant"]
+on_destroy = 0
+color = [0.55, 0.48, 0.20]
+render = "sprite"
+sprite_width = 3
+
+# ── Tree leaves and bark (decorations.toml trees) ──
+
+[[block]]
+id = 85
+name = "red_oak_leaves"
+material = "organic"
+hardness = 1
+opacity = "partial"
+flags = ["destructible"]
+on_destroy = 0
+color = [0.62, 0.16, 0.10]
+
+[[block]]
+id = 86
+name = "maple_leaves"
+material = "organic"
+hardness = 1
+opacity = "partial"
+flags = ["destructible"]
+on_destroy = 0
+color = [0.88, 0.45, 0.10]
+
+[[block]]
+id = 87
+name = "maple_leaves_red"
+material = "organic"
+hardness = 1
+opacity = "partial"
+flags = ["destructible"]
+on_destroy = 0
+color = [0.80, 0.12, 0.08]
+
+[[block]]
+id = 88
+name = "maple_leaves_yellow"
+material = "organic"
+hardness = 1
+opacity = "partial"
+flags = ["destructible"]
+on_destroy = 0
+color = [0.92, 0.75, 0.18]
+
+[[block]]
+id = 89
+name = "hanging_moss"
+material = "organic"
+hardness = 1
+opacity = "partial"
+flags = ["destructible"]
+on_destroy = 0
+color = [0.48, 0.54, 0.38]
+
+[[block]]
+id = 90
+name = "dark_log"
+material = "wood"
+hardness = 4
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.24, 0.20, 0.15]
+
+# ── Karst, canyons, autumn uplands, ashlands ──
+
+[[block]]
+id = 91
+name = "limestone"
+material = "stone"
+hardness = 6
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.80, 0.78, 0.70]
+
+[[block]]
+id = 92
+name = "sandstone_red"
+material = "stone"
+hardness = 5
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.70, 0.32, 0.20]
+
+[[block]]
+id = 93
+name = "sandstone_orange"
+material = "stone"
+hardness = 5
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.82, 0.50, 0.26]
+
+[[block]]
+id = 94
+name = "sandstone_cream"
+material = "stone"
+hardness = 5
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.88, 0.76, 0.56]
+
+[[block]]
+id = 95
+name = "red_sand"
+material = "dirt"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.78, 0.45, 0.28]
+
+[[block]]
+id = 96
+name = "ash"
+material = "dirt"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.55, 0.54, 0.53]
+
+[[block]]
+id = 97
+name = "cinder"
+material = "stone"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.36, 0.20, 0.17]
+
+[[block]]
+id = 98
+name = "pumice"
+material = "stone"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.72, 0.70, 0.66]
+
+[[block]]
+id = 99
+name = "birch_log"
+material = "wood"
+hardness = 4
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.88, 0.86, 0.80]
+
+[[block]]
+id = 100
+name = "birch_leaves"
+material = "organic"
+hardness = 1
+opacity = "partial"
+flags = ["destructible"]
+on_destroy = 0
+color = [0.92, 0.74, 0.18]
+
+[[block]]
+id = 101
+name = "aspen_leaves"
+material = "organic"
+hardness = 1
+opacity = "partial"
+flags = ["destructible"]
+on_destroy = 0
+color = [0.95, 0.58, 0.12]
+
+[[block]]
+id = 102
+name = "charred_log"
+material = "wood"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.12, 0.10, 0.09]
+
+[[block]]
+id = 103
+name = "sandstone_dark"
+material = "stone"
+hardness = 5
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.45, 0.22, 0.16]
+
+[[block]]
+id = 104
+name = "limestone_dark"
+material = "stone"
+hardness = 6
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.62, 0.60, 0.54]

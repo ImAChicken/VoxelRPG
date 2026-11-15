@@ -153,6 +153,7 @@ public:
             f1("uFogDensity", fl.fogDensity); f1("uSeamStart", fl.seamStart); f1("uSeamEnd", fl.seamEnd);
             f1("uSeamHaze", fl.seamHaze); f1("uNight", fl.sky.night);
             glUniform1i(glGetUniformLocation(p, "uLight"), 1);
+            glUniform1i(glGetUniformLocation(p, "uCanopy"), 2);
         }
         atlas.bind(0);
 
@@ -162,13 +163,15 @@ public:
     // Draw one chunk mesh whose corner sits at 'origin'.
     // Chunks completely outside the camera's view are skipped.
     //   lightTex  the section's baked light (3D texture), or 0
-    void drawMesh(const ChunkMesh& mesh, glm::vec3 origin, GLuint lightTex = 0) {
+    void drawMesh(const ChunkMesh& mesh, glm::vec3 origin, GLuint lightTex = 0, GLuint canopyTex = 0) {
         if (!atlasLoaded || mesh.isEmpty()) return;
 
         glm::vec3 size((float)VOXEL_DIM);
         if (!boxInFrustum(origin, origin + size)) return;
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_3D, lightTex ? lightTex : fullSkyTexture());
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, canopyTex ? canopyTex : noCanopyTexture());
         glActiveTexture(GL_TEXTURE0);
 
         glUniform3f(locChunkOrigin, origin.x, origin.y, origin.z);
@@ -269,6 +272,19 @@ private:
     // A 1³ light texture of open sky, for sections whose light
     // isn't baked yet
     GLuint fullSky = 0;
+    GLuint noCanopy = 0;
+    GLuint noCanopyTexture() {
+        if (!noCanopy) {
+            uint16_t v[3] = { 0, 0, 0 };
+            glGenTextures(1, &noCanopy);
+            glBindTexture(GL_TEXTURE_2D, noCanopy);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16UI, 1, 1, 0, GL_RGB_INTEGER, GL_UNSIGNED_SHORT, v);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+        return noCanopy;
+    }
     GLuint fullSkyTexture() {
         if (!fullSky) {
             uint16_t v = 15;   // sky 15, no block light

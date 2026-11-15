@@ -44,8 +44,12 @@ enum Biome : uint8_t {
     Foothills, LowMountain, MidMountain, HighMountain, Plateau, Peak,
     MountainLake, LowMountainLake, PlainsLake, ForestLake,
     MountainRiver, LowlandRiver, SwampRiver, Delta, RiverFork,
-    Ashlands, HighlandMoor, Scrubland, HotSpring, LavaLake, Cave,
+    Karst, HighlandMoor, Canyons, HotSpring, LavaLake, Cave,
     Village, PlainsVillage, Road, Roadside, Bridge, MountainPass,
+    // surfaces only (never on the chart): the generator turns part of
+    // the canyon country into autumn uplands, and the ground around
+    // lava lakes into ashlands
+    AutumnUplands, Ashlands, CanyonMesa,
     BIOME_COUNT
 };
 
@@ -69,12 +73,14 @@ inline const BiomeInfo& biomeInfo(int id) {
         {"Forest lake","Water",0x1a4e58}, {"Mountain river","Water",0x3aa0c8},
         {"Lowland river","Water",0x2f86b8}, {"Swamp river","Water",0x2a5c4c},
         {"Delta","Water",0x8aa06a}, {"River fork","Water",0xd4b36a},
-        {"Ashlands","Volcanic",0x5a4038}, {"Highland moor","Volcanic",0x6e665c},
-        {"Scrubland","Volcanic",0x8a7448}, {"Hot spring","Volcanic",0x3ec4bc},
+        {"Karst","Volcanic",0xb8b4a4}, {"Highland moor","Volcanic",0x6e665c},
+        {"Canyons","Volcanic",0xb8643a}, {"Hot spring","Volcanic",0x3ec4bc},
         {"Lava lake","Volcanic",0xe25818}, {"Cave opening","Volcanic",0x1a1614},
         {"Clifftop village","Settlement",0xc46a3a}, {"Plains village","Settlement",0xd08a48},
         {"Road","Settlement",0xb49670}, {"Roadside","Settlement",0x8c7458},
         {"Bridge","Settlement",0xefe4cc}, {"Mountain pass","Mountain",0xc4b08a},
+        {"Autumn uplands","Forest",0xc8962c}, {"Ashlands","Volcanic",0x4a4442},
+        {"Canyon mesa","Volcanic",0x9cb85c},
     };
     return table[(id >= 0 && id < BIOME_COUNT) ? id : 0];
 }
@@ -369,8 +375,8 @@ inline Chart generateIsland(int seed, int size) {
             else biomes[i] = Forest;
         } else if (q == volcanic) {
             if (landDist[i] <= 2) biomes[i] = SeaCliffs;
-            else if (d < reach * 1.45) biomes[i] = grain > 0.55 ? Ashlands : HighlandMoor;
-            else biomes[i] = grain > 0.5 ? Scrubland : HighlandMoor;
+            else if (d < reach * 1.45) biomes[i] = grain > 0.55 ? Karst : HighlandMoor;
+            else biomes[i] = grain > 0.5 ? Canyons : HighlandMoor;
         } else biomes[i] = Foothills;
     }
     for (int i = 0; i < n; i++) {
@@ -517,7 +523,7 @@ inline Chart generateIsland(int seed, int size) {
             if (biomes[ni] == Village) { biomes[ni] = HotSpring; springs.push_back(ni); break; }
         std::vector<int> pool;
         for (int i = 0; i < n; i++) {
-            if (biomes[i] != Ashlands && biomes[i] != HighlandMoor) continue;
+            if (biomes[i] != Karst && biomes[i] != HighlandMoor) continue;
             if (dist(X(i), Y(i), vx, vy) > 7) continue;
             pool.push_back(i);
         }
@@ -538,7 +544,7 @@ inline Chart generateIsland(int seed, int size) {
         int vx = X(village), vy = Y(village);
         std::vector<int> pool;
         for (int i = 0; i < n; i++) {
-            if (biomes[i] != Ashlands && biomes[i] != HighlandMoor && biomes[i] != Scrubland) continue;
+            if (biomes[i] != Karst && biomes[i] != HighlandMoor && biomes[i] != Canyons) continue;
             if (dist(X(i), Y(i), vx, vy) < 4) continue;
             bool nearSpring = false;
             for (int s : springs) if (dist(X(i), Y(i), X(s), Y(s)) < 3) nearSpring = true;
@@ -574,7 +580,7 @@ inline Chart generateIsland(int seed, int size) {
     size_t caveStart = caves.size();
     takeCaves(caveStart + 2, [&](int i) { return biomes[i] == SeaCliffs && quadrant[i] == volcanic; });
     takeCaves(caveStart + 4, [&](int i) {
-        if (biomes[i] != Ashlands) return false;
+        if (biomes[i] != Karst) return false;
         for (int l : lavas) if (dist(X(i), Y(i), X(l), Y(l)) < 4) return true;
         return false;
     });

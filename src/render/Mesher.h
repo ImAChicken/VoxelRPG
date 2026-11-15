@@ -68,6 +68,9 @@ struct BlockRenderInfo {
     bool    opaque   = false;   // completely hides what is behind it
     bool    cutout   = false;   // has see-through pixels (leaves)
     bool    glow     = false;   // gives off light: drawn at full brightness
+    bool    sprite   = false;   // crossed flat pictures (flowers, reeds), not a cube
+    uint8_t spriteW  = 1;       // voxels wide
+    uint8_t spanW    = 1, spanH = 1;   // atlas tiles the picture covers
 };
 
 struct BlockRenderTable {
@@ -91,6 +94,11 @@ struct BlockRenderTable {
             info.opaque = (def.opacity == VoxelOpacity::Full);
             info.cutout = (def.opacity == VoxelOpacity::Partial);
             info.glow   = def.glows();
+            info.sprite  = def.sprite;
+            info.spriteW = def.spriteWidth;
+            info.spanW   = (uint8_t)uv.spanW;
+            info.spanH   = (uint8_t)uv.spanH;
+            if (info.sprite) info.opaque = info.cutout = false;
 
             info.tileX[FACE_TOP]    = (uint8_t)uv.topX;
             info.tileY[FACE_TOP]    = (uint8_t)uv.topY;
@@ -162,6 +170,8 @@ public:
         sweep(s, table, 2,    0, 1,  -1,   FACE_SOUTH,  out.vertices);
         sweep(s, table, 0,    1, 2,  -1,   FACE_WEST,   out.vertices);
         sweep(s, table, 0,    1, 2,  +1,   FACE_EAST,   out.vertices);
+
+        sprites(in, s, table);
 
         // Solid quads first, cut-out quads after
         out.opaqueCount = (uint32_t)out.vertices.size();
@@ -273,9 +283,13 @@ private:
                     bool show = false;
                     if (id != BLOCK_AIR && id != other) {
                         // Visible if the neighbour is air, or
-                        // is something you can see through
-                        show = (other == BLOCK_AIR) ||
-                               !table.get(other).opaque;
+                        // is something you can see through.
+                        // Sprites draw no cube faces, and water
+                        // doesn't wall off a reed standing in it.
+                        const BlockRenderInfo& oi = table.get(other);
+                        show = ((other == BLOCK_AIR) || !oi.opaque) &&
+                               !table.get(id).sprite &&
+                               !(id == BLOCK_WATER && oi.sprite);
                     }
                     row[i] = show ? id : (uint16_t)0;
                     any |= show;
@@ -316,6 +330,53 @@ private:
                                 (size_t)w * sizeof(uint16_t));
                 i += w;
             }
+        }
+    }
+
+    // ── Sprites ───────────────────────────────────────────
+    // A stack of one sprite block is one picture: two quads
+    // crossing on the diagonals of its footprint, as tall as the
+    // stack, drawn two-sided with the cut-outs. Vertex layout:
+    //   x, z   position + 8 (a 3-wide footprint pokes out of the
+    //          chunk by one voxel)
+    //   face   6 or 7 (which diagonal)
+    //   pad0   bit 0 glow, bit 1 mirror the picture
+    //   pad1   bit 0 corner u, bit 1 corner v (top),
+    //          bits 2-3 tiles wide - 1, bits 4-6 tiles tall - 1
+    static void sprites(const MeshInput& in, Scratch& s, const BlockRenderTable& table) {
+        const RleData& r = *in.center;
+        bool any = false;
+        for (uint16_t t : r.types) if (table.get(t).sprite) { any = true; break; }
+        if (!any) return;
+        uint32_t start = 0;
+        for (size_t k = 0; k < r.ends.size(); k++) {
+            uint32_t end = r.ends[k];
+            uint16_t id = r.types[k];
+            const BlockRenderInfo& info = table.get(id);
+            if (info.sprite)
+                for (uint32_t i = start; i < end; i++) {
+                    int z = (int)(i % DIM), x = (int)((i / DIM) % DIM), y = (int)(i / (DIM * DIM));
+                    if (s.vol[(size_t)pidx(x, y - 1, z)] == id) continue;      // not the bottom of a stack
+                    int h = 1;
+                    while (y + h <= DIM && s.vol[(size_t)pidx(x, y + h, z)] == id) h++;
+                    int k2 = info.spriteW / 2;
+                    int x0 = x - k2 + 8, x1 = x + 1 + k2 + 8, z0 = z - k2 + 8, z1 = z + 1 + k2 + 8;
+                    uint32_t hsh = (uint32_t)(x * 73856093) ^ (uint32_t)(z * 19349663) ^ (uint32_t)(y * 83492791);
+                    uint8_t p0 = (uint8_t)((info.glow ? 1 : 0) | ((hsh >> 7) & 1 ? 2 : 0));
+                    uint8_t span = (uint8_t)(((info.spanW - 1) & 3) << 2 | ((info.spanH - 1) & 7) << 4);
+                    auto quad = [&](uint8_t face, int ax, int az, int bx, int bz) {
+                        auto v = [&](int cu, int cv) {
+                            return ChunkVertex{ (uint8_t)(cu ? bx : ax), (uint8_t)(y + (cv ? h : 0)), (uint8_t)(cu ? bz : az),
+                                                face, info.tileX[FACE_NORTH], info.tileY[FACE_NORTH], p0,
+                                                (uint8_t)(span | (cu ? 1 : 0) | (cv ? 2 : 0)) };
+                        };
+                        ChunkVertex a = v(0, 0), b = v(1, 0), c = v(1, 1), d = v(0, 1);
+                        s.cutout.insert(s.cutout.end(), { a, b, c, a, c, d });
+                    };
+                    quad(6, x0, z0, x1, z1);
+                    quad(7, x0, z1, x1, z0);
+                }
+            start = end;
         }
     }
 

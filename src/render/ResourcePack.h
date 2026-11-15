@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <filesystem>
@@ -10,6 +11,7 @@ struct FaceUV {
     int topX,  topY;
     int sideX, sideY;
     int botX,  botY;
+    int spanW = 1, spanH = 1;   // sprites: how many tiles the picture covers, from 'side'
 };
 
 struct AtlasConfig {
@@ -52,6 +54,10 @@ struct AtlasConfig {
                         uv.botX = (int)(*bot)[0].value_or(0);
                         uv.botY = (int)(*bot)[1].value_or(0);
                     }
+                }
+                if (auto* sp = (*t)["span"].as_array(); sp && sp->size() >= 2) {
+                    uv.spanW = std::clamp((int)(*sp)[0].value_or((int64_t)1), 1, 4);
+                    uv.spanH = std::clamp((int)(*sp)[1].value_or((int64_t)1), 1, 8);
                 }
                 faceMaps[name] = uv;
             }
@@ -214,7 +220,7 @@ public:
         auto it = defaultAtlas.faceMaps.find(name);
         if (it != defaultAtlas.faceMaps.end())
             return it->second;
-        return FaceUV{0,0,0,0,0,0};
+        return FaceUV{0,0,0,0,0,0,1,1};
     }
 
     // Any file in the active pack, falling back to the default

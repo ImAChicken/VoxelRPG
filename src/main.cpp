@@ -201,7 +201,7 @@ int main() {
     gInput.loadKeyboard("data/controls/keyboard.toml");
 
     // Player preferences (Esc -> Settings)
-    gSettings.load();
+    gSettings.load(); Human::eyeStand = gSettings.eyeHeight;
 
     // ── Data — must load BEFORE the renderer ──────────────
     // The renderer needs the resource pack to find its font
@@ -213,9 +213,11 @@ int main() {
 
     // Items: every block, plus tools / weapons / dev tools
     gItems.load(gRegistry, "data/registry/items.toml");
+    decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
+    gItems.addDecor(*decor::current());
 
     // Multi-block structures: building pieces, doors, trees
-    gStructures.load("data/registry/structures.toml");
+    gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current());
 
     if (!gResourcePacks.load("data/resourcepacks")) {
         std::cerr << "Resource pack load failed\n";
@@ -354,12 +356,12 @@ int main() {
     // the eyes) and bring it to rest
     auto bodyToCamera = [&]() {
         player.position = camera.position -
-            glm::vec3(0.0f, Human::STAND_EYE, 0.0f);
+            glm::vec3(0.0f, Human::eyeStand, 0.0f);
         player.resetMotion();
         player.crouching = false;
         player.flying    = false;
         player.height    = Human::STAND_HEIGHT;
-        player.eyeHeight = Human::STAND_EYE;
+        player.eyeHeight = Human::eyeStand;
         controller.reset(player);
         physicsTime = 0.0f;
     };
@@ -587,12 +589,12 @@ int main() {
         if (returning) {
             mode = player.mode;
             camera.position = player.position +
-                glm::vec3(0.0f, Human::STAND_EYE, 0.0f);
+                glm::vec3(0.0f, Human::eyeStand, 0.0f);
             camera.setLook(lookYaw, lookPitch);
             say("welcome back");
         } else {
             float above = rulesFor(mode, false).hasBody
-                        ? Human::STAND_EYE + 3.0f : 105.0f;
+                        ? Human::eyeStand + 3.0f : 105.0f;
             camera.position = glm::vec3(
                 (float)spawnX, (float)ground + above, (float)spawnZ);
             // A starter kit in the dev inventory
@@ -646,9 +648,9 @@ int main() {
             float edge = MESH_DISTANCE * (float)VOXEL_DIM;
             float farVox = gSettings.renderAll() ? 0.0f : gSettings.renderDistance * VOXEL_DIM;
             fl.fogDensity = farVox > 0.0f ? std::max(3.0e-5f, 2.6f / farVox) : 3.0e-5f;
-            fl.seamStart = edge - 260.0f;
-            fl.seamEnd   = edge - 40.0f;
-            fl.seamHaze  = 0.16f;
+            fl.seamStart = std::max(edge * 0.6f, edge - 300.0f);
+            fl.seamEnd   = edge - 16.0f;
+            fl.seamHaze  = 0.45f;
         }
         // the sky dome behind everything
         {
@@ -712,7 +714,7 @@ int main() {
                 const ChunkMesh* mesh = streamer->getMesh(cx, sy, cz);
                 if (!mesh || mesh->isEmpty()) continue;
                 glr->drawMesh(*mesh, origin + glm::vec3(0.0f, (float)(sy * VOXEL_DIM), 0.0f),
-                              streamer->getLightTexture(cx, sy, cz));
+                              streamer->getLightTexture(cx, sy, cz), streamer->getCanopyTexture(cx, cz));
             }
         }
 
@@ -760,7 +762,9 @@ int main() {
                 float sky = light::skyOf(L) / 15.0f;
                 const SkyState& ss = gFrameLight.sky;
                 charRenderer.lightDir  = ss.lightDir();
-                charRenderer.skyTint   = ss.skyLight * (sky * sky) + ss.ambient * 4.0f;
+                float shade = streamer->canopyAt(at.x, at.y, at.z);
+                glm::vec3 leafTint = glm::mix(glm::vec3(1.0f), glm::vec3(0.30f, 0.50f, 0.24f), shade);
+                charRenderer.skyTint   = ss.skyLight * leafTint * (sky * sky) + ss.ambient * 4.0f;
                 glm::vec3 b(light::rOf(L) / 15.0f, light::gOf(L) / 15.0f, light::bOf(L) / 15.0f);
                 charRenderer.blockTint = b * b * 1.3f;
             }
@@ -960,7 +964,9 @@ int main() {
             if (gInput.isPressed(InputAction::ReloadRegistry)) {
                 gRegistry.load("data/registry/blocks.toml");
                 gItems.load(gRegistry, "data/registry/items.toml");
-                gStructures.load("data/registry/structures.toml");
+                decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
+                gItems.addDecor(*decor::current());
+                gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current());
                 blockTable = BlockRenderTable::build(
                     gRegistry, gResourcePacks);
                 if (streamer)
@@ -1002,6 +1008,7 @@ int main() {
             // while the game runs: the streamer and the far view
             // simply adjust)
             MESH_DISTANCE = gSettings.chunkDistanceInt();
+            Human::eyeStand = gSettings.eyeHeight;
             {
                 float farVox = gSettings.renderAll() ? 0.0f : gSettings.renderDistance * VOXEL_DIM;
                 if (farView) farView->setMaxDistance(farVox);
@@ -1094,7 +1101,7 @@ int main() {
                 // Keep the body under the camera, so
                 // switching to test play starts from here
                 player.position = camera.position -
-                    glm::vec3(0.0f, Human::STAND_EYE, 0.0f);
+                    glm::vec3(0.0f, Human::eyeStand, 0.0f);
 
             } else {
                 // ── A body in the world (Test Play,

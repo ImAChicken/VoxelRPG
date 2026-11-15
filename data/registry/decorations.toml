@@ -1,0 +1,605 @@
+# VoxelRPG Decorations
+# Everything that dresses the ground: plants, bushes and logs,
+# ground patches and landmarks. Loaded at startup and with F6
+# (new worlds and reloaded worlds pick up changes).
+#
+# Every entry:
+#   name        unique key (also the item name)
+#   display     name in menus (default: from the name)
+#   recipe      what builds its shape (see below)
+#   blocks      the blocks the recipe uses, in the recipe's order
+#   height      [min, max] voxels, where the recipe uses a height
+#   size        1, 2, 3 … a bigger version, where the recipe has one
+#   biomes      { biome = chance } — per square of the layer's grid
+#               (biome names: plains, grassland, shrubland, forest,
+#               dense_forest, swamp, marsh, riparian, beach, swamp_beach,
+#               marsh_beach, sea_cliffs, foothills, low_mountain,
+#               mid_mountain, high_mountain, plateau, peak, karst,
+#               canyons, autumn_uplands, ashlands (around lava lakes),
+#               canyon_mesa (between the two canyons),
+#               highland_moor, roadside, plains_lake,
+#               forest_lake, mountain_lake, low_mountain_lake,
+#               swamp_shallows, hot_spring …)
+#   on          ground blocks it grows on (default grass)
+#   water       "dry" (default) | "shore" (near water) |
+#               "shallow" (standing in 1-3 voxels of water) |
+#               "surface" (floating on water 2+ deep)
+#   slope       steepest ground, rise per voxel (default 1)
+#   patch       0..1 how much it clumps into drifts (0 = even)
+#   patch_size  size of the drifts, voxels
+#
+# [[plant]]  one per 4 × 4 voxels at most, within a 3 × 3 footprint.
+#            recipe "sprite": a flat crossed picture like Minecraft's
+#            flowers (blocks with render = "sprite"), as tall as the
+#            height rolled; the rest are built from voxels.
+#            Made of "plant" blocks: walk-through; breaking any part
+#            picks up the whole plant as an item.
+#            recipes: tuft, tall_grass, flower (stem, head, [leaf]),
+#            fern, reed (stalk, [head]), lily (pad, [flower]),
+#            mushroom (cap, stem), cushion (body, [accent]), pebble
+# [[decor]]  one per 10 × 10 voxels: bush (leaves, [accent]), log
+#            (along x, along z, [leaves]), stones (body, [top]), thorn
+#            (twigs, [accent]), shard, vent (rim, glow, [crust])
+# [[ground]] patches of another top block, shaped by noise; the
+#            biome number is roughly how much ground it covers
+# [[tree]]   trees that grow in place of some of the usual ones:
+#            biomes = { biome = share } — the share of that biome's
+#            trees that are this one. recipes: willow, twisted_oak,
+#            maple (trunk, leaves, [more leaves]), cypress, mangrove
+#            (trunk, leaves, [hanging moss]); water = "shallow" lets a
+#            swamp tree stand in shallow water. scale = overall size;
+#            twist = how crooked a twisted_oak is (0 straight … 1);
+#            replaces = "oak_tree" grows wherever that built-in tree
+#            would. Chop them like any tree.
+# [[landmark]] one per 256 × 256 voxels at most: willow (trunk,
+#            leaves), standing_stones, stone_circle, cairn.
+#            spawn = true: always grows beside the world spawn.
+#            meadow = radius of flowers around it (meadow_plants).
+
+# ── Grasses ──────────────────────────────────────────────
+
+[[plant]]
+name = "grass_tuft"
+recipe = "sprite"
+blocks = ["short_grass"]
+height = [1, 2]
+patch = 0.3
+patch_size = 40
+on = ["grass"]
+biomes = { plains = 0.30, grassland = 0.22, shrubland = 0.18, forest = 0.10, dense_forest = 0.04, riparian = 0.28, marsh = 0.22, swamp = 0.10, foothills = 0.14, low_mountain = 0.06, roadside = 0.14, mid_mountain = 0.04, highland_moor = 0.05, karst = 0.22, autumn_uplands = 0.16, canyons = 0.03, canyon_mesa = 0.26 }
+
+[[plant]]
+name = "tall_grass"
+recipe = "sprite"
+blocks = ["tall_grass_clump"]
+height = [3, 5]
+patch = 0.6
+patch_size = 30
+on = ["grass"]
+biomes = { grassland = 0.30, plains = 0.08, shrubland = 0.12, marsh = 0.20, riparian = 0.12, foothills = 0.06, swamp = 0.05, canyon_mesa = 0.14 }
+
+[[plant]]
+name = "dry_grass"
+recipe = "sprite"
+blocks = ["dry_grass_tuft"]
+height = [1, 2]
+patch = 0.4
+on = ["grass", "dirt", "sand", "gravel", "red_sand", "cinder", "ash"]
+biomes = { ashlands = 0.015, highland_moor = 0.08, sea_cliffs = 0.06, plateau = 0.08, mid_mountain = 0.03, foothills = 0.04, canyons = 0.28 }
+
+[[plant]]
+name = "dune_grass"
+recipe = "sprite"
+blocks = ["dune_grass_clump"]
+height = [2, 4]
+patch = 0.7
+patch_size = 16
+on = ["sand"]
+biomes = { beach = 0.07, marsh_beach = 0.05 }
+
+# ── Flowers (they grow in drifts of one colour) ──────────
+
+[[plant]]
+name = "poppy"
+recipe = "sprite"
+blocks = ["poppy_flower"]
+height = [2, 4]
+patch = 0.85
+patch_size = 18
+biomes = { plains = 0.07, grassland = 0.03, roadside = 0.03, canyon_mesa = 0.06 }
+
+[[plant]]
+name = "buttercup"
+recipe = "sprite"
+blocks = ["buttercup_flower"]
+height = [2, 3]
+patch = 0.8
+patch_size = 22
+biomes = { plains = 0.06, grassland = 0.035, riparian = 0.03, foothills = 0.02, marsh = 0.02, canyon_mesa = 0.06 }
+
+[[plant]]
+name = "daisy"
+recipe = "sprite"
+blocks = ["daisy_flower"]
+height = [2, 3]
+patch = 0.8
+patch_size = 16
+biomes = { plains = 0.05, grassland = 0.02, forest = 0.01, roadside = 0.03, canyon_mesa = 0.05 }
+
+[[plant]]
+name = "cornflower"
+recipe = "sprite"
+blocks = ["cornflower_flower"]
+height = [2, 4]
+patch = 0.85
+patch_size = 18
+biomes = { plains = 0.03, grassland = 0.02, canyon_mesa = 0.04 }
+
+[[plant]]
+name = "bellflower"
+recipe = "sprite"
+blocks = ["bellflower_flower"]
+height = [3, 4]
+patch = 0.75
+on = ["grass", "gravel", "stone", "limestone"]
+biomes = { foothills = 0.03, low_mountain = 0.025, plateau = 0.04, mid_mountain = 0.02, forest = 0.008, karst = 0.05, canyon_mesa = 0.03 }
+
+[[plant]]
+name = "campion"
+recipe = "sprite"
+blocks = ["campion_flower"]
+height = [2, 4]
+patch = 0.8
+biomes = { shrubland = 0.03, forest = 0.015, riparian = 0.02, autumn_uplands = 0.015, canyon_mesa = 0.03 }
+
+[[plant]]
+name = "marigold"
+recipe = "sprite"
+blocks = ["marigold_flower"]
+height = [2, 3]
+patch = 0.85
+on = ["grass", "dirt", "red_sand"]
+biomes = { plains = 0.015, shrubland = 0.02, canyons = 0.012, autumn_uplands = 0.01, canyon_mesa = 0.02 }
+
+# ── Ferns, heath and moor ────────────────────────────────
+
+[[plant]]
+name = "fern"
+recipe = "sprite"
+blocks = ["fern_fronds"]
+height = [2, 3]
+patch = 0.6
+on = ["grass", "moss", "leaf_litter", "dirt"]
+biomes = { forest = 0.12, dense_forest = 0.28, riparian = 0.05, swamp = 0.16, low_mountain = 0.03, autumn_uplands = 0.1, karst = 0.06 }
+
+[[plant]]
+name = "bracken"
+recipe = "sprite"
+blocks = ["bracken_fronds"]
+height = [3, 4]
+patch = 0.7
+on = ["grass", "moss_stone", "dirt"]
+biomes = { highland_moor = 0.16, foothills = 0.05, shrubland = 0.04, autumn_uplands = 0.14 }
+
+[[plant]]
+name = "heather"
+recipe = "cushion"
+blocks = ["heather", "petal_purple"]
+height = [1, 2]
+patch = 0.6
+on = ["grass", "dirt", "moss_stone"]
+biomes = { highland_moor = 0.30, foothills = 0.04, plateau = 0.05 }
+
+[[plant]]
+name = "gorse"
+recipe = "cushion"
+blocks = ["gorse", "petal_yellow"]
+height = [2, 2]
+patch = 0.7
+on = ["grass", "dirt", "sand", "moss_stone", "red_sand"]
+biomes = { highland_moor = 0.08, sea_cliffs = 0.05, shrubland = 0.03, canyons = 0.04 }
+
+[[plant]]
+name = "sea_thrift"
+recipe = "cushion"
+blocks = ["grass_blades", "petal_pink"]
+height = [1, 1]
+patch = 0.6
+slope = 3
+on = ["grass", "stone", "gravel", "sand"]
+biomes = { sea_cliffs = 0.14, beach = 0.01 }
+
+# ── Water's edge ─────────────────────────────────────────
+
+[[plant]]
+name = "reeds"
+recipe = "sprite"
+blocks = ["reed_clump"]
+height = [5, 9]
+water = "shallow"
+patch = 0.5
+on = ["sand", "mud", "gravel", "dirt", "grass"]
+biomes = { riparian = 0.40, marsh = 0.35, swamp = 0.25, swamp_shallows = 0.30, swamp_beach = 0.30, marsh_beach = 0.30, plains = 0.30, grassland = 0.30, forest = 0.25, shrubland = 0.25, dense_forest = 0.15, plains_lake = 0.35, forest_lake = 0.35, low_mountain_lake = 0.15, roadside = 0.25 }
+
+[[plant]]
+name = "cattails"
+recipe = "sprite"
+blocks = ["cattail_clump"]
+height = [6, 9]
+water = "shallow"
+patch = 0.6
+on = ["sand", "mud", "gravel", "dirt", "grass"]
+biomes = { swamp = 0.25, marsh = 0.30, swamp_shallows = 0.20, swamp_beach = 0.15, riparian = 0.12, plains_lake = 0.10, forest_lake = 0.10 }
+
+[[plant]]
+name = "lily_pad"
+recipe = "lily"
+blocks = ["lily_pad", "petal_white"]
+water = "surface"
+patch = 0.7
+patch_size = 14
+biomes = { swamp = 0.22, swamp_shallows = 0.18, marsh = 0.18, plains_lake = 0.10, forest_lake = 0.12, low_mountain_lake = 0.04, riparian = 0.04 }
+
+[[plant]]
+name = "shell"
+recipe = "pebble"
+blocks = ["shell"]
+on = ["sand"]
+biomes = { beach = 0.02 }
+
+# ── Mushrooms ────────────────────────────────────────────
+
+[[plant]]
+name = "red_mushroom"
+recipe = "mushroom"
+blocks = ["mushroom_red", "mushroom_stem"]
+height = [1, 2]
+patch = 0.7
+on = ["grass", "moss", "leaf_litter", "dirt"]
+biomes = { forest = 0.012, dense_forest = 0.03, swamp = 0.012, autumn_uplands = 0.02 }
+
+[[plant]]
+name = "brown_mushroom"
+recipe = "mushroom"
+blocks = ["mushroom_brown", "mushroom_stem"]
+height = [1, 2]
+patch = 0.7
+on = ["grass", "moss", "leaf_litter", "dirt", "mud"]
+biomes = { forest = 0.02, dense_forest = 0.03, swamp = 0.03, marsh = 0.01, autumn_uplands = 0.03 }
+
+[[plant]]
+name = "glow_cap"
+display = "Glow Cap"
+recipe = "mushroom"
+blocks = ["glow_mushroom", "mushroom_stem"]
+height = [1, 3]
+size = 2
+patch = 0.85
+patch_size = 20
+on = ["grass", "moss", "leaf_litter", "dirt", "mud"]
+biomes = { dense_forest = 0.012, swamp = 0.015 }
+
+# ── Bushes, logs and stones ──────────────────────────────
+
+[[decor]]
+name = "bush"
+recipe = "bush"
+blocks = ["leaves"]
+on = ["grass", "dirt", "moss", "leaf_litter", "sand", "moss_stone", "red_sand", "limestone"]
+biomes = { dense_forest = 0.45, forest = 0.35, shrubland = 0.50, riparian = 0.40, grassland = 0.08, plains = 0.04, swamp = 0.15, marsh = 0.15, foothills = 0.12, highland_moor = 0.10, low_mountain = 0.08, canyons = 0.06, autumn_uplands = 0.25, karst = 0.1, canyon_mesa = 0.1 }
+
+[[decor]]
+name = "big_bush"
+recipe = "bush"
+blocks = ["leaves"]
+size = 2
+on = ["grass", "dirt", "moss", "leaf_litter", "mud"]
+biomes = { dense_forest = 0.15, forest = 0.10, shrubland = 0.15, riparian = 0.08, swamp = 0.14 }
+
+[[decor]]
+name = "berry_bush"
+recipe = "bush"
+blocks = ["leaves", "berries"]
+on = ["grass", "dirt", "leaf_litter"]
+biomes = { shrubland = 0.08, forest = 0.04, riparian = 0.04, grassland = 0.02, autumn_uplands = 0.06, canyon_mesa = 0.06 }
+
+[[decor]]
+name = "fallen_log"
+recipe = "log"
+blocks = ["log_x", "log_z", "leaves"]
+on = ["grass", "dirt", "moss", "leaf_litter", "mud"]
+biomes = { dense_forest = 0.12, forest = 0.08, swamp = 0.10, marsh = 0.10 }
+
+[[decor]]
+name = "driftwood"
+recipe = "log"
+blocks = ["driftwood", "driftwood"]
+on = ["sand", "mud", "gravel"]
+biomes = { beach = 0.03, swamp_beach = 0.03, marsh_beach = 0.02 }
+
+[[decor]]
+name = "stones"
+recipe = "stones"
+blocks = ["cobblestone", "stone"]
+on = ["grass", "dirt", "gravel", "stone", "sand"]
+biomes = { plains = 0.01, grassland = 0.01, foothills = 0.06, low_mountain = 0.08, mid_mountain = 0.10, plateau = 0.10, beach = 0.02 }
+
+[[decor]]
+name = "mossy_stones"
+recipe = "stones"
+blocks = ["moss_stone", "moss_stone"]
+on = ["grass", "dirt", "moss", "leaf_litter", "moss_stone"]
+biomes = { forest = 0.03, dense_forest = 0.02, highland_moor = 0.08, shrubland = 0.04 }
+
+[[decor]]
+name = "ash_stones"
+recipe = "stones"
+blocks = ["volcanic_rock", "volcanic_rock"]
+on = ["volcanic_rock", "sand", "dirt", "gravel", "cinder", "ash"]
+biomes = { ashlands = 0.04 }
+
+[[decor]]
+name = "thorn_bush"
+recipe = "thorn"
+blocks = ["twigs"]
+on = ["sand", "dirt", "grass", "volcanic_rock", "red_sand"]
+biomes = { highland_moor = 0.02, canyons = 0.1, ashlands = 0.0 }
+
+[[decor]]
+name = "obsidian_shards"
+recipe = "shard"
+blocks = ["obsidian"]
+height = [3, 7]
+on = ["volcanic_rock", "gravel", "stone", "cinder", "ash"]
+slope = 1.5
+biomes = { ashlands = 0.035 }
+
+[[decor]]
+name = "ember_vent"
+recipe = "vent"
+blocks = ["volcanic_rock", "ember", "sulphur"]
+on = ["volcanic_rock", "gravel", "stone", "cinder", "ash"]
+biomes = { ashlands = 0.012 }
+
+[[decor]]
+name = "karst_pillar"
+recipe = "pillar"
+blocks = ["limestone", "moss", "leaves"]
+height = [24, 44]
+size = 2
+slope = 0.9
+on = ["grass", "limestone", "dirt"]
+biomes = { }   # karst towers: off for now (canyons instead)
+
+[[decor]]
+name = "limestone_boulders"
+recipe = "stones"
+blocks = ["limestone", "moss_stone"]
+on = ["grass", "limestone", "dirt"]
+biomes = { karst = 0.06, canyon_mesa = 0.04 }
+
+[[decor]]
+name = "hoodoo"
+recipe = "hoodoo"
+blocks = ["sandstone_red", "sandstone_orange", "sandstone_cream", "sandstone_dark"]
+height = [14, 26]
+size = 2
+slope = 0.9
+on = ["red_sand", "grass", "sandstone_red", "sandstone_orange", "sandstone_cream", "sandstone_dark"]
+biomes = { }   # hoodoos: off for now
+
+[[decor]]
+name = "sandstone_stones"
+recipe = "stones"
+blocks = ["sandstone_orange", "sandstone_cream"]
+on = ["red_sand", "grass", "sandstone_red", "sandstone_orange", "sandstone_cream"]
+biomes = { canyons = 0.05 }
+
+[[decor]]
+name = "fallen_birch"
+recipe = "log"
+blocks = ["birch_log", "birch_log", "birch_leaves"]
+on = ["grass", "dirt", "leaf_litter", "moss"]
+biomes = { autumn_uplands = 0.06 }
+
+[[decor]]
+name = "fumarole"
+recipe = "fumarole"
+blocks = ["sulphur", "ember", "cinder"]
+on = ["cinder", "ash", "volcanic_rock"]
+biomes = { ashlands = 0.018 }
+
+[[decor]]
+name = "pumice_boulders"
+recipe = "stones"
+blocks = ["pumice", "pumice"]
+on = ["cinder", "ash", "volcanic_rock"]
+biomes = { ashlands = 0.04 }
+
+# ── Ground patches ───────────────────────────────────────
+
+[[ground]]
+name = "moss_carpet"
+blocks = ["moss"]
+patch_size = 14
+on = ["grass", "dirt"]
+biomes = { dense_forest = 0.45, forest = 0.18, swamp = 0.30, riparian = 0.12 }
+
+[[ground]]
+name = "leaf_litter"
+blocks = ["leaf_litter"]
+patch_size = 10
+on = ["grass", "dirt"]
+biomes = { forest = 0.25, dense_forest = 0.30, shrubland = 0.08, autumn_uplands = 0.45 }
+
+[[ground]]
+name = "sulphur_crust"
+blocks = ["sulphur"]
+patch_size = 8
+on = ["volcanic_rock", "gravel", "stone", "cinder", "ash"]
+biomes = { ashlands = 0.06, hot_spring = 0.30 }
+
+[[ground]]
+name = "lichen"
+blocks = ["lichen_stone"]
+patch_size = 9
+on = ["stone", "limestone"]
+biomes = { low_mountain = 0.20, mid_mountain = 0.25, high_mountain = 0.12, sea_cliffs = 0.20, foothills = 0.20, plateau = 0.25, karst = 0.12 }
+
+# ── Trees ────────────────────────────────────────────
+
+[[tree]]
+name = "oak"
+display = "Oak"
+recipe = "twisted_oak"
+blocks = ["log_y", "leaves"]
+size = 4
+scale = 1.55
+twist = 0.4
+replaces = "oak_tree"
+
+[[tree]]
+name = "golden_birch"
+recipe = "birch"
+blocks = ["birch_log", "birch_leaves"]
+size = 3
+scale = 1.4
+biomes = { autumn_uplands = 0.45, karst = 0.20, forest = 0.04, canyon_mesa = 0.35 }
+
+[[tree]]
+name = "aspen"
+recipe = "birch"
+blocks = ["birch_log", "aspen_leaves", "birch_leaves"]
+size = 3
+scale = 1.3
+biomes = { autumn_uplands = 0.30 }
+
+[[tree]]
+name = "juniper"
+recipe = "twisted_oak"
+blocks = ["log_y", "leaves"]
+size = 2
+scale = 1.0
+biomes = { canyons = 0.85 }
+
+[[tree]]
+name = "charred_snag"
+recipe = "snag"
+blocks = ["charred_log"]
+size = 2
+scale = 0.8
+twist = 0.6
+biomes = { ashlands = 1.0 }
+
+[[tree]]
+name = "twisted_red_oak"
+display = "Twisted Red Oak"
+recipe = "twisted_oak"
+blocks = ["log_y", "red_oak_leaves"]
+size = 4
+scale = 1.6
+biomes = { forest = 0.18, dense_forest = 0.12, shrubland = 0.30, grassland = 0.35, plains = 0.35, foothills = 0.15, roadside = 0.30, karst = 0.15, canyon_mesa = 0.25 }
+
+[[tree]]
+name = "sugar_maple"
+recipe = "maple"
+blocks = ["log_y", "maple_leaves", "maple_leaves_yellow"]
+size = 4
+scale = 1.4
+biomes = { forest = 0.15, dense_forest = 0.20, foothills = 0.12, grassland = 0.15, plains = 0.10, riparian = 0.10, autumn_uplands = 0.15, canyon_mesa = 0.2 }
+
+[[tree]]
+name = "red_maple"
+recipe = "maple"
+blocks = ["log_y", "maple_leaves_red", "maple_leaves"]
+size = 4
+scale = 1.4
+biomes = { forest = 0.10, dense_forest = 0.15, riparian = 0.15, shrubland = 0.10, autumn_uplands = 0.1 }
+
+[[tree]]
+name = "willow"
+recipe = "willow"
+blocks = ["log_y", "willow_leaves"]
+size = 2
+scale = 1.7
+biomes = { riparian = 0.35, marsh = 0.20, swamp = 0.10, plains = 0.03 }
+
+[[tree]]
+name = "bald_cypress"
+recipe = "cypress"
+blocks = ["dark_log", "leaves", "hanging_moss"]
+size = 3
+water = "shallow"
+scale = 1.6
+biomes = { swamp = 0.35, marsh = 0.35 }
+
+[[tree]]
+name = "mangrove"
+recipe = "mangrove"
+blocks = ["dark_log", "leaves", "hanging_moss"]
+size = 3
+water = "shallow"
+scale = 1.6
+biomes = { swamp = 0.20, marsh = 0.10 }
+
+[[tree]]
+name = "mossy_swamp_oak"
+display = "Mossy Swamp Oak"
+recipe = "twisted_oak"
+blocks = ["dark_log", "leaves", "hanging_moss"]
+size = 4
+scale = 1.5
+biomes = { swamp = 0.30, marsh = 0.20, riparian = 0.05 }
+
+# ── Landmarks ────────────────────────────────────────────
+
+[[landmark]]
+name = "spawn_willow"
+display = "Spawn Willow"
+recipe = "willow"
+blocks = ["log_y", "willow_leaves"]
+size = 3
+spawn = true
+meadow = 18
+meadow_plants = ["poppy", "buttercup", "daisy", "cornflower", "campion", "marigold", "bellflower"]
+
+[[landmark]]
+name = "weeping_willow"
+recipe = "willow"
+blocks = ["log_y", "willow_leaves"]
+size = 1
+slope = 0.4
+meadow = 9
+meadow_plants = ["buttercup", "daisy", "campion"]
+biomes = { riparian = 0.03, marsh = 0.025, swamp = 0.015, plains = 0.012, grassland = 0.012 }
+
+[[landmark]]
+name = "standing_stones"
+recipe = "standing_stones"
+blocks = ["stone", "moss_stone"]
+height = [8, 16]
+size = 2
+slope = 0.5
+on = ["grass", "moss_stone", "dirt", "gravel"]
+biomes = { highland_moor = 0.08, plateau = 0.05, foothills = 0.03, grassland = 0.015, plains = 0.01, canyon_mesa = 0.03 }
+
+[[landmark]]
+name = "stone_circle"
+recipe = "stone_circle"
+blocks = ["moss_stone", "lichen_stone"]
+height = [6, 11]
+slope = 0.35
+meadow = 14
+meadow_plants = ["heather", "bellflower", "daisy"]
+on = ["grass", "moss_stone", "dirt"]
+biomes = { highland_moor = 0.04, plateau = 0.03, grassland = 0.008, plains = 0.006 }
+
+[[landmark]]
+name = "cairn"
+recipe = "cairn"
+blocks = ["cobblestone", "stone"]
+height = [6, 9]
+size = 1
+slope = 0.9
+on = ["grass", "stone", "gravel", "dirt", "snow", "lichen_stone", "moss_stone"]
+biomes = { foothills = 0.05, low_mountain = 0.05, mid_mountain = 0.05, plateau = 0.04, highland_moor = 0.03, high_mountain = 0.03 }

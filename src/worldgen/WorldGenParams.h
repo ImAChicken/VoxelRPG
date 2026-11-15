@@ -28,8 +28,8 @@ struct WorldGenParam {
 };
 
 struct WorldGenParams {
-    static const std::array<WorldGenParam, 14>& params() {
-        static const std::array<WorldGenParam, 14> P = {{
+    static const std::array<WorldGenParam, 16>& params() {
+        static const std::array<WorldGenParam, 16> P = {{
             { "hills",       "Hilliness",          0.0f,  2.5f, 1.0f,  false, "Terrain"  },
             { "erosion",     "Erosion strength",   0.0f,  3.0f, 1.0f,  false, "Terrain"  },
             { "passes",      "Erosion passes",     1.0f, 10.0f, 5.0f,  true,  "Terrain"  },
@@ -44,12 +44,14 @@ struct WorldGenParams {
             { "decor",       "Bushes and logs",    0.0f,  3.0f, 1.0f,  false, "Features" },
             { "alcoves",     "Cliff alcoves",      0.0f,  2.0f, 1.0f,  false, "Features" },
             { "relief_mtn",  "Mountain ruggedness",0.0f,  2.0f, 1.0f,  false, "Terrain"  },
+            { "plants",      "Plants",             0.0f,  3.0f, 1.0f,  false, "Features" },
+            { "landmarks",   "Landmarks",          0.0f,  3.0f, 1.0f,  false, "Features" },
         }};
         return P;
     }
     static constexpr int BIOMES = 64;          // ≥ island::BIOME_COUNT
 
-    std::array<float, 14> v{};
+    std::array<float, 16> v{};
     std::array<float, BIOMES> biomeWeight{};   // 1 = as tuned; 0 = as rare as the rules allow
 
     WorldGenParams() { reset(); }
@@ -89,7 +91,10 @@ struct WorldGenParams {
             uint32_t u; std::memcpy(&u, &f, 4);
             h = (h ^ u) * 1099511628211ull;
         };
-        for (float f : v) mixIn(f);
+        // plants and landmarks don't change the terrain: leaving them
+        // out keeps saved bakes valid when only they change
+        for (size_t i = 0; i < v.size(); i++)
+            if (std::strcmp(params()[i].key, "plants") && std::strcmp(params()[i].key, "landmarks")) mixIn(v[i]);
         for (float f : biomeWeight) mixIn(f);
         return h;
     }
