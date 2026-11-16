@@ -222,6 +222,8 @@ int main() {
     gHeldModels.loadDir("data/models/held");
     gFactions.load("data/registry/factions.toml");
     gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
+    gAnims.load("data/animations", "data/animations/retarget.toml");
+    gAnimMap.load("data/animations/anim_map.toml");
     decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
     gItems.addDecor(*decor::current());
 
@@ -1244,6 +1246,8 @@ int main() {
                 gHeldModels.bump();
                 gFactions.load("data/registry/factions.toml");
                 gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
+                gAnims.load("data/animations", "data/animations/retarget.toml");
+                gAnimMap.load("data/animations/anim_map.toml");
                 decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
                 gItems.addDecor(*decor::current());
                 gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current());
@@ -1648,6 +1652,20 @@ int main() {
                 previewBody->setAppearance(characterScreen.look(), hairMesh());
                 AnimInput idle;
                 idle.facingYawDeg = 90.0f;     // model faces +Z, toward the preview camera
+                // the Animations tab: a game state or a clip
+                CharacterScreen::AnimView av = characterScreen.animPreview();
+                if (av.active && av.state >= 0) idle = animpreview::stateInput(av.state, av.time);
+                if (av.active && av.clip >= 0) { idle.previewClip = av.clip; idle.previewTime = av.time; }
+                // what the body holds for it: the sword for combat, the axe for the swing
+                std::string held;
+                if (av.active && (idle.combat || idle.attack)) held = "sword";
+                if (av.active && idle.swing >= 0.0f) held = "axe";
+                if (av.active && av.clip >= 0) {
+                    const std::string& n = gAnims.info(av.clip).name;
+                    if (n.find("Sword") != std::string::npos) held = "sword";
+                    if (n.find("TreeChopping") != std::string::npos) held = "axe";
+                }
+                previewBody->setHeldModel(held);
                 previewBody->animate(idle, dt);
                 charRenderer.drawPreview(*previewBody, pr.x, pr.y, pr.w, pr.h,
                                          gRenderer->getScreenWidth(), gRenderer->getScreenHeight(),

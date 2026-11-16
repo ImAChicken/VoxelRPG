@@ -174,6 +174,42 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </ProjectReference>
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\ozz-build\src\base\BUILD_FUSE_ALL.vcxproj">
+      <Project>{C7FFE4FD-85E1-3C87-BD6B-8CC72818ECB9}</Project>
+      <Name>BUILD_FUSE_ALL</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\ozz-build\src\animation\runtime\BUILD_FUSE_ozz_animation.vcxproj">
+      <Project>{48217461-A28B-37D4-9DE5-6369D4D7ADAE}</Project>
+      <Name>BUILD_FUSE_ozz_animation</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\ozz-build\src\animation\offline\BUILD_FUSE_ozz_animation_offline.vcxproj">
+      <Project>{93274BDB-528A-34BA-B53D-3DE27D61BA6E}</Project>
+      <Name>BUILD_FUSE_ozz_animation_offline</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\ozz-build\src\base\BUILD_FUSE_ozz_base.vcxproj">
+      <Project>{36219C5C-2847-37FE-B337-D723ADBDE2C7}</Project>
+      <Name>BUILD_FUSE_ozz_base</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\ozz-build\src\geometry\runtime\BUILD_FUSE_ozz_geometry.vcxproj">
+      <Project>{1B436AA7-CE89-3755-8CC4-8D6FCDED63CA}</Project>
+      <Name>BUILD_FUSE_ozz_geometry</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\ozz-build\src\options\BUILD_FUSE_ozz_options.vcxproj">
+      <Project>{1A278B6F-FE92-3EBA-81E5-24AD6CDDF585}</Project>
+      <Name>BUILD_FUSE_ozz_options</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
     <ProjectReference Include="C:\Dev\VoxelRPG\build\VoxelRPG.vcxproj">
       <Project>{BABD9E84-B039-33B7-97E4-4C91FC46CBCE}</Project>
       <Name>VoxelRPG</Name>
@@ -185,6 +221,26 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\glm-build\glm\glm.vcxproj">
       <Project>{BE6FCC6B-024C-32B0-A0A1-D8E05DC94404}</Project>
       <Name>glm</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\ozz-build\src\animation\runtime\ozz_animation.vcxproj">
+      <Project>{2439E8C3-6469-3C31-8880-4B4E166B59A4}</Project>
+      <Name>ozz_animation</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\ozz-build\src\animation\offline\ozz_animation_offline.vcxproj">
+      <Project>{D2032667-13CC-3A67-AED5-83A2CBD91B97}</Project>
+      <Name>ozz_animation_offline</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\ozz-build\src\base\ozz_base.vcxproj">
+      <Project>{06FFBEED-485C-3B52-8720-4048C153F4DE}</Project>
+      <Name>ozz_base</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\ozz-build\src\geometry\runtime\ozz_geometry.vcxproj">
+      <Project>{8DCB1578-1B14-3280-8C78-FD3FF7EC3992}</Project>
+      <Name>ozz_geometry</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Dev\VoxelRPG\build\_deps\ozz-build\src\options\ozz_options.vcxproj">
+      <Project>{83AE3C53-2770-387E-8A66-0E74B599E129}</Project>
+      <Name>ozz_options</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

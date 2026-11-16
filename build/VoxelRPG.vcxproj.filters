@@ -1,6 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <ClCompile Include="C:\Dev\VoxelRPG\src\character\AnimClips.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\Dev\VoxelRPG\src\chunk\ChunkLoader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -39,6 +42,15 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\character\AnimClips.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\character\AnimMap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\character\AnimPreview.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\character\Appearance.h">
       <Filter>Header Files</Filter>
     </ClInclude>

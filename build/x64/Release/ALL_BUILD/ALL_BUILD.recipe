@@ -5,6 +5,24 @@
       <FullPath>C:\Dev\VoxelRPG\build\x64\Release\ZERO_CHECK</FullPath>
     </ProjectOutput>
     <ProjectOutput>
+      <FullPath>C:\Dev\VoxelRPG\build\_deps\ozz-build\src\animation\runtime\x64\Release\BUILD_FUSE_ozz_animation</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Dev\VoxelRPG\build\_deps\ozz-build\src\animation\offline\x64\Release\BUILD_FUSE_ozz_animation_offline</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Dev\VoxelRPG\build\_deps\ozz-build\src\base\x64\Release\BUILD_FUSE_ozz_base</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Dev\VoxelRPG\build\_deps\ozz-build\src\geometry\runtime\x64\Release\BUILD_FUSE_ozz_geometry</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Dev\VoxelRPG\build\_deps\ozz-build\src\options\x64\Release\BUILD_FUSE_ozz_options</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Dev\VoxelRPG\build\_deps\ozz-build\src\base\x64\Release\BUILD_FUSE_ALL</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
       <FullPath>C:\Dev\VoxelRPG\build\bin\Release\VoxelRPG.exe</FullPath>
     </ProjectOutput>
     <ProjectOutput>

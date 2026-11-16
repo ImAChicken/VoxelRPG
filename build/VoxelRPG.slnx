@@ -7,22 +7,51 @@
 		<BuildType Name="RelWithDebInfo"/>
 		<Platform Name="x64"/>
 	</Configurations>
+	<Project Path="_deps/ozz-build/src/base/BUILD_FUSE_ALL.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="c7ffe4fd-85e1-3c87-bd6b-8cc72818ecb9">
+		<BuildDependency Project="_deps/ozz-build/src/animation/runtime/BUILD_FUSE_ozz_animation.vcxproj"/>
+		<BuildDependency Project="_deps/ozz-build/src/animation/offline/BUILD_FUSE_ozz_animation_offline.vcxproj"/>
+		<BuildDependency Project="_deps/ozz-build/src/base/BUILD_FUSE_ozz_base.vcxproj"/>
+		<BuildDependency Project="_deps/ozz-build/src/geometry/runtime/BUILD_FUSE_ozz_geometry.vcxproj"/>
+		<BuildDependency Project="_deps/ozz-build/src/options/BUILD_FUSE_ozz_options.vcxproj"/>
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+	</Project>
 	<Project Path="VoxelRPG.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="babd9e84-b039-33b7-97e4-4c91fc46cbce">
 		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 		<BuildDependency Project="_deps/glfw-build/src/glfw.vcxproj"/>
 		<BuildDependency Project="_deps/glm-build/glm/glm.vcxproj"/>
+		<BuildDependency Project="_deps/ozz-build/src/animation/runtime/ozz_animation.vcxproj"/>
+		<BuildDependency Project="_deps/ozz-build/src/base/ozz_base.vcxproj"/>
 	</Project>
 	<Project Path="_deps/glm-build/glm/glm.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="be6fcc6b-024c-32b0-a0a1-d8e05dc94404">
 		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 	</Project>
 	<Folder Name="/CMakePredefinedTargets/">
 		<Project Path="ALL_BUILD.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="b68e45ce-02ad-3de4-8bc1-111a5a294a9a" DefaultStartup="true">
+			<BuildDependency Project="_deps/ozz-build/src/base/BUILD_FUSE_ALL.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/animation/runtime/BUILD_FUSE_ozz_animation.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/animation/offline/BUILD_FUSE_ozz_animation_offline.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/base/BUILD_FUSE_ozz_base.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/geometry/runtime/BUILD_FUSE_ozz_geometry.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/options/BUILD_FUSE_ozz_options.vcxproj"/>
 			<BuildDependency Project="VoxelRPG.vcxproj"/>
 			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 			<BuildDependency Project="_deps/glfw-build/src/glfw.vcxproj"/>
 			<BuildDependency Project="_deps/glm-build/glm/glm.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/animation/runtime/ozz_animation.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/animation/offline/ozz_animation_offline.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/base/ozz_base.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/geometry/runtime/ozz_geometry.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/options/ozz_options.vcxproj"/>
 		</Project>
 		<Project Path="INSTALL.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="3f2aa899-db92-3ea9-93e5-8a37485f2cb3">
+			<BuildDependency Project="ALL_BUILD.vcxproj"/>
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+			<Build Solution="Debug|*" Project="false"/>
+			<Build Solution="Release|*" Project="false"/>
+			<Build Solution="MinSizeRel|*" Project="false"/>
+			<Build Solution="RelWithDebInfo|*" Project="false"/>
+		</Project>
+		<Project Path="PACKAGE.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="d436b34c-f064-3985-afd7-97382b847e4e">
 			<BuildDependency Project="ALL_BUILD.vcxproj"/>
 			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 			<Build Solution="Debug|*" Project="false"/>
@@ -49,6 +78,45 @@
 			<Build Solution="Release|*" Project="false"/>
 			<Build Solution="MinSizeRel|*" Project="false"/>
 			<Build Solution="RelWithDebInfo|*" Project="false"/>
+		</Project>
+	</Folder>
+	<Folder Name="/ozz/">
+		<Project Path="_deps/ozz-build/src/animation/runtime/ozz_animation.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="2439e8c3-6469-3c31-8880-4b4e166b59a4">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/base/ozz_base.vcxproj"/>
+		</Project>
+		<Project Path="_deps/ozz-build/src/animation/offline/ozz_animation_offline.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="d2032667-13cc-3a67-aed5-83a2cbd91b97">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/animation/runtime/ozz_animation.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/base/ozz_base.vcxproj"/>
+		</Project>
+		<Project Path="_deps/ozz-build/src/base/ozz_base.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="06ffbeed-485c-3b52-8720-4048c153f4de">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
+		<Project Path="_deps/ozz-build/src/geometry/runtime/ozz_geometry.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="8dcb1578-1b14-3280-8c78-fd3ff7ec3992">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/base/ozz_base.vcxproj"/>
+		</Project>
+		<Project Path="_deps/ozz-build/src/options/ozz_options.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="83ae3c53-2770-387e-8a66-0e74b599e129">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+			<BuildDependency Project="_deps/ozz-build/src/base/ozz_base.vcxproj"/>
+		</Project>
+	</Folder>
+	<Folder Name="/ozz/fuse/">
+		<Project Path="_deps/ozz-build/src/animation/runtime/BUILD_FUSE_ozz_animation.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="48217461-a28b-37d4-9de5-6369d4d7adae">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
+		<Project Path="_deps/ozz-build/src/animation/offline/BUILD_FUSE_ozz_animation_offline.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="93274bdb-528a-34ba-b53d-3de27d61ba6e">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
+		<Project Path="_deps/ozz-build/src/base/BUILD_FUSE_ozz_base.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="36219c5c-2847-37fe-b337-d723adbde2c7">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
+		<Project Path="_deps/ozz-build/src/geometry/runtime/BUILD_FUSE_ozz_geometry.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="1b436aa7-ce89-3755-8cc4-8d6fcded63ca">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		</Project>
+		<Project Path="_deps/ozz-build/src/options/BUILD_FUSE_ozz_options.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="1a278b6f-fe92-3eba-81e5-24ad6cddf585">
+			<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 		</Project>
 	</Folder>
 </Solution>

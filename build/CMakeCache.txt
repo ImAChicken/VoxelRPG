@@ -14,8 +14,11 @@
 # EXTERNAL cache entries
 ########################
 
-//Build shared libraries
+//Build ozz as shared libraries
 BUILD_SHARED_LIBS:BOOL=OFF
+
+//Path to a program.
+CLANG_FORMAT:FILEPATH=CLANG_FORMAT-NOTFOUND
 
 //Path to a program.
 CMAKE_AR:FILEPATH=C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.52.37025/bin/Hostx64/x64/lib.exe
@@ -262,6 +265,33 @@ CMAKE_STATIC_LINKER_FLAGS_RELWITHDEBINFO:STRING=
 // Studio IDE projects all commands are done without /nologo.
 CMAKE_VERBOSE_MAKEFILE:BOOL=FALSE
 
+//Enable to build 7-Zip packages
+CPACK_BINARY_7Z:BOOL=OFF
+
+//Enable to build IFW packages
+CPACK_BINARY_IFW:BOOL=OFF
+
+//Enable to build Inno Setup packages
+CPACK_BINARY_INNOSETUP:BOOL=OFF
+
+//Enable to build NSIS packages
+CPACK_BINARY_NSIS:BOOL=ON
+
+//Enable to build NuGet packages
+CPACK_BINARY_NUGET:BOOL=OFF
+
+//Enable to build WiX packages
+CPACK_BINARY_WIX:BOOL=OFF
+
+//Enable to build ZIP packages
+CPACK_BINARY_ZIP:BOOL=OFF
+
+//Enable to build 7-Zip source packages
+CPACK_SOURCE_7Z:BOOL=ON
+
+//Enable to build ZIP source packages
+CPACK_SOURCE_ZIP:BOOL=ON
+
 //Doxygen documentation generation tool (https://www.doxygen.nl)
 DOXYGEN_EXECUTABLE:FILEPATH=DOXYGEN_EXECUTABLE-NOTFOUND
 
@@ -284,6 +314,10 @@ FETCHCONTENT_SOURCE_DIR_GLFW:PATH=
 FETCHCONTENT_SOURCE_DIR_GLM:PATH=
 
 //When not empty, overrides where to find pre-populated content
+// for ozz
+FETCHCONTENT_SOURCE_DIR_OZZ:PATH=
+
+//When not empty, overrides where to find pre-populated content
 // for tomlplusplus
 FETCHCONTENT_SOURCE_DIR_TOMLPLUSPLUS:PATH=
 
@@ -295,6 +329,9 @@ FETCHCONTENT_UPDATES_DISCONNECTED_GLFW:BOOL=OFF
 
 //Enables UPDATE_DISCONNECTED behavior just for population of glm
 FETCHCONTENT_UPDATES_DISCONNECTED_GLM:BOOL=OFF
+
+//Enables UPDATE_DISCONNECTED behavior just for population of ozz
+FETCHCONTENT_UPDATES_DISCONNECTED_OZZ:BOOL=OFF
 
 //Enables UPDATE_DISCONNECTED behavior just for population of tomlplusplus
 FETCHCONTENT_UPDATES_DISCONNECTED_TOMLPLUSPLUS:BOOL=OFF
@@ -399,6 +436,9 @@ OPENGL_glu_LIBRARY:STRING=glu32
 //Use MSVC runtime library DLL
 USE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=ON
 
+//Build gltf2ozz, to convert new animation packs (tools/import_animations.md)
+VOXELRPG_ANIM_TOOLS:BOOL=OFF
+
 //Build the headless test programs in tests/
 VOXELRPG_TESTS:BOOL=OFF
 
@@ -419,6 +459,51 @@ glm_IS_TOP_LEVEL:STATIC=OFF
 
 //Value Computed by CMake
 glm_SOURCE_DIR:STATIC=C:/Dev/VoxelRPG/build/_deps/glm-src
+
+//Value Computed by CMake
+ozz_BINARY_DIR:STATIC=C:/Dev/VoxelRPG/build/_deps/ozz-build
+
+//Value Computed by CMake
+ozz_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+ozz_SOURCE_DIR:STATIC=C:/Dev/VoxelRPG/build/_deps/ozz-src
+
+//Build data on code change
+ozz_build_data:BOOL=OFF
+
+//Build Fbx pipeline (Requires Fbx SDK)
+ozz_build_fbx:BOOL=OFF
+
+//Build glTF importer (Requires c++11)
+ozz_build_gltf:BOOL=OFF
+
+//Build howtos
+ozz_build_howtos:BOOL=OFF
+
+//Select msvc DLL runtime library
+ozz_build_msvc_rt_dll:BOOL=OFF
+
+//Use per config postfix name
+ozz_build_postfix:BOOL=OFF
+
+//Build samples
+ozz_build_samples:BOOL=OFF
+
+//Force SIMD math reference implementation
+ozz_build_simd_ref:BOOL=OFF
+
+//Build unit tests
+ozz_build_tests:BOOL=OFF
+
+//Build tools
+ozz_build_tools:BOOL=OFF
+
+//Run samples without rendering (used for unit tests)
+ozz_run_tests_headless:BOOL=ON
+
+//Number of loops while running sample tests (used for unit tests)
+ozz_sample_testing_loops:STRING=20
 
 //Value Computed by CMake
 tomlplusplus_BINARY_DIR:STATIC=C:/Dev/VoxelRPG/build/_deps/tomlplusplus-build
@@ -562,7 +647,7 @@ CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_MT
 CMAKE_MT-ADVANCED:INTERNAL=1
 //number of local generators
-CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=7
+CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=19
 //Platform information initialized
 CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1
 //noop for ranlib
@@ -612,6 +697,24 @@ CMAKE_SYSTEM_ENVIRONMENT_ID:INTERNAL=
 CMAKE_VERBOSE_MAKEFILE-ADVANCED:INTERNAL=1
 //Deprecated.  Use -W[no-]deprecated instead.
 CMAKE_WARN_DEPRECATED:INTERNAL=ON
+//ADVANCED property for variable: CPACK_BINARY_7Z
+CPACK_BINARY_7Z-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CPACK_BINARY_IFW
+CPACK_BINARY_IFW-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CPACK_BINARY_INNOSETUP
+CPACK_BINARY_INNOSETUP-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CPACK_BINARY_NSIS
+CPACK_BINARY_NSIS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CPACK_BINARY_NUGET
+CPACK_BINARY_NUGET-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CPACK_BINARY_WIX
+CPACK_BINARY_WIX-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CPACK_BINARY_ZIP
+CPACK_BINARY_ZIP-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CPACK_SOURCE_7Z
+CPACK_SOURCE_7Z-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CPACK_SOURCE_ZIP
+CPACK_SOURCE_ZIP-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: DOXYGEN_EXECUTABLE
 DOXYGEN_EXECUTABLE-ADVANCED:INTERNAL=1
 //Details about finding OpenGL

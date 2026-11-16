@@ -35,7 +35,25 @@ FetchContent_Declare(
     GIT_TAG        v3.4.0
 )
 
-FetchContent_MakeAvailable(glfw glm tomlplusplus)
+# ozz-animation: skeletal animation clips (character/AnimClips.h).
+# Only the runtime is built for the game; the glTF importer
+# (gltf2ozz, to add new animation packs) with VOXELRPG_ANIM_TOOLS.
+FetchContent_Declare(
+    ozz
+    GIT_REPOSITORY https://github.com/guillaumeblanc/ozz-animation.git
+    GIT_TAG        0.16.0
+)
+option(VOXELRPG_ANIM_TOOLS "Build gltf2ozz, to convert new animation packs (tools/import_animations.md)" OFF)
+set(ozz_build_tools ${VOXELRPG_ANIM_TOOLS} CACHE BOOL "" FORCE)
+set(ozz_build_gltf ${VOXELRPG_ANIM_TOOLS} CACHE BOOL "" FORCE)
+set(ozz_build_fbx OFF CACHE BOOL "" FORCE)
+set(ozz_build_samples OFF CACHE BOOL "" FORCE)
+set(ozz_build_howtos OFF CACHE BOOL "" FORCE)
+set(ozz_build_tests OFF CACHE BOOL "" FORCE)
+set(ozz_build_postfix OFF CACHE BOOL "" FORCE)
+set(ozz_build_msvc_rt_dll OFF CACHE BOOL "" FORCE)   # static C runtime (/MT), like the game (line 4)
+
+FetchContent_MakeAvailable(glfw glm tomlplusplus ozz)
 
 # Find OpenGL
 find_package(OpenGL REQUIRED)
@@ -63,6 +81,8 @@ target_link_libraries(VoxelRPG PRIVATE
     OpenGL::GL
     Threads::Threads
     tomlplusplus::tomlplusplus
+    ozz_animation
+    ozz_base
 )
 
 # Windows specific
@@ -87,12 +107,13 @@ endif()
 # ── Tests ─────────────────────────────────────────────────
 # Headless test programs (no window, no OpenGL). Off by default:
 #   cmake -B build -DVOXELRPG_TESTS=ON
-#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test
+#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test
 #   build/bin/Release/ragdoll_test      (build/bin/ragdoll_test elsewhere)
 #   build/bin/Release/woodcut_test      (from the repo root: it reads data/)
 #   build/bin/Release/combat_test
 #   build/bin/Release/sim_test          (from the repo root)
 #   build/bin/Release/npc_test          (from the repo root)
+#   build/bin/Release/anim_test         (from the repo root)
 option(VOXELRPG_TESTS "Build the headless test programs in tests/" OFF)
 if(VOXELRPG_TESTS)
     add_executable(ragdoll_test tests/ragdoll_test.cpp)
@@ -101,9 +122,12 @@ if(VOXELRPG_TESTS)
     add_executable(combat_test tests/combat_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
     add_executable(sim_test tests/sim_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
     add_executable(npc_test tests/npc_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
-    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test)
+    add_executable(anim_test tests/anim_test.cpp)
+    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test anim_test)
         target_include_directories(${t} PRIVATE src)
-        target_link_libraries(${t} PRIVATE glm::glm tomlplusplus::tomlplusplus)
+        # the animator plays clips (character/AnimClips.cpp, ozz)
+        target_sources(${t} PRIVATE src/character/AnimClips.cpp)
+        target_link_libraries(${t} PRIVATE glm::glm tomlplusplus::tomlplusplus ozz_animation ozz_base)
         if(MSVC)
             target_compile_options(${t} PRIVATE /utf-8)
             target_compile_definitions(${t} PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)

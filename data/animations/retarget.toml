@@ -1,0 +1,38 @@
+# ══════════════════════════════════════════════════════════
+# Retargeting — how an animation pack's skeleton drives ours
+# ══════════════════════════════════════════════════════════
+# Our skeleton has 15 bones (character/CharacterModel.h); an
+# animation pack's has its own (the Quaternius libraries: 65,
+# fingers included). Each of our bones follows one joint of the
+# source, as a rotation relative to the source's rest pose,
+# after lining the bone up with the source bone's direction at
+# rest (the aim joint). The source's rest pose can differ from
+# ours (theirs is a T-pose, ours stands arms down) — the aim
+# takes care of it. Bones the table doesn't list stay as the
+# procedural animation has them.
+#
+#   <our bone> = ["<source joint>", "<aim joint>"]
+#   aim "" = no aim: just the rotation (head, feet)
+#
+# Names here: the Unreal mannequin naming the Quaternius packs
+# use. Several candidates can be given, first found wins:
+#   shoulder_l = [["upperarm_l", "lowerarm_l"], ["mixamorig:LeftArm", "mixamorig:LeftForeArm"]]
+root       = ["pelvis", "spine_01"]
+spine      = ["spine_03", "neck_01"]
+head       = ["Head", ""]
+shoulder_l = ["upperarm_l", "lowerarm_l"]
+elbow_l    = ["lowerarm_l", "hand_l"]
+wrist_l    = ["hand_l", "middle_01_l"]
+shoulder_r = ["upperarm_r", "lowerarm_r"]
+elbow_r    = ["lowerarm_r", "hand_r"]
+wrist_r    = ["hand_r", "middle_01_r"]
+hip_l      = ["thigh_l", "calf_l"]
+knee_l     = ["calf_l", "foot_l"]
+ankle_l    = ["foot_l", ""]
+hip_r      = ["thigh_r", "calf_r"]
+knee_r     = ["calf_r", "foot_r"]
+ankle_r    = ["foot_r", ""]
+
+# The joint whose height is the source's hip height (scales its
+# movement to our body)
+hips = "pelvis"

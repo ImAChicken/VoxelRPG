@@ -1,0 +1,52 @@
+# ══════════════════════════════════════════════════════════
+# Which animation clip plays for what (character/AnimMap.h)
+# ══════════════════════════════════════════════════════════
+# Names are clip names (or "<pack>/<name>") from
+# data/animations/ — the Character screen's Animations tab plays
+# every clip, so you can pick from there. A state left out, or a
+# name that isn't there, falls back to the built-in procedural
+# animation. F6 reloads this file.
+#
+#   use_clips   false: everything procedural (the old look)
+use_clips = true
+
+[locomotion]
+idle          = "Idle_Loop"
+walk          = "Walk_Loop"
+run           = "Jog_Fwd_Loop"
+sprint        = "Sprint_Loop"
+crouch_idle   = "Crouch_Idle_Loop"
+crouch_walk   = "Crouch_Fwd_Loop"
+combat_idle   = "Sword_Idle"
+air_up        = "Jump_Start"
+air_down      = "Jump_Loop"
+roll          = "Roll"
+guard         = "Sword_Block"
+
+# How fast (vox/s) the body moves when each moving clip plays at
+# its normal speed (measured from the packs' root-motion
+# versions). A clip plays faster or slower to match the real
+# speed, so feet don't slide (within 0.5×–2×).
+[speeds]
+walk        = 9.6
+run         = 52.7
+sprint      = 81.2
+crouch_walk = 7.4
+
+# Where one moving clip hands over to the next (vox/s, blended
+# over 'blend' either side). The player walks at 30 and sprints
+# at 50 (Human::WALK_SPEED, SPRINT_SPEED), NPCs often slower.
+[switch]
+walk_to_run   = 18.0
+run_to_sprint = 46.0
+blend         = 5.0
+
+# Moveset attacks (movesets.toml ids) → clips. The clip is
+# stretched to the attack's duration, so the hit window in the
+# moveset stays where it is; pick a clip whose swing lands about
+# then. Attacks not listed keep their keyed poses.
+[attacks]
+sword_light1    = "Sword_Regular_A"
+sword_light2    = "Sword_Regular_B"
+sword_heavy     = "Sword_Regular_C"
+sword_air_light = "Sword_Dash"

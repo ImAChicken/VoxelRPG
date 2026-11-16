@@ -1,6 +1,7 @@
 #pragma once
 #include "UIScreen.h"
 #include "../character/Appearance.h"
+#include "../character/AnimPreview.h"
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <chrono>
@@ -19,6 +20,12 @@
 //
 // Favorites: looks saved under a name, shared by every world
 // (saves/character_favorites.txt).
+//
+// Animations: a viewer for every animation the body can play —
+// the game's own states (as the game shows them) and every clip
+// in data/animations by category — with play / pause, speed,
+// loop and a time bar. main reads animPreview() to drive the
+// preview body.
 //
 // Colours and spacing come from the resource pack's UI theme;
 // swatches from data/characters/palettes.toml (a pack can
@@ -55,6 +62,22 @@ public:
     bool  escLeftTyping() { bool u = escUsed || nameFocus; escUsed = false; return u; }
 
     struct Rect { int x = 0, y = 0, w = 0, h = 0; };
+
+    // What the Animations tab wants the preview to play
+    struct AnimView {
+        bool  active = false;      // the tab is open
+        int   state = -1;          // a game state (animpreview::states()), or
+        int   clip = -1;           // a clip (gAnims)
+        float time = 0.0f;         // s
+    };
+    AnimView animPreview() const {
+        AnimView v;
+        if (tab != 5) return v;
+        v.active = true;
+        if (animCat == 0) v.state = animSel; else v.clip = animSel;
+        v.time = animTime;
+        return v;
+    }
     Rect previewRect() const { return preview; }
 
     // Text for the favorite's name (GLFW callbacks via main)
@@ -88,17 +111,18 @@ public:
         ui.drawText("Character", px + 16, py + 12, theme.title, 2);
 
         // Tabs
-        static const char* TABS[] = { "Body", "Face", "Hair", "Outfit", "Favorites" };
+        static const char* TABS[] = { "Body", "Face", "Hair", "Outfit", "Favorites", "Animations" };
         {
-            float tx = px + 16, tw = (pw - 32 - 4 * 4) / 5.0f, ty = py + 40, th = 30;
-            for (int i = 0; i < 5; i++) {
+            const int NT = 6;
+            float tx = px + 16, tw = (pw - 32 - 4 * (NT - 1)) / (float)NT, ty = py + 40, th = 30;
+            for (int i = 0; i < NT; i++) {
                 float bx = tx + i * (tw + 4);
                 bool sel = tab == i, hov = hovered(bx, ty, tw, th);
                 ui.drawRect(bx, ty, tw, th, sel ? theme.buttonBgHover : (hov ? theme.bgHover : theme.buttonBg));
                 ui.drawBorder(bx, ty, tw, th, sel ? theme.accent : theme.buttonBorder, sel ? 2.0f : 1.0f);
                 int sc = ui.textWidth(TABS[i], 2) <= tw - 6 ? 2 : 1;
                 ui.drawTextCentered(TABS[i], bx, ty, tw, th, sel || hov ? theme.textHover : theme.text, sc);
-                if (hov && clicked() && tab != i) { tab = i; nameFocus = false; confirmDelete = -1; }
+                if (hov && clicked() && tab != i) { tab = i; nameFocus = false; confirmDelete = -1; if (i == 5) turn = 20.0f; }
             }
             ui.drawRect(px + 16, ty + th + 6, pw - 32, 1, theme.border);
         }
@@ -114,6 +138,7 @@ public:
         case 2: hairTab(ui);      break;
         case 3: outfitTab(ui);    break;
         case 4: favoritesTab(ui, px, pw, py + ph - (float)theme.buttonH - 24); break;
+        case 5: animationsTab(ui, px, pw, py + ph - (float)theme.buttonH - 24, dt); break;
         }
 
         // Buttons
@@ -146,7 +171,7 @@ public:
             if (over && clicked()) spinning = true;
             if (!mouseDown) spinning = false;
             if (spinning) turn += (float)(mx - pmx) * 0.6f;
-            else if (dragging < 0 && tab != 1) turn += dt * 20.0f;      // slow turntable
+            else if (dragging < 0 && tab != 1 && tab != 5) turn += dt * 20.0f;   // slow turntable (not while watching animations)
             else if (tab == 1 && !spinning) {                          // face tab: ease to the front
                 float d = std::remainder(0.0f - turn, 360.0f);
                 turn += d * (1.0f - std::exp(-dt * 4.0f));
@@ -178,6 +203,11 @@ private:
     double mx = 0, my = 0;
     bool   mouseDown = false, mousePrev = false;
     Rect   preview;
+
+    // animations tab
+    int    animCat = 0, animSel = 0, animPage = 0, animSpeed = 3;
+    float  animTime = 0.0f;
+    bool   animPlaying = true, animLoop = true;
 
     // favorites tab
     std::string favName, status;
@@ -321,6 +351,113 @@ private:
         status = (replaced ? "Updated " : "Saved ") + n;
         favName.clear();
         nameFocus = false;
+    }
+
+    // ── Animations ────────────────────────────────────────
+    // Categories: "Game" (the game's states) then each clip
+    // category; a page of entries; the transport underneath
+    std::vector<std::string> animCategories() const {
+        std::vector<std::string> c = { "Game" };
+        for (int i = 0; i < gAnims.count(); i++) {
+            const std::string& k = gAnims.info(i).category;
+            if (std::find(c.begin(), c.end(), k) == c.end()) c.push_back(k);
+        }
+        std::sort(c.begin() + 1, c.end());
+        return c;
+    }
+    void animationsTab(UIRenderer& ui, float px, float pw, float bottom, float dt) {
+        const auto& theme = gResourcePacks.getTheme();
+        float x = px + 16, w = pw - 32;
+        // categories
+        std::vector<std::string> cats = animCategories();
+        if (animCat >= (int)cats.size()) animCat = 0;
+        std::vector<const char*> names;
+        for (auto& c : cats) names.push_back(c.c_str());
+        float saveCx = cx, saveCw = cw;
+        cx = x; cw = w;
+        int before = animCat;
+        pickGrid(ui, names.data(), (int)names.size(), animCat, 4);
+        if (animCat != before) { animSel = 0; animPage = 0; animTime = 0.0f; }
+        // the entries of this category: (label, index)
+        std::vector<std::pair<std::string, int>> list;
+        if (animCat == 0) {
+            const auto& st = animpreview::states();
+            for (int i = 0; i < (int)st.size(); i++) list.push_back({ st[i].name, i });
+        } else {
+            for (int i = 0; i < gAnims.count(); i++)
+                if (gAnims.info(i).category == cats[(size_t)animCat]) {
+                    const ClipInfo& c = gAnims.info(i);
+                    list.push_back({ c.name + "  [" + c.pack + "]", i });
+                }
+            std::sort(list.begin(), list.end());
+        }
+        bool found = false;
+        for (auto& e : list) if (e.second == animSel) found = true;
+        if (!found && !list.empty()) { animSel = list[0].second; animTime = 0.0f; }
+        // a page of them
+        float rowH = 26.0f, transportH = 150.0f;
+        int perPage = std::max(1, (int)((bottom - transportH - y) / (rowH + 3)));
+        int pages = std::max(1, ((int)list.size() + perPage - 1) / perPage);
+        animPage = std::clamp(animPage, 0, pages - 1);
+        for (int i = animPage * perPage; i < std::min((int)list.size(), (animPage + 1) * perPage); i++) {
+            bool sel = list[(size_t)i].second == animSel, hov = hovered(x, y, w, rowH);
+            ui.drawRect(x, y, w, rowH, sel ? theme.buttonBgHover : (hov ? theme.bgHover : theme.buttonBg));
+            if (sel) ui.drawBorder(x, y, w, rowH, theme.accent, 2.0f);
+            ui.drawText(list[(size_t)i].first, x + 8, y + (rowH - ui.textHeight(1)) * 0.5f, sel || hov ? theme.textHover : theme.text, 1);
+            if (hov && clicked() && !sel) { animSel = list[(size_t)i].second; animTime = 0.0f; animPlaying = true; }
+            y += rowH + 3;
+        }
+        // pages
+        float ty = bottom - transportH + 6;
+        if (pages > 1) {
+            char pg[32]; std::snprintf(pg, sizeof(pg), "%d / %d", animPage + 1, pages);
+            if (button(ui, "<", x, ty, 40, 26) && animPage > 0) animPage--;
+            ui.drawTextCentered(pg, x + 44, ty, 90, 26, theme.text, 1);
+            if (button(ui, ">", x + 138, ty, 40, 26) && animPage < pages - 1) animPage++;
+        }
+        ty += 34;
+        // transport: what's playing, the time bar, play / speed / loop
+        float dur = animCat == 0 ? animpreview::stateDuration(animSel)
+                  : (animSel < gAnims.count() ? gAnims.info(animSel).duration : 1.0f);
+        dur = std::max(dur, 0.01f);
+        static const float SPEEDS[] = { 0.1f, 0.25f, 0.5f, 1.0f, 2.0f };
+        static const char* SPEED_NAMES[] = { "0.1x", "0.25x", "0.5x", "1x", "2x" };
+        if (animSpeed < 0 || animSpeed > 4) animSpeed = 3;
+        if (animPlaying) {
+            animTime += dt * SPEEDS[animSpeed];
+            if (animTime > dur) { if (animLoop) animTime = std::fmod(animTime, dur); else { animTime = dur; animPlaying = false; } }
+        }
+        char info[96];
+        bool loops = animCat != 0 && animSel < gAnims.count() && gAnims.info(animSel).loop;
+        std::snprintf(info, sizeof(info), "%.2f / %.2f s%s", animTime, dur, loops ? "   - loops" : "");
+        ui.drawText(info, x, ty, theme.textDim, 1);
+        ty += 16;
+        // the time bar (drag to scrub)
+        float bx = x, bw = w, bh = 10;
+        ui.drawRect(bx, ty, bw, bh, theme.inputBg);
+        ui.drawRect(bx, ty, bw * std::clamp(animTime / dur, 0.0f, 1.0f), bh, theme.accent);
+        ui.drawBorder(bx, ty, bw, bh, theme.border, 1.0f);
+        if (clicked() && hovered(bx, ty - 6, bw, bh + 12)) dragging = 100;
+        if (dragging == 100) { animTime = std::clamp((float)(mx - bx) / bw, 0.0f, 1.0f) * dur; animPlaying = false; }
+        ty += bh + 10;
+        float b1 = 90;
+        if (button(ui, animPlaying ? "Pause" : "Play", x, ty, b1, 28)) {
+            if (!animPlaying && animTime >= dur) animTime = 0.0f;
+            animPlaying = !animPlaying;
+        }
+        if (button(ui, "<<", x + b1 + 6, ty, 40, 28)) animTime = 0.0f;
+        float sx = x + b1 + 52;
+        for (int i = 0; i < 5; i++) {
+            float bw2 = 52;
+            bool sel = i == animSpeed, hov = hovered(sx, ty, bw2, 28);
+            ui.drawRect(sx, ty, bw2, 28, sel ? theme.buttonBgHover : (hov ? theme.bgHover : theme.buttonBg));
+            ui.drawBorder(sx, ty, bw2, 28, sel ? theme.accent : theme.buttonBorder, sel ? 2.0f : 1.0f);
+            ui.drawTextCentered(SPEED_NAMES[i], sx, ty, bw2, 28, sel || hov ? theme.textHover : theme.text, 1);
+            if (hov && clicked()) animSpeed = i;
+            sx += bw2 + 4;
+        }
+        if (button(ui, animLoop ? "Loop: on" : "Loop: off", sx + 6, ty, std::max(80.0f, x + w - sx - 6), 28)) animLoop = !animLoop;
+        cx = saveCx; cw = saveCw;
     }
 
     // ── Widgets ───────────────────────────────────────────

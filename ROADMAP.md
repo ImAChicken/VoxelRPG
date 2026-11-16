@@ -28,6 +28,8 @@ ideas parked for later; add to them as new ideas come up.
 - View settings: Chunk distance (voxel chunks, 2–16) and Render distance (distant terrain, 16 chunks to the whole world)
 - Pickaxes break a 6-voxel (2 ft) cube, on a grid unless Shift is held; dev Cube Tool places or breaks any size of cube (Up / Down, `/cube`)
 - Character creator (Esc → Character): Body / Face / Hair / Outfit / Favorites tabs, themed by the resource pack; favorites shared by all worlds
+- Animation clips (step 8): ozz-animation 0.16 + Quaternius Universal Animation Library 1 and 2 (CC0, 85 clips in data/animations), retargeted onto our 15 bones at load (retarget.toml). anim_map.toml picks the clips the game uses: idle, walk/run/sprint blended by speed (clip speeds measured from the packs' root motion, so feet don't slide), crouch, jump/fall, roll, guard, combat stance and sword attacks. Backstep, air dodge, flying and the axe swing stay code-driven. `use_clips = false` turns them all off
+- Animation viewer (Character → Animations): every game state as the game shows it (walk, sprint, roll, each sword attack, the axe swing …) and every clip by category, on the character being edited, with play / pause, restart, speed (0.1×–2×), loop and a time bar to scrub
 - Decorations from a data file (data/registry/decorations.toml, world/Decorations.h): plants (one per 16-inch square), bushes / logs / stones, ground patches (moss, leaf litter, sulphur, lichen) and landmarks, each a recipe + blocks + density per biome
 - Sprite plants: flowers, grasses, ferns, reeds and cattails drawn as crossed see-through pictures (render = "sprite" in blocks.toml), as tall as their voxel stack
 - Plants are walk-through; breaking any part picks up the whole plant as an item (Survival: player inventory); plant items place the plant, snapped to its square
@@ -97,6 +99,7 @@ ideas parked for later; add to them as new ideas come up.
 - The old pass-by-pass chart (IslandChart.h generateIsland) is unused now; remove it once the collapse is settled
 
 ## Up next
+- Easier ways to start fights for testing (Eddie: "worth keeping in mind", not now): placed NPC spawners (a block or structure that spawns a type, with a count, radius and respawn time), a dev test-arena world type with spawners and dummies ready, and/or command blocks that run console commands (spawn, despawn, smite) when used or powered
 - Review scale and building in the taller world
 - Check lower-end hardware: lower the default chunk / render distance only if it struggles
 
@@ -111,7 +114,7 @@ ideas parked for later; add to them as new ideas come up.
 - Ragdoll: a real get-up animation (now the body blends from lying to standing over 0.8 s); hard landings and falls as hits; self-collision between limbs; a ragdoll that tumbles on a plunge slam
 - Worn gear models on the body (gear has weight only for now); encumbrance (carried weight slowing movement) if wanted
 - Combat next: lock-on (camera on the target, strafing), parry and ripostes, backstabs, more weapons (club, spear: they have no moveset or model yet) with their own movesets, damage types against resistances, hit and block sounds and sparks, archers (a 'ring' slot at range)
-- Animation clips (step 8 of the agreed plan): ozz-animation runtime + Quaternius Universal Animation Library 1 and 2 (CC0), retargeted onto our bones; attack timing as clip markers; weapon traces sampled from the animated pose for every weapon (replacing the arc sweep) and running in the simulation (server-side)
+- Animation clips, next: attack timing as clip markers (now each clip is stretched over the moveset's duration, so hit frames only roughly match); weapon traces sampled from the animated pose for every weapon (replacing the arc sweep) and running in the simulation (server-side); clips for backstep and air dodge; check hand and weapon angles across the sword clips; a shield model for the shield clips
 - Multiplayer prep still client-side: the axe swing and block editing (PlayerInteraction) should become requests to the Simulation; entity ids should become stable across saves and machines (now a counter)
 - NPCs next: real menus (dialogue, trade) behind the 'unavailable' state, loot tables for the review, NPC texture sets (presets' texture_set, e.g. undead) drawn by the renderer, a second skeleton for animals, patrol routes placed with a dev tool, opportunistic NPCs picking on fleeing ones, morale
 - Woodcutting: chop sounds and a little tree shake on hits; stamina; stumps that can be dug out; saplings or sticks from the leaves; other tools digging a log voxel by voxel skip its wood count; falling trees only move while a body is in the world (not in Spectator); logs float in water later; axe tiers (stone, bronze) with their own power

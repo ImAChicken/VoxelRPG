@@ -7,7 +7,19 @@
 		"C:/Dev/VoxelRPG/build/_deps/glfw-build/docs/cmake_install.cmake",
 		"C:/Dev/VoxelRPG/build/_deps/glm-build/cmake_install.cmake",
 		"C:/Dev/VoxelRPG/build/_deps/glm-build/glm/cmake_install.cmake",
-		"C:/Dev/VoxelRPG/build/_deps/tomlplusplus-build/cmake_install.cmake"
+		"C:/Dev/VoxelRPG/build/_deps/tomlplusplus-build/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/src/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/src/base/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/src/options/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/src/animation/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/src/animation/runtime/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/src/animation/offline/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/src/animation/offline/tools/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/src/animation/offline/fbx/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/src/animation/offline/gltf/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/src/geometry/cmake_install.cmake",
+		"C:/Dev/VoxelRPG/build/_deps/ozz-build/src/geometry/runtime/cmake_install.cmake"
 	],
 	"Parallel" : false
 }

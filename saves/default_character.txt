@@ -1,6 +1,6 @@
 look_v=2
 look_body=0 17 0.194 0.000 -0.296 -0.733 0.660 2
-look_face=18 0
+look_face=16 0
 look_hair=17 4
 look_outfit=1 2 1
 look_skin=176 134 106
