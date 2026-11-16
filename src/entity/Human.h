@@ -1,5 +1,10 @@
 #pragma once
 #include "Entity.h"
+#include "BodyMass.h"
+#include "../physics/Ragdoll.h"
+#include "../game/Combat.h"
+#include <vector>
+#include <algorithm>
 
 // ══════════════════════════════════════════════════════════
 // Human — a two-legged body: player, NPC, enemy
@@ -20,6 +25,7 @@ struct HumanIntent {
 
     bool sprint = false;   // held
     bool crouch = false;   // held
+    float speedScale = 1.0f;   // < 1: held back (swinging an axe)
 
     // One-shot requests. The controller sets them, physics
     // consumes them on the next tick, then they are cleared.
@@ -32,7 +38,13 @@ struct HumanIntent {
     glm::vec3 flyMove = {0, 0, 0};   // full 3D direction
     bool      flyFast = false;
 
-    void clearOneShots() { jump = false; dodge = false; }
+    // Combat (game/Combat.h): one-shots like jump, and the
+    // guard, held
+    bool attackLight = false;
+    bool attackHeavy = false;
+    bool guard       = false;
+
+    void clearOneShots() { jump = false; dodge = false; attackLight = false; attackHeavy = false; }
 };
 
 class Human : public Entity {
@@ -127,6 +139,63 @@ public:
     // Fell below the bottom of the world — needs a respawn
     bool fellOutOfWorld = false;
 
+    // ── Combat (game/Combat.h) ────────────────────────────
+    // Any human fights the same way: the player, an enemy.
+    //   weaponDamage  the weapon in hand (0: nothing to attack with)
+    //   stamina       spent by attacks, dodges and blocking;
+    //                 comes back after a short pause
+    float       weaponDamage = 0.0f;
+    float       stamina = combat::MAX_STAMINA, maxStamina = combat::MAX_STAMINA;
+    float       staminaWait = 0.0f;
+    bool        infiniteStamina = false;   // Test Play
+    bool        guarding = false;          // set by physics from the intent
+    bool        hasAirAttack = true;       // one per jump, back on landing
+    AttackState attack;
+    float       sinceHurt = 99.0f;         // s since last damaged (HUD)
+    uint64_t    lastHitBy = 0;
+
+    bool dead() const { return health <= 0.0f; }
+    bool spend(float s) {                  // false if out of stamina
+        if (infiniteStamina) return true;
+        if (stamina <= 0.0f) return false;
+        stamina = std::max(stamina - s, -20.0f);   // the last action may overdraw a little
+        staminaWait = combat::STAMINA_DELAY;
+        return true;
+    }
+
+    // ── Weight and the active ragdoll ─────────────────────
+    // body     how heavy each part is, flesh plus gear
+    //          (entity/BodyMass.h); 'mass' (Entity) is its total
+    // ragdoll  the physical body drawn over the animation when
+    //          hit (physics/Ragdoll.h); while it is limp or
+    //          getting up, the body cannot be steered
+    // hits     waiting to be applied by physics on its next tick
+    //          (IPhysics::stepRagdoll), so anything — a command,
+    //          an explosion, later a sword — just queues one
+    struct Hit {
+        glm::vec3 point;      // where it lands, world voxels
+        glm::vec3 impulse;    // kg·voxels/s
+    };
+    BodyMass         body;
+    Ragdoll          ragdoll;
+    std::vector<Hit> hits;
+
+    // A shove of 'speed' voxels/s on an average (70 kg) body;
+    // heavier bodies are moved less, lighter ones more
+    static constexpr float REFERENCE_MASS = 70.0f;
+
+    void hit(glm::vec3 point, glm::vec3 impulse) { hits.push_back({ point, impulse }); }
+
+    // A point on the body by height: 0 feet, 1 top of the head
+    glm::vec3 bodyPoint(float frac) const {
+        return position + glm::vec3(0.0f, height * frac, 0.0f);
+    }
+
+    void setBodyMass(float bodyKg) {
+        body.setBody(bodyKg);
+        mass = body.total();
+    }
+
     glm::vec3 eyePosition() const {
         return position + glm::vec3(0.0f, eyeHeight, 0.0f);
     }
@@ -146,5 +215,9 @@ public:
         sprinting      = false;
         stepJolt       = 0.0f;
         fellOutOfWorld = false;
+        hits.clear();
+        ragdoll.reset();
+        attack = AttackState();
+        guarding = false;
     }
 };

@@ -51,6 +51,9 @@
     <ClInclude Include="C:\Dev\VoxelRPG\src\character\FaceComposer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\character\HeldItemModel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\Chunk.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -72,6 +75,9 @@
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\TerrainGenerator.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\entity\BodyMass.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\entity\Entity.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -84,7 +90,19 @@
     <ClInclude Include="C:\Dev\VoxelRPG\src\entity\PlayerController.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\AxeSwing.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\BuildTool.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\Combat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\CombatHits.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\CombatMoves.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\Commands.h">
@@ -103,6 +121,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\ItemRegistry.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\Npcs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\PlayerInteraction.h">
@@ -141,6 +162,15 @@
     <ClInclude Include="C:\Dev\VoxelRPG\src\physics\IPhysics.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\physics\Ragdoll.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\physics\RigidVoxelBody.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\physics\VoxelBall.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\physics\VoxelPhysics.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -163,6 +193,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Mesher.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\PropMeshes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\PropRenderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\ResourcePack.h">
@@ -238,6 +274,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\VoxelVolume.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\world\Woodcutting.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldEditor.h">

@@ -1,5 +1,6 @@
 #pragma once
 #include <glm/glm.hpp>
+#include <functional>
 
 // Forward declarations
 class ChunkManager;
@@ -42,7 +43,23 @@ public:
                            const HumanIntent& intent,
                            float dt) = 0;
 
+    // Advance a human's body by one tick, after moveHuman:
+    // applies the hits queued on it (Human::hit) as knockback
+    // (impulse / mass) and to its ragdoll, then steps the
+    // ragdoll. While the ragdoll is limp the capsule follows
+    // it; when it gets up the capsule is stood back up.
+    virtual void stepRagdoll(Human& human, float dt) = 0;
+
     // Queries
+    // Does something solid stop bodies here: a solid voxel, or a
+    // loose object (a fallen log)? False where the world is not
+    // loaded.
+    virtual bool solidAt(int x, int y, int z) const = 0;
+    // The world's voxels only, without loose objects
+    virtual bool worldSolidAt(int x, int y, int z) const = 0;
+    // Loose objects that bodies collide with, raycasts hit, etc.
+    // (world/Woodcutting.h logs). Empty = none.
+    virtual void setLooseSolids(std::function<bool(int, int, int)> fn) = 0;
     virtual bool isGrounded(const Human& human) const = 0;
     virtual bool isOnWall(const Human& human)   const = 0;
 

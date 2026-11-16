@@ -9,6 +9,7 @@
 #include <iostream>
 #include <vector>
 #include "../character/CharacterAnimator.h"
+#include "../character/HeldItemModel.h"
 #include "../character/FaceComposer.h"
 
 // ══════════════════════════════════════════════════════════
@@ -16,6 +17,24 @@
 // ══════════════════════════════════════════════════════════
 // Owns the GPU copy of a CharacterModel and its painted face.
 // setAppearance() rebuilds both when the look changes.
+// Upload a part mesh into a VAO (positions, normals, colours,
+// part id), creating the buffers the first time
+inline void uploadPartMesh(const std::vector<PartVertex>& v, GLuint& vao, GLuint& vbo) {
+    if (!vao) { glGenVertexArrays(1, &vao); glGenBuffers(1, &vbo); }
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(v.size() * sizeof(PartVertex)), v.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(PartVertex), (void*)offsetof(PartVertex, x));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_BYTE, GL_TRUE, sizeof(PartVertex), (void*)offsetof(PartVertex, nx));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 3, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(PartVertex), (void*)offsetof(PartVertex, r));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(3, 1, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(PartVertex), (void*)offsetof(PartVertex, a));
+    glEnableVertexAttribArray(3);
+    glBindVertexArray(0);
+}
+
 class Character {
 public:
     Character() = default;
@@ -46,6 +65,27 @@ public:
     bool                  ready()      const { return built && vao != 0; }
     void                  resetAnimation()   { animator.reset(); }
 
+    // What the right hand holds (character/HeldItemModel.h).
+    // Rebuilt only when it, the body or the hair mesh mode
+    // changes.
+    void setHeldModel(HeldModel which) {
+        if (which == heldKind && heldFor == model.heightIn && heldMode == hairMode) return;
+        heldKind = which; heldFor = model.heightIn; heldMode = hairMode;
+        std::vector<PartVertex> v = heldItemMesh(which, model, hairMode);
+        heldCount = (GLsizei)v.size();
+        if (heldCount) uploadPartMesh(v, heldVao, heldVbo);
+    }
+    GLuint  heldVao = 0, heldVbo = 0;
+    GLsizei heldCount = 0;
+
+    // A skeleton from outside the animation (the ragdoll), in
+    // world voxels; drawn instead of the animated pose until
+    // cleared. The animation keeps running underneath.
+    void setWorldPose(const std::array<glm::mat4, BONE_COUNT>& m) { worldMats = m; useWorld = true; }
+    void clearWorldPose()                                          { useWorld = false; }
+    bool hasWorldPose() const                                      { return useWorld; }
+    const std::array<glm::mat4, BONE_COUNT>& worldPose() const     { return worldMats; }
+
     // Eyes close for a moment every few seconds
     bool blinking() const { return std::fmod(blinkClock, 3.6f) < 0.13f; }
 
@@ -62,6 +102,11 @@ private:
     CharacterAnimator animator;
     bool              built = false;
     float             blinkClock = 0.0f;
+    std::array<glm::mat4, BONE_COUNT> worldMats{};
+    bool              useWorld = false;
+    HeldModel         heldKind = HeldModel::None;
+    float             heldFor = 0.0f;
+    HairMesh          heldMode = HairMesh::Shards;
 
     void upload() {
         std::vector<PartVertex> all;
@@ -70,19 +115,7 @@ private:
             count[b] = (GLsizei)model.parts[b].size();
             all.insert(all.end(), model.parts[b].begin(), model.parts[b].end());
         }
-        if (!vao) { glGenVertexArrays(1, &vao); glGenBuffers(1, &vbo); }
-        glBindVertexArray(vao);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(all.size() * sizeof(PartVertex)), all.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(PartVertex), (void*)offsetof(PartVertex, x));
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 3, GL_BYTE, GL_TRUE, sizeof(PartVertex), (void*)offsetof(PartVertex, nx));
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(2, 3, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(PartVertex), (void*)offsetof(PartVertex, r));
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(3, 1, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(PartVertex), (void*)offsetof(PartVertex, a));
-        glEnableVertexAttribArray(3);
-        glBindVertexArray(0);
+        uploadPartMesh(all, vao, vbo);
 
         // the painted face, open and blinking
         std::vector<uint8_t> px;
@@ -101,8 +134,11 @@ private:
     void release() {
         if (vbo) glDeleteBuffers(1, &vbo);
         if (vao) glDeleteVertexArrays(1, &vao);
+        if (heldVbo) glDeleteBuffers(1, &heldVbo);
+        if (heldVao) glDeleteVertexArrays(1, &heldVao);
         if (faceTex[0]) glDeleteTextures(2, faceTex);
-        vao = vbo = 0;
+        vao = vbo = heldVao = heldVbo = 0;
+        heldCount = 0; heldKind = HeldModel::None;
         faceTex[0] = faceTex[1] = 0;
     }
 };
@@ -268,17 +304,15 @@ void main() {
 
     // Model-to-world for a character standing at 'feet' (world voxels)
     static glm::mat4 rootTransform(const Character& ch, glm::vec3 feet) {
-        const Pose& p = ch.pose();
-        glm::mat4 m = glm::translate(glm::mat4(1.0f), feet);
-        m = glm::rotate(m, glm::radians(90.0f - p.bodyYaw), glm::vec3(0, 1, 0));   // model +Z forward; yaw 0 faces +X
-        m = glm::scale(m, glm::vec3(0.25f));                                       // inches → world voxels
-        if (p.spinPitch != 0.0f) {
-            float mid = ch.getModel().heightIn * 0.35f;
-            m = glm::translate(m, glm::vec3(0, mid, 0));
-            m = glm::rotate(m, glm::radians(p.spinPitch), glm::vec3(1, 0, 0));
-            m = glm::translate(m, glm::vec3(0, -mid, 0));
-        }
-        return m;
+        return characterRoot(ch.getModel(), ch.pose(), feet);
+    }
+
+    // Each part's world matrix: the ragdoll's skeleton when the
+    // character has one (Character::setWorldPose), otherwise
+    // the animation placed at the feet
+    static void bodyMatrices(const Character& ch, glm::vec3 feet, std::array<glm::mat4, BONE_COUNT>& out) {
+        if (ch.hasWorldPose()) { out = ch.worldPose(); return; }
+        worldBoneMatrices(ch.getModel(), ch.pose(), feet, out);
     }
 
     // Colour pass for one character
@@ -286,8 +320,7 @@ void main() {
               glm::vec3 fogColor, float fogDensity) {
         if (!body || !ch.ready()) return;
         std::array<glm::mat4, BONE_COUNT> mats;
-        boneMatrices(ch.getModel(), ch.pose(), mats);
-        glm::mat4 root = rootTransform(ch, feet);
+        bodyMatrices(ch, feet, mats);
 
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
@@ -304,14 +337,19 @@ void main() {
         glBindVertexArray(ch.vao);
         for (int b = 0; b < BONE_COUNT; b++) {
             if (!ch.count[b]) continue;
-            glm::mat4 m = root * mats[b];
-            glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(m));
+            glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[b]));
             glDrawArrays(GL_TRIANGLES, ch.first[b], ch.count[b]);
+        }
+        if (ch.heldCount) {                       // the tool in the right hand
+            glBindVertexArray(ch.heldVao);
+            glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[B_WRIST_R]));
+            glDrawArrays(GL_TRIANGLES, 0, ch.heldCount);
+            glBindVertexArray(ch.vao);
         }
         // face card on the front of the head
         glDisable(GL_CULL_FACE);
         glUseProgram(face);
-        glm::mat4 hm = root * mats[B_HEAD];
+        glm::mat4 hm = mats[B_HEAD];
         glUniformMatrix4fv(loc(face, "uViewProj"), 1, GL_FALSE, glm::value_ptr(viewProj));
         glUniformMatrix4fv(loc(face, "uModel"), 1, GL_FALSE, glm::value_ptr(hm));
         const CharacterModel& m = ch.getModel();
@@ -356,14 +394,17 @@ void main() {
         for (const Placed& p : list) {
             if (!p.ch || !p.ch->ready()) continue;
             std::array<glm::mat4, BONE_COUNT> mats;
-            boneMatrices(p.ch->getModel(), p.ch->pose(), mats);
-            glm::mat4 root = rootTransform(*p.ch, p.feet);
+            bodyMatrices(*p.ch, p.feet, mats);
             glBindVertexArray(p.ch->vao);
             for (int b = 0; b < BONE_COUNT; b++) {
                 if (!p.ch->count[b]) continue;
-                glm::mat4 m = root * mats[b];
-                glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(m));
+                glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[b]));
                 glDrawArrays(GL_TRIANGLES, p.ch->first[b], p.ch->count[b]);
+            }
+            if (p.ch->heldCount) {
+                glBindVertexArray(p.ch->heldVao);
+                glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[B_WRIST_R]));
+                glDrawArrays(GL_TRIANGLES, 0, p.ch->heldCount);
             }
         }
         glDisable(GL_CULL_FACE);

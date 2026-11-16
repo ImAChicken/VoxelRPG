@@ -160,6 +160,10 @@ public:
         extractFrustum(projMatrix * viewMatrix);
     }
 
+    // The block atlas (props draw with it too)
+    const AtlasTexture& getAtlas() const { return atlas; }
+    bool hasAtlas() const { return atlasLoaded; }
+
     // Draw one chunk mesh whose corner sits at 'origin'.
     // Chunks completely outside the camera's view are skipped.
     //   lightTex  the section's baked light (3D texture), or 0

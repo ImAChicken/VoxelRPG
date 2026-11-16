@@ -1,5 +1,6 @@
 #pragma once
 #include "IPhysics.h"
+#include "../game/CombatMoves.h"
 #include "../chunk/ChunkManager.h"
 #include "../entity/Human.h"
 #include "../voxel/VoxelRegistry.h"
@@ -39,10 +40,22 @@ public:
     void setWorld(ChunkManager& w) override { world = &w; }
 
     // ── One tick of movement ──────────────────────────────
-    void moveHuman(Human& h, const HumanIntent& in,
+    void moveHuman(Human& h, const HumanIntent& intent,
                    float dt) override {
         if (!world) return;
         h.waitingForWorld = false;
+
+        // ── Knocked down ──────────────────────────────────
+        // Limp: the ragdoll carries the body (stepRagdoll moves
+        // the capsule). Getting up: gravity, but no steering.
+        if (h.ragdoll.isLimp() && !intent.fly) {
+            h.velocity = glm::vec3(0.0f);
+            return;
+        }
+        HumanIntent locked;
+        locked.fly = intent.fly; locked.flyMove = intent.flyMove; locked.flyFast = intent.flyFast;
+        const HumanIntent& in = (h.ragdoll.controlsLocked() || h.dead()) ? locked : intent;
+        if (h.dead()) h.attack = AttackState();
 
         // ── Fly mode: no gravity, no collision ────────────
         if (in.fly) {
@@ -77,9 +90,11 @@ public:
         updateCrouch(h, in, dt);
 
         // ── Freeze: hang in the air, momentum stored ──────
+        // An attack breaks the freeze (the window it was made for)
         if (h.freeze != Human::Freeze::None) {
             h.freezeTimer -= dt;
-            if (h.freezeTimer > TIMER_EPSILON) return;
+            bool attack = (in.attackLight || in.attackHeavy) && h.weaponDamage > 0.0f && h.hasAirAttack;
+            if (h.freezeTimer > TIMER_EPSILON && !attack) return;
             releaseFreeze(h);
         }
 
@@ -87,7 +102,13 @@ public:
         bool busy = (h.move == Human::Move::Roll ||
                      h.move == Human::Move::Backstep);
 
-        if (in.jump && !busy) {
+        // ── Attacks (game/Combat.h) ───────────────────────
+        combat::startAttack(h, in);
+        bool attacking = h.attack.active();
+        h.guarding = in.guard && !attacking && h.grounded && h.move == Human::Move::None &&
+                     h.weaponDamage > 0.0f;
+
+        if (in.jump && !busy && !attacking) {
             if (h.grounded) {
                 h.velocity.y = launchSpeed(Human::JUMP_HEIGHT);
                 h.grounded   = false;
@@ -99,11 +120,20 @@ public:
             }
         }
 
-        if (in.dodge && h.move == Human::Move::None) {
+        // A dodge can cancel an attack only late in its recovery
+        bool canDodge = h.move == Human::Move::None &&
+                        (!attacking || h.attack.t >= h.attack.def().cancelFrom);
+        if (in.dodge && canDodge) {
             glm::vec2 wish = wishDir(in);
             bool moving = (wish.x != 0.0f || wish.y != 0.0f);
+            float cost = !h.grounded ? combat::AIRDODGE_STAMINA
+                       : moving      ? combat::ROLL_STAMINA : combat::BACKSTEP_STAMINA;
+            bool allowed = (h.grounded || h.hasAirDodge) && h.spend(cost);
+            if (allowed && attacking) { h.attack = AttackState(); attacking = false; }
 
-            if (h.grounded) {
+            if (!allowed) {
+                // out of stamina: nothing
+            } else if (h.grounded) {
                 if (moving) {
                     // Roll the way you are moving
                     h.move      = Human::Move::Roll;
@@ -132,14 +162,28 @@ public:
         // ── Horizontal velocity ───────────────────────────
         glm::vec2 wish  = wishDir(in);
         bool moving     = (wish.x != 0.0f || wish.y != 0.0f);
-        float speed     = h.crouching ? Human::CROUCH_SPEED
+        float speed     = (h.crouching ? Human::CROUCH_SPEED
                         : in.sprint   ? Human::SPRINT_SPEED
-                                      : Human::WALK_SPEED;
-        h.sprinting = in.sprint && moving && !h.crouching;
+                                      : Human::WALK_SPEED) * in.speedScale
+                          * (h.guarding ? combat::GUARD_SPEED : 1.0f);
+        h.sprinting = in.sprint && moving && !h.crouching && in.speedScale >= 1.0f;
 
         glm::vec2 vh(h.velocity.x, h.velocity.z);
 
-        if (h.move == Human::Move::Roll ||
+        if (attacking) {
+            // Committed: the attack moves the body
+            const AttackDef& d = h.attack.def();
+            glm::vec2 dir2(h.attack.dir.x, h.attack.dir.z);
+            if (h.attack.kind == AttackKind::AirLight) {
+                if (h.attack.t < d.activeEnd + 0.05f && !h.grounded) vh = dir2 * combat::LURCH_SPEED;   // the lurch
+                else vh *= std::exp(-dt * (h.grounded ? 12.0f : 3.0f));                             // then it slows
+            } else if (h.attack.kind == AttackKind::AirHeavy) {
+                vh = glm::vec2(0.0f);                                                   // straight down
+            } else if (h.grounded) {
+                bool step = h.attack.t >= d.lungeFrom && h.attack.t <= d.lungeTo;       // rooted, stepping in
+                vh = dir2 * (step ? d.lunge : 0.0f);
+            }
+        } else if (h.move == Human::Move::Roll ||
             h.move == Human::Move::Backstep) {
             // Committed: fixed speed, fixed direction
             float moveSpeed = (h.move == Human::Move::Roll)
@@ -171,13 +215,22 @@ public:
         // Exact for constant gravity, so a jump peaks at
         // exactly JUMP_HEIGHT whatever the tick rate
         float dy = 0.0f;
-        if (h.grounded) {
+        float gravity = Human::GRAVITY;
+        bool plunge = false;
+        if (h.attack.kind == AttackKind::AirLight && h.attack.t < h.attack.def().activeEnd + 0.05f)
+            gravity *= combat::LURCH_GRAVITY;                   // the lurch carries
+        if (h.attack.kind == AttackKind::AirHeavy && !h.attack.landed) {
+            gravity = 0.0f;
+            plunge = h.attack.plunging;
+            h.velocity.y = plunge ? -combat::PLUNGE_SPEED : 0.0f;   // hang, then straight down
+        }
+        if (h.grounded && !(plunge && h.velocity.y > 0.0f)) {
             h.velocity.y = 0.0f;
         } else {
             dy = h.velocity.y * dt
-               - 0.5f * Human::GRAVITY * dt * dt;
-            h.velocity.y -= Human::GRAVITY * dt;
-            if (h.velocity.y < -Human::MAX_FALL_SPEED)
+               - 0.5f * gravity * dt * dt;
+            h.velocity.y -= gravity * dt;
+            if (h.velocity.y < -Human::MAX_FALL_SPEED && !plunge)
                 h.velocity.y = -Human::MAX_FALL_SPEED;
         }
 
@@ -202,6 +255,13 @@ public:
         if (h.grounded) {
             h.hasDoubleJump = true;
             h.hasAirDodge   = true;
+            h.hasAirAttack  = true;
+            if (h.attack.kind == AttackKind::AirHeavy && h.attack.plunging) {
+                // the plunge lands: the slam (its hit window) starts now
+                h.attack.plunging = false;
+                h.attack.landed   = true;
+                h.attack.t = h.attack.prevT = combat::SLAM_AT;
+            }
         }
 
         // ── Finish a committed move ───────────────────────
@@ -218,7 +278,62 @@ public:
                 h.moveTimer = 0.0f;
             }
         }
+
+        combat::advanceAttack(h, dt);
+        combat::regainStamina(h, dt);
     }
+
+    // ── The body: hits and the ragdoll ────────────────────
+    void stepRagdoll(Human& h, float dt) override {
+        Ragdoll& rd = h.ragdoll;
+        if (!world || h.flying) {           // no body to knock about
+            h.hits.clear();
+            rd.reset();
+            return;
+        }
+        rd.setMass(h.body);
+        h.mass = h.body.total();
+        for (const Human::Hit& hit : h.hits) {
+            // the capsule takes the push too (the ragdoll shows
+            // it), unless the body is already down
+            if (!rd.controlsLocked()) {
+                h.velocity += hit.impulse / std::max(h.mass, 1.0f);
+                if (hit.impulse.y > 0.0f) h.grounded = false;
+            }
+            rd.hit(hit.point, hit.impulse, h.mass);
+        }
+        h.hits.clear();
+
+        rd.step(dt, [this](int x, int y, int z) { return isSolid(x, y, z); });
+
+        if (rd.isLimp()) {
+            // the capsule lies under the body, so the camera and
+            // anything looking for the player follow it
+            glm::vec3 p = rd.point(RP_PELVIS);
+            h.position = glm::vec3(p.x, rd.bottom(), p.z);
+            h.velocity = glm::vec3(0.0f);
+            h.grounded = true;
+            if (p.y < KILL_Y) {             // tumbled out of the world
+                rd.reset();
+                h.fellOutOfWorld = true;
+            }
+        }
+        if (rd.takeStandUp()) {
+            // back on its feet where it lies (or as near as fits)
+            glm::vec3 p = rd.point(RP_PELVIS), spot;
+            if (findStandingSpot(p.x, p.z, Human::RADIUS, Human::STAND_HEIGHT, spot))
+                h.position = spot;
+            h.velocity = glm::vec3(0.0f);
+        }
+    }
+
+    bool solidAt(int x, int y, int z) const override {
+        return world && isSolid(x, y, z);
+    }
+    bool worldSolidAt(int x, int y, int z) const override {
+        return world && isWorldSolid(x, y, z);
+    }
+    void setLooseSolids(std::function<bool(int, int, int)> fn) override { loose = std::move(fn); }
 
     bool isGrounded(const Human& h) const override {
         return world && supported(h.position, h.height);
@@ -378,11 +493,16 @@ private:
         return std::sqrt(2.0f * Human::GRAVITY * height);
     }
 
-    bool isSolid(int wx, int wy, int wz) const {
+    bool isWorldSolid(int wx, int wy, int wz) const {
         uint16_t id = world->typeAtVoxel(wx, wy, wz);
         if (id == BLOCK_AIR) return false;
         return id < solid.size() ? solid[id] != 0 : true;
     }
+    // The world, and loose objects in it (fallen logs)
+    bool isSolid(int wx, int wy, int wz) const {
+        return isWorldSolid(wx, wy, wz) || (loose && loose(wx, wy, wz));
+    }
+    std::function<bool(int, int, int)> loose;
 
     // Does an upright cylinder at 'pos' touch a solid voxel?
     // Exact test: for every voxel column the cylinder's

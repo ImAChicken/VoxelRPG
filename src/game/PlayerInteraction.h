@@ -7,6 +7,8 @@
 #include "../render/Camera.h"
 #include "../world/WorldEditor.h"
 #include "../world/StructureManager.h"
+#include "../world/Woodcutting.h"
+#include "AxeSwing.h"
 #include "BuildTool.h"
 #include <glm/glm.hpp>
 #include <algorithm>
@@ -27,6 +29,12 @@
 //   right click   break (use_right "remove")
 //   left click    place the held block, or use the held tool
 //   middle click  pick: copy the block you look at
+//
+// The axe is different: it is swung, Valheim style (left click,
+// hold to keep swinging), and what it hits is found by tracing
+// its blade through the world (game/AxeSwing.h; the main loop
+// calls axeHit()). Trees fall over and become logs
+// (world/Woodcutting.h).
 //
 // Pickaxes break a whole cube (the item's "cube" size, see
 // game/CubeTool.h): on a grid of that size, or off the grid
@@ -83,6 +91,10 @@ public:
 
     std::function<void(const std::string&)> log =
         [](const std::string&) {};
+
+    // Felled trees, logs and drops (set by the main loop when a
+    // world is open)
+    Woodcutting* wood = nullptr;
 
     // Look for the block under the crosshair. Call every
     // frame a body exists, before update().
@@ -171,6 +183,17 @@ public:
             return;
         }
 
+        // ── Axe: swung, not dug with ──────────────────────
+        // Left click (held: again and again) starts a swing; the
+        // hit itself comes from the blade's path (axeHit)
+        if (held.is(IC_TOOL) && held.tool == ToolKind::Axe) {
+            breakProgress = 0.0f;
+            if (gInput.isHeld(InputAction::UseLeft) && !player.swing.active() &&
+                !player.ragdoll.controlsLocked())
+                player.swing.start();
+            return;
+        }
+
         // ── Pickaxe: a cube at a time ─────────────────────
         bool pick = held.is(IC_TOOL) && held.tool == ToolKind::Pickaxe && held.cubeSize > 0;
         bool aimPlant = target.hit && gRegistry.get((uint16_t)target.blockID).isPlant();
@@ -215,6 +238,66 @@ public:
                 });
             }
         }
+    }
+
+    // ── Axe hits ──────────────────────────────────────────
+    // The blade went into a voxel (game/AxeSwing.h). Damage from
+    // the edge's speed:
+    //   a tree's wood   health down; at 0 it falls
+    //   a fallen log    health down, wood dropped on the ground
+    //   anything else   a thunk and some chips, no damage
+    // Test Play fells and breaks up in one go.
+    void axeHit(Player& player, StructureManager& structs, WorldEditor& editor,
+                const axeswing::BladeHit& hit, float toolPower) {
+        bool survival = player.mode == GameMode::Survival;
+        EditSource src = survival ? EditSource::Player : EditSource::Dev;
+        float dmg = AxeSwing::damageFor(toolPower, hit.speed);
+        uint16_t id = editor.typeAt(hit.voxel);
+
+        if (wood) {
+            if (Woodcutting::Log* lg = wood->logAt(hit.point)) {
+                std::string name = lg->name;
+                float maxH = lg->maxHealth;
+                float left = std::max(0.0f, lg->health - (survival ? dmg : lg->health));
+                auto r = wood->hitLog(*lg, dmg, hit.point, hit.dir, !survival);   // lg may be gone after this
+                treeName = name; treeMax = maxH; treeAge = 0.0f;
+                treeHealth = r.broken ? 0.0f : left;
+                if (r.broken) say(name + " broken up");
+                return;
+            }
+        }
+        StructureInstance* s = id == BLOCK_LEAVES ? nullptr : structs.instanceOrNaturalTree(hit.voxel);
+        const StructureType* t = s ? structs.typeOf(*s) : nullptr;
+        if (t && t->kind == StructureKind::Tree) {
+            if (!survival) dmg = s->health + 1.0f;
+            s->health -= dmg;
+            treeName = t->displayName; treeMax = t->health; treeAge = 0.0f;
+            treeHealth = std::max(0.0f, s->health);
+            if (wood) wood->chips(hit.point, id, 7, -hit.dir);
+            if (s->health <= 0.0f) {
+                glm::vec3 away = glm::vec3(s->origin) - player.position;
+                fellTree(structs, *s, away, src);
+            }
+            return;
+        }
+        // anything else: the blade stops, nothing is harmed
+        if (wood) wood->chips(hit.point, id, 4, -hit.dir);
+    }
+
+    // Take a dead tree out of the world and let it fall (away
+    // along 'away'), or, with no woodcutting set up, just remove it
+    void fellTree(StructureManager& structs, StructureInstance& s, glm::vec3 away, EditSource src) {
+        const StructureType* t = structs.typeOf(s);
+        if (!t) return;
+        say(t->displayName + " falls");
+        if (!wood) { structs.chop(s, s.health + 1.0f, src); return; }
+        Woodcutting::TreeInfo info{ t->displayName, t->dropItem, t->dropCount, t->health };
+        glm::ivec3 base = s.origin;
+        int stumpTop = base.y + Woodcutting::STUMP_HEIGHT;
+        std::vector<VoxelPiece> logVox, leaves;
+        structs.fell(s, stumpTop, src, logVox, leaves);       // s is gone after this
+        wood->fellTree(std::move(logVox), leaves, away,
+                       glm::vec3(base.x + 0.5f, (float)stumpTop, base.z + 0.5f), info);
     }
 
     // While the copy prompt is up, 1 and 2 answer it instead
@@ -422,24 +505,19 @@ private:
 
         if (t && t->kind == StructureKind::Tree) {
             // ── Chop ─────────────────────────────────────
-            // An axe does its power in damage, anything else 1.
-            // Test Play fells in one go.
-            float dmg = (held.is(IC_TOOL) && held.tool == ToolKind::Axe)
-                      ? std::max(1.0f, held.toolPower) : 1.0f;
+            // Hands and other tools do 1 (the axe is swung
+            // instead, see axeHit). Test Play fells in one go.
+            float dmg = 1.0f;
             if (!survival) dmg = s->health + 1.0f;
             treeName = t->displayName;
             treeMax  = t->health;
             treeHealth = std::max(0.0f, s->health - dmg);
             treeAge  = 0.0f;
-            uint16_t drop = t->dropItem;
-            int dropN = t->dropCount;
-            if (structs.chop(*s, dmg, src)) {
-                say(t->displayName + " falls");
-                if (survival && drop) {
-                    int left = player.inventory.add(drop, dropN);
-                    if (left) say("inventory full - " + std::to_string(left) + " lost");
-                }
-            }
+            // at 0 it falls over and lies as a log; its wood comes
+            // from chopping the log (world/Woodcutting.h)
+            s->health -= dmg;
+            if (s->health <= 0.0f)
+                fellTree(structs, *s, glm::vec3(s->origin) - player.position, src);
             return;
         }
 
@@ -609,6 +687,13 @@ private:
 
     // "Wooden Door (E: open)" etc. for the HUD
     void describeAim(StructureManager& structs, StructureInstance* s) {
+        if (!s && wood && target.hit)
+            if (const Woodcutting::Log* lg = wood->logAt(target.position)) {
+                char b[96];
+                std::snprintf(b, sizeof(b), "%s  %.0f / %.0f", lg->name.c_str(), lg->health, lg->maxHealth);
+                aimLabel = b;
+                return;
+            }
         if (!s) {
             // A natural tree nobody has chopped yet
             if (target.hit && target.blockID != BLOCK_LEAVES)

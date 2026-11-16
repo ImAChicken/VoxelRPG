@@ -10,14 +10,22 @@
 # cube:        pickaxes: breaks a cube this many voxels wide in one go,
 #              lined up on a grid of that size (hold Shift for off-grid)
 # weapon_class / damage: used in the combat stance only
+# held_model:  what is drawn in the hand: "axe" (character/HeldItemModel.h)
 # dev_tool:    wand | fill | replace | brush | copy | paste | explode | breaker | cube
 # color:       swatch shown in menus until items have icons
+# weight:      kg, for one of the item. Counts toward the body's mass
+#              when worn, held, or carried in the weapon slot (on the
+#              back when sheathed). Heavier bodies take less knockback,
+#              and weight in the hand slows that arm's recovery.
+# worn:        head | torso | hands | legs | feet | back
+#              gear worn on that part of the body (console: wear <item>)
 # No recompile needed after editing — F6 reloads blocks and items.
 
 # ── Player tools ──────────────────────────────────────────
 [[item]]
 id = 1000
 name = "wooden_pickaxe"
+weight = 1.5              # kg
 categories = ["tool"]
 tool = "pickaxe"
 cube = 6                 # 24 inch (2 ft) cube
@@ -27,6 +35,7 @@ color = [0.60, 0.45, 0.25]
 [[item]]
 id = 1001
 name = "stone_pickaxe"
+weight = 2.5              # kg
 categories = ["tool"]
 tool = "pickaxe"
 cube = 6                 # 24 inch (2 ft) cube
@@ -36,6 +45,7 @@ color = [0.55, 0.55, 0.55]
 [[item]]
 id = 1002
 name = "iron_pickaxe"
+weight = 3.0              # kg
 categories = ["tool"]
 tool = "pickaxe"
 cube = 6                 # 24 inch (2 ft) cube
@@ -45,6 +55,7 @@ color = [0.80, 0.80, 0.85]
 [[item]]
 id = 1010
 name = "wooden_shovel"
+weight = 1.5              # kg
 categories = ["tool"]
 tool = "shovel"
 tool_power = 2.0
@@ -53,6 +64,7 @@ color = [0.60, 0.45, 0.25]
 [[item]]
 id = 1011
 name = "iron_shovel"
+weight = 2.5              # kg
 categories = ["tool"]
 tool = "shovel"
 tool_power = 8.0
@@ -61,6 +73,7 @@ color = [0.80, 0.80, 0.85]
 [[item]]
 id = 1020
 name = "hoe"
+weight = 1.5              # kg
 categories = ["tool"]
 tool = "hoe"
 tool_power = 3.0
@@ -70,34 +83,63 @@ color = [0.50, 0.40, 0.30]
 [[item]]
 id = 1040
 name = "builders_hammer"
+weight = 2.0              # kg
 display = "Builder's Hammer"
 categories = ["tool"]
 tool = "hammer"
 color = [0.70, 0.55, 0.35]
 
-# An axe is both: a tool for wood, and a weapon in combat
+# ── The axe: a TOOL, not a weapon ────────────────────────
+# Lives in the toolbar, never the weapon slot, and is not used in
+# the combat stance. While it is the held toolbar item the camera
+# goes to third person, and left click swings it, Valheim style:
+# a wind-up over the right shoulder and a diagonal chop (see
+# game/AxeSwing.h). The blade's path is traced through the world
+# and its speed when it lands sets the damage, up to tool_power.
+#   trees   take damage; at 0 the tree falls over as one heavy
+#           piece, its leaves break off, and it lies as a log
+#   logs    take damage too; each hit drops a share of the tree's
+#           wood on the ground; the last hit breaks the log up
+#   other   blocks stop the blade (a thunk) but are not harmed
+# Right click does nothing with it.
 [[item]]
 id = 1030
 name = "iron_axe"
-categories = ["tool", "weapon"]
+weight = 2.5              # kg
+categories = ["tool"]
 tool = "axe"
-tool_power = 6.0
-weapon_class = "axe"
-damage = 14.0
+tool_power = 6.0          # damage of a full-speed chop (an oak has 40)
+held_model = "axe"        # drawn in the hand, built from voxels (character/HeldItemModel.h)
 color = [0.75, 0.70, 0.65]
 
-# ── Weapons (combat stance only) ──────────────────────────
+# ── Weapons ───────────────────────────────────────────────
+# A weapon fights; it doesn't work the world. Wielded from the
+# weapon slot (Survival: R draws it, the combat stance) or held
+# in the toolbar (any mode with a body, e.g. Test Play). Either
+# way the camera goes to third person and the mouse fights
+# instead of building (game/Combat.h):
+#   left click     light attack (press again in time: the combo)
+#   right click    heavy attack (slow, knocks down)
+#   in the air     light: lurch forward / heavy: plunge and slam
+#   Q (hold)       guard: blocks most damage from the front, at
+#                  the cost of stamina
+# Every attack, roll and dodge costs stamina. 'damage' is a hit
+# from a light attack; the others multiply it. Enemies with a
+# weapon use the same moves.
 [[item]]
 id = 1100
 name = "iron_sword"
+weight = 1.5              # kg
 categories = ["weapon"]
 weapon_class = "sword"
 damage = 12.0
+held_model = "sword"      # drawn in the hand, built from voxels (character/HeldItemModel.h)
 color = [0.85, 0.85, 0.90]
 
 [[item]]
 id = 1101
 name = "wooden_club"
+weight = 2.0              # kg
 categories = ["weapon"]
 weapon_class = "club"
 damage = 8.0
@@ -106,6 +148,7 @@ color = [0.55, 0.40, 0.25]
 [[item]]
 id = 1102
 name = "spear"
+weight = 2.5              # kg
 categories = ["weapon"]
 weapon_class = "spear"
 damage = 10.0
@@ -187,3 +230,69 @@ display = "Cube Tool"
 categories = ["dev"]
 dev_tool = "cube"
 color = [0.40, 0.80, 0.95]
+
+# ── Worn gear ─────────────────────────────────────────────
+# Weight only for now: no model yet, so nothing shows on the
+# body. Put on with the console: wear <item>, wear off <slot>.
+[[item]]
+id = 1300
+name = "leather_cap"
+weight = 0.5
+worn = "head"
+color = [0.55, 0.40, 0.28]
+
+[[item]]
+id = 1301
+name = "iron_helmet"
+weight = 2.5
+worn = "head"
+color = [0.75, 0.75, 0.80]
+
+[[item]]
+id = 1302
+name = "leather_jerkin"
+weight = 3.0
+worn = "torso"
+color = [0.50, 0.36, 0.25]
+
+[[item]]
+id = 1303
+name = "chainmail"
+weight = 11.0
+worn = "torso"
+color = [0.65, 0.66, 0.70]
+
+[[item]]
+id = 1304
+name = "plate_cuirass"
+weight = 14.0
+worn = "torso"
+color = [0.80, 0.80, 0.85]
+
+[[item]]
+id = 1305
+name = "iron_gauntlets"
+weight = 1.8
+worn = "hands"
+color = [0.72, 0.72, 0.78]
+
+[[item]]
+id = 1306
+name = "iron_greaves"
+weight = 4.0
+worn = "legs"
+color = [0.72, 0.72, 0.78]
+
+[[item]]
+id = 1307
+name = "leather_boots"
+weight = 1.4
+worn = "feet"
+color = [0.40, 0.28, 0.20]
+
+[[item]]
+id = 1308
+name = "travel_pack"
+weight = 9.0
+worn = "back"
+color = [0.45, 0.42, 0.30]

@@ -1,6 +1,7 @@
 #pragma once
 #include "../voxel/VoxelRegistry.h"
 #include "../world/Decorations.h"
+#include "../entity/BodyMass.h"
 #include <toml++/toml.hpp>
 #include <algorithm>
 #include <cctype>
@@ -23,7 +24,8 @@
 //
 // Categories are flags, so one item can be several things:
 // an axe is a tool (chops wood) AND a weapon (used in
-// combat). What each category means in play:
+// combat). (The iron axe is a tool only: see items.toml.)
+// What each category means in play:
 //
 //   block    placed into the world
 //   tool     used in first person in Survival to dig
@@ -37,6 +39,7 @@ constexpr uint32_t IC_TOOL   = 1 << 1;
 constexpr uint32_t IC_WEAPON = 1 << 2;
 constexpr uint32_t IC_DEV    = 1 << 3;
 constexpr uint32_t IC_DECOR  = 1 << 4;   // a decoration from decorations.toml: places it
+constexpr uint32_t IC_WORN   = 1 << 5;   // gear worn on the body (helmet, armour, pack)
 
 // IDs below this belong to block items
 constexpr uint16_t FIRST_NON_BLOCK_ITEM = 1000;
@@ -78,6 +81,10 @@ struct ItemDef {
     DevToolKind devTool     = DevToolKind::None;
 
     int         decor       = -1;           // decoration items: index in decor::Set
+
+    float       weight      = 0.0f;         // kg, one of it (worn, held or sheathed: entity/BodyMass.h)
+    std::string heldModel;                  // drawn in the hand ("axe"), "" = nothing
+    int         worn        = -1;           // worn items: which WornSlot (-1: not worn)
 
     float       color[3]    = {0.7f, 0.7f, 0.7f};   // menu swatch
 
@@ -183,7 +190,13 @@ private:
             ItemDef d;
             d.id          = (uint16_t)id;
             d.name        = b.name;
-            d.displayName = prettify(b.name);
+            // "log_y" → "Log": the axis suffix only says which way
+            // the grain runs when placed
+            std::string shown = b.name;
+            if (shown.size() > 2 && shown[shown.size() - 2] == '_' &&
+                (shown.back() == 'x' || shown.back() == 'y' || shown.back() == 'z'))
+                shown.resize(shown.size() - 2);
+            d.displayName = prettify(shown);
             d.categories  = IC_BLOCK;
             d.maxStack    = 999;
             d.blockID     = (uint16_t)id;
@@ -219,6 +232,7 @@ private:
                         else if (s == "tool")   d.categories |= IC_TOOL;
                         else if (s == "weapon") d.categories |= IC_WEAPON;
                         else if (s == "dev")    d.categories |= IC_DEV;
+                        else if (s == "worn")   d.categories |= IC_WORN;
                     }
 
                 std::string tool = (*t)["tool"].value_or("");
@@ -232,6 +246,19 @@ private:
 
                 d.weaponClass = (*t)["weapon_class"].value_or(std::string());
                 d.damage      = (float)(*t)["damage"].value_or(0.0);
+
+                d.weight = (float)(*t)["weight"].value_or(0.0);
+                d.heldModel = (*t)["held_model"].value_or(std::string());
+                {
+                    std::string w = (*t)["worn"].value_or(std::string());
+                    if (!w.empty()) {
+                        d.worn = wornSlotFromKey(w.c_str());
+                        if (d.worn < 0)
+                            std::cerr << "items.toml: " << d.name << ": unknown worn slot '" << w << "'\n";
+                        else
+                            d.categories |= IC_WORN;
+                    }
+                }
 
                 std::string dev = (*t)["dev_tool"].value_or("");
                 if      (dev == "wand")    d.devTool = DevToolKind::Wand;

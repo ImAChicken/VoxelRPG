@@ -84,3 +84,25 @@ endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(VoxelRPG PRIVATE DEV_BUILD)
 endif()
+# ── Tests ─────────────────────────────────────────────────
+# Headless test programs (no window, no OpenGL). Off by default:
+#   cmake -B build -DVOXELRPG_TESTS=ON
+#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test
+#   build/bin/Release/ragdoll_test      (build/bin/ragdoll_test elsewhere)
+#   build/bin/Release/woodcut_test      (from the repo root: it reads data/)
+#   build/bin/Release/combat_test
+option(VOXELRPG_TESTS "Build the headless test programs in tests/" OFF)
+if(VOXELRPG_TESTS)
+    add_executable(ragdoll_test tests/ragdoll_test.cpp)
+    # woodcut_test loads data/registry/*.toml: run it from the repo root
+    add_executable(woodcut_test tests/woodcut_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
+    add_executable(combat_test tests/combat_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
+    foreach(t ragdoll_test woodcut_test combat_test)
+        target_include_directories(${t} PRIVATE src)
+        target_link_libraries(${t} PRIVATE glm::glm tomlplusplus::tomlplusplus)
+        if(MSVC)
+            target_compile_options(${t} PRIVATE /utf-8)
+            target_compile_definitions(${t} PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+        endif()
+    endforeach()
+endif()

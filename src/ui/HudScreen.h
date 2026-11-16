@@ -29,6 +29,11 @@ class Hud {
 public:
     const BuildTool* build = nullptr;   // for the hammer readout
 
+    // Enemy health bars, placed over their heads by the game
+    // each frame (screen pixels, origin top-left)
+    struct EnemyBar { float x, y, fill, alpha; bool hurt; };
+    std::vector<EnemyBar> enemyBars;
+
     void draw(UIRenderer& ui, const Player& player,
               const PlayerController& controller,
               const PlayerInteraction& hands, const DevTools& dev) {
@@ -63,9 +68,25 @@ public:
                         w * hands.breakProgress, 6.0f, WHITE);
         }
 
-        // ── Health (Survival, both stances) ───────────────
+        // ── Enemies' health, over their heads ─────────────
+        for (const EnemyBar& b : enemyBars) {
+            const float w = 64.0f, h = 7.0f;
+            float sh0[4] = {0, 0, 0, 160 * b.alpha};
+            float red[4] = {210, 60, 50, 255 * b.alpha};
+            ui.drawRect(b.x - w * 0.5f, b.y, w, h, sh0);
+            ui.drawRect(b.x - w * 0.5f + 1, b.y + 1, (w - 2) * std::clamp(b.fill, 0.0f, 1.0f), h - 2, red);
+        }
+
+        // ── Health (Survival, both stances) and stamina ───
         if (rules.tracksHealth)
             drawHealth(ui, player, 10.0f, sh - 42.0f);
+        if (rules.tracksHealth || player.weaponDamage > 0.0f)
+            drawStamina(ui, player, 10.0f, sh - (rules.tracksHealth ? 58.0f : 26.0f));
+        if (rules.tracksHealth && player.dead()) {
+            std::string died = "YOU DIED";
+            float w = (float)ui.textWidth(died, 4);
+            ui.drawText(died, (sw - w) * 0.5f, sh * 0.38f, COMBAT_RED, 4);
+        }
 
         // ── Bottom centre: toolbar or weapon panel ────────
         if (combat) {
@@ -146,13 +167,15 @@ public:
                         COMBAT_RED, 2);
         }
 
-        // ── Last combat action, fading note ───────────────
-        // (combat actions are still stubs)
-        if (combat && controller.lastAction != PlayerAction::None &&
-            controller.lastActionAge < 1.0f) {
+        // ── The attack in progress (game/Combat.h) ────────
+        if (player.attack.active()) {
+            std::string note = combat::name(player.attack.kind);
+            float w = (float)ui.textWidth(note, 2);
+            ui.drawText(note, (sw - w) * 0.5f, sh - 150.0f, COMBAT_RED, 2);
+        } else if (combat && controller.lastAction == PlayerAction::Guard && controller.guarding) {
             std::string note = playerActionName(controller.lastAction);
             float w = (float)ui.textWidth(note, 2);
-            ui.drawText(note, (sw - w) * 0.5f, sh - 110.0f, COMBAT_RED, 2);
+            ui.drawText(note, (sw - w) * 0.5f, sh - 150.0f, COMBAT_RED, 2);
         }
 
         ui.end();
@@ -193,6 +216,15 @@ private:
         char text[32];
         std::snprintf(text, sizeof(text), "%.0f / %.0f", player.health, player.maxHealth);
         ui.drawTextCentered(text, x, y, w, h, WHITE, 2);
+    }
+
+    void drawStamina(UIRenderer& ui, const Player& player, float x, float y) {
+        const float w = 220.0f, h = 12.0f;
+        float fill = std::clamp(player.stamina / std::max(player.maxStamina, 1.0f), 0.0f, 1.0f);
+        const float green[4] = {90, 190, 80, 255};
+        const float grey[4]  = {120, 120, 110, 255};
+        ui.drawRect(x, y, w, h, SHADOW);
+        ui.drawRect(x + 2.0f, y + 2.0f, (w - 4.0f) * fill, h - 4.0f, player.staminaWait > 0.0f ? grey : green);
     }
 
     // Eight slots plus the weapon slot (Survival only).

@@ -1,5 +1,7 @@
 #pragma once
 #include "CharacterModel.h"
+#include "../game/AxeSwing.h"
+#include "../game/Combat.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
@@ -35,6 +37,11 @@ struct AnimInput {
     bool  frozen    = false;           // double-jump / air-dodge freeze
     enum class Move { None, Roll, Backstep, AirDodge } move = Move::None;
     float moveProgress = 0.0f;         // 0 → 1 through the move
+    float swing = -1.0f;               // axe swing: seconds into it, < 0 = none (game/AxeSwing.h)
+    bool  carryAxe = false;            // an axe in the right hand: carried head-down beside the leg
+    AttackKind attack = AttackKind::None;   // game/Combat.h
+    float attackT = 0.0f;              // seconds into it
+    bool  guard   = false;             // guarding (held)
     float walkSpeed    = 30.0f;        // for scaling the stride
     float sprintSpeed  = 50.0f;
 };
@@ -45,6 +52,22 @@ struct Pose {
     float bodyYaw   = 0.0f;                    // world yaw the body faces
     float spinPitch = 0.0f;                    // whole-body somersault (rolls)
 };
+
+// Where the model sits in the world: feet at 'feet' (voxels),
+// turned to the pose's yaw, scaled from inches to voxels, with
+// the roll's somersault. world bone = characterRoot × mats[b].
+inline glm::mat4 characterRoot(const CharacterModel& model, const Pose& p, glm::vec3 feet) {
+    glm::mat4 m = glm::translate(glm::mat4(1.0f), feet);
+    m = glm::rotate(m, glm::radians(90.0f - p.bodyYaw), glm::vec3(0, 1, 0));   // model +Z forward; yaw 0 faces +X
+    m = glm::scale(m, glm::vec3(0.25f));                                       // inches → world voxels
+    if (p.spinPitch != 0.0f) {
+        float mid = model.heightIn * 0.35f;
+        m = glm::translate(m, glm::vec3(0, mid, 0));
+        m = glm::rotate(m, glm::radians(p.spinPitch), glm::vec3(1, 0, 0));
+        m = glm::translate(m, glm::vec3(0, -mid, 0));
+    }
+    return m;
+}
 
 // Joint transforms in model space (inches). mats[b] maps a
 // point in bone b's part to model space.
@@ -60,6 +83,15 @@ inline void boneMatrices(const CharacterModel& m, const Pose& pose,
         local = glm::rotate(local, glm::radians(r.z), glm::vec3(0, 0, 1));
         mats[b] = def.parent < 0 ? local : mats[def.parent] * local;   // parents come first in Bone order
     }
+}
+
+// The same, placed in the world (voxels): what the ragdoll
+// follows and what the renderer draws
+inline void worldBoneMatrices(const CharacterModel& m, const Pose& pose, glm::vec3 feet,
+                              std::array<glm::mat4, BONE_COUNT>& mats) {
+    boneMatrices(m, pose, mats);
+    glm::mat4 root = characterRoot(m, pose, feet);
+    for (auto& M : mats) M = root * M;
 }
 
 class CharacterAnimator {
@@ -193,6 +225,14 @@ public:
             }
         }
 
+        // Carrying an axe: the fist turned so the head hangs
+        // forward beside the leg, the arm a little out
+        if (in.carryAxe && !in.combat) {
+            t[B_WRIST_R].x += 55.0f;
+            t[B_SHOULDER_R].z -= 6.0f;
+            t[B_ELBOW_R].x -= 10.0f;
+        }
+
         // The head follows the camera's up/down look
         t[B_HEAD].x += std::clamp(-in.lookPitchDeg, -40.0f, 40.0f) * 0.7f;
 
@@ -202,26 +242,53 @@ public:
         pose.rootOffset += (rootOff - pose.rootOffset) * k;
         pose.spinPitch = spin;
 
+        // ── Actions over the base pose ───────────────────
+        // An axe swing (game/AxeSwing.h) is keyed, not eased:
+        // it is laid over the eased pose as it is
+        // A guard eases in and out; an attack (game/Combat.h)
+        // is keyed like the swing
+        guardW += ((in.guard ? 1.0f : 0.0f) - guardW) * (1.0f - std::exp(-dt * 16.0f));
+        shown = pose;
+        if (in.swing >= 0.0f) axeswing::apply(in.swing, shown.rot, in.lookPitchDeg);
+        if (guardW > 0.01f) {
+            // the blade held up across the body, the off hand behind it
+            auto put = [&](int b, glm::vec3 v) { shown.rot[b] += (v - shown.rot[b]) * guardW; };
+            put(B_SHOULDER_R, {-80, 35, -30});
+            put(B_ELBOW_R,    {-95, 0, 0});
+            put(B_WRIST_R,    {-10, 0, -55});
+            put(B_SHOULDER_L, {-70, -20, 25});
+            put(B_ELBOW_L,    {-100, 0, 0});
+            put(B_SPINE,      {10, 0, 0});
+        }
+        if (in.attack != AttackKind::None) {
+            float drop = 0.0f;
+            combatanim::apply(in.attack, in.attackT, shown.rot, drop);
+            if (!in.grounded) shown.rootOffset.y -= drop;
+        }
+
         // ── Keep the feet on the ground ──────────────────
         // Lower the body until the lower foot touches down,
-        // so bent knees (crouch, stride) never float
+        // so bent knees (crouch, stride, a swing's step) never
+        // float
         if (in.grounded && in.move != AnimInput::Move::Roll && !in.flying) {
             std::array<glm::mat4, BONE_COUNT> mats;
-            Pose probe = pose;
+            Pose probe = shown;
             probe.rootOffset.y = 0.0f;
             boneMatrices(model, probe, mats);
             float low = std::min(mats[B_ANKLE_L][3].y, mats[B_ANKLE_R][3].y);
             float want = model.footHeight - low;                // ≤ 0 when the legs bend
-            pose.rootOffset.y = std::min(0.0f, want);
+            pose.rootOffset.y = shown.rootOffset.y = std::min(0.0f, want);
         }
-        return pose;
+        return shown;
     }
 
-    const Pose& current() const { return pose; }
-    void reset() { pose = Pose(); phase = 0.0f; firstFrame = true; }
+    const Pose& current() const { return shown; }
+    void reset() { pose = shown = Pose(); phase = 0.0f; guardW = 0.0f; firstFrame = true; }
 
 private:
-    Pose  pose;
+    Pose  pose;           // the eased base pose
+    Pose  shown;          // with actions laid over it: what is drawn
     float phase = 0.0f, time = 0.0f;
+    float guardW = 0.0f;
     bool  firstFrame = true;
 };

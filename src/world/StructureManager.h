@@ -2,6 +2,7 @@
 #include "WorldEditor.h"
 #include "../chunk/TerrainGenerator.h"
 #include "../game/StructureRegistry.h"
+#include "../physics/RigidVoxelBody.h"
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <cstdio>
@@ -267,6 +268,44 @@ public:
         if (s.natural) feltNatural.insert(cellKey(s.cellX, s.cellZ));
         remove(s.id, src);
         return true;
+    }
+
+    // Take a tree out of the world to fall over
+    // (world/Woodcutting.h). Its voxels come from its shape
+    // (the structure data), only where the world still holds
+    // them:
+    //   wood     wood voxels from stumpTop up: the falling log
+    //   foliage  everything else (leaves): breaks off
+    // Wood below stumpTop stays standing as the stump (plain
+    // blocks from now on). The instance is gone afterwards; a
+    // natural tree's cell is marked so it never regrows.
+    void fell(StructureInstance& s, int stumpTop, EditSource src,
+              std::vector<VoxelPiece>& wood, std::vector<VoxelPiece>& foliage) {
+        const StructureType* t = typeOf(s);
+        if (!t) return;
+        const VoxelVolume& v = t->shape(s.state, s.rot);
+        glm::ivec3 o = s.origin - v.anchor;
+        EditBatch b;
+        b.source = src;
+        b.label = "fell " + t->displayName;
+        b.undoable = false;
+        for (int y = 0; y < v.size.y; y++)
+        for (int z = 0; z < v.size.z; z++)
+        for (int x = 0; x < v.size.x; x++) {
+            uint16_t id = v.at(x, y, z);
+            if (id == BLOCK_AIR) continue;
+            glm::ivec3 p = o + glm::ivec3(x, y, z);
+            if (world.typeAtVoxel(p.x, p.y, p.z) != id) continue;     // already gone
+            bool isWood = gRegistry.get(id).material == "wood";
+            if (isWood && p.y < stumpTop) continue;                    // the stump
+            (isWood ? wood : foliage).push_back({ p, id });
+            b.set(p.x, p.y, p.z, BLOCK_AIR);
+        }
+        editor.apply(std::move(b));
+        if (s.natural) feltNatural.insert(cellKey(s.cellX, s.cellZ));
+        uint32_t id = s.id;
+        unindex(s);
+        instances.erase(id);
     }
 
     // ── Save / load ───────────────────────────────────────

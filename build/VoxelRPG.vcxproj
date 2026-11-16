@@ -384,6 +384,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\character\CharacterAnimator.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\character\CharacterModel.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\character\FaceComposer.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\character\HeldItemModel.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\Chunk.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\ChunkGenerator.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\chunk\ChunkLoader.cpp" />
@@ -392,11 +393,16 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\PasteSystem.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\StructureGenerator.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\chunk\TerrainGenerator.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\entity\BodyMass.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\entity\Entity.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\entity\Human.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\entity\Player.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\entity\PlayerController.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\AxeSwing.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\BuildTool.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\Combat.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\CombatHits.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\CombatMoves.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\Commands.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\CubeTool.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\DevTools.h" />
@@ -404,6 +410,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\Inventory.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\game\ItemRegistry.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\ItemRegistry.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\Npcs.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\PlayerInteraction.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\Settings.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\game\StructureRegistry.cpp" />
@@ -422,6 +429,9 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\Dev\VoxelRPG\src\noise\FastNoiseLite.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\noise\FastNoiseLite.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\physics\IPhysics.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\physics\Ragdoll.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\physics\RigidVoxelBody.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\physics\VoxelBall.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\physics\VoxelPhysics.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\AtlasTexture.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\BoxRenderer.h" />
@@ -430,6 +440,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\ChunkMesh.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\FarTerrain.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Mesher.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\PropMeshes.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\PropRenderer.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\render\ResourcePack.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\ResourcePack.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Shader.h" />
@@ -458,6 +470,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\StructureCatalog.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\StructureManager.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\VoxelVolume.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\world\Woodcutting.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldEditor.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\world\WorldMemory.h" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\world\WorldSaveManage.cpp" />

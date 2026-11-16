@@ -5,6 +5,7 @@
 #include "GameMode.h"
 #include "ItemRegistry.h"
 #include "../entity/Player.h"
+#include "Npcs.h"
 #include "../physics/IPhysics.h"
 #include "../render/Sky.h"
 #include <algorithm>
@@ -41,6 +42,7 @@ struct CommandContext {
     std::function<void(GameMode)> changeMode;
     std::function<void()>         saveWorld;
     std::function<void(const std::string&)> log;
+    NpcManager*          npcs = nullptr;  // nullptr outside a world
 };
 
 class CommandRegistry {
@@ -387,6 +389,7 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             }
             c.player.position = glm::vec3(p) + glm::vec3(0.5f, 0.0f, 0.5f);
             c.player.velocity = glm::vec3(0.0f);
+            c.player.ragdoll.reset();
             c.log("moved to " + DevTools::str(p));
         });
     reg.add("mode", "mode <spectator|dev|survival>", "change game mode",
@@ -396,6 +399,139 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             if (m == GameMode::COUNT) { c.log("modes: spectator, dev, survival"); return; }
             c.changeMode(m);
         });
+    // ── Body: weight and the ragdoll ─────────────────────
+    // A push from one side, as a speed on an average (70 kg)
+    // body: heavier bodies move less. Knocks down from about
+    // 35 (Ragdoll::KNOCKDOWN_DV) on an average body.
+    auto push = [](C& c, float speed, const std::string& side, float lift) {
+        glm::vec3 f = c.player.facing;
+        f.y = 0.0f;
+        f = glm::length(f) > 1e-4f ? glm::normalize(f) : glm::vec3(0, 0, -1);
+        glm::vec3 left(f.z, 0.0f, -f.x);
+        // dir: the way the body is pushed (from the named side)
+        glm::vec3 dir = side == "back" ? f : side == "left" ? -left : side == "right" ? left : -f;
+        glm::vec3 at = c.player.bodyPoint(0.62f) - dir * 1.5f;
+        glm::vec3 J = glm::normalize(dir + glm::vec3(0.0f, lift, 0.0f)) * speed * Human::REFERENCE_MASS;
+        c.player.hit(at, J);
+        char b[96];
+        std::snprintf(b, sizeof(b), "pushed from the %s: impulse %.0f on %.1f kg = %.1f vox/s",
+                      side.c_str(), glm::length(J), c.player.mass, glm::length(J) / c.player.mass);
+        c.log(b);
+    };
+    reg.add("shove", "shove [speed] [front|back|left|right]",
+        "push your body (speed on a 70 kg body, default 20)",
+        [push](C& c, const Args& a) {
+            float speed = a.size() > 0 ? (float)std::atof(a[0].c_str()) : 20.0f;
+            push(c, speed, a.size() > 1 ? a[1] : "front", 0.1f);
+        });
+    reg.add("knockdown", "knockdown [speed] [front|back|left|right]",
+        "knock your body down (default 55)",
+        [push](C& c, const Args& a) {
+            float speed = a.size() > 0 ? (float)std::atof(a[0].c_str()) : 55.0f;
+            push(c, speed, a.size() > 1 ? a[1] : "front", 0.35f);
+        });
+    // ── Combat (game/Combat.h, game/Npcs.h) ───────────────
+    reg.add("spawn", "spawn <swordsman|dummy> [count]",
+        "spawn enemies a few steps in front of you",
+        [](C& c, const Args& a) {
+            if (!c.npcs) { c.log("no world"); return; }
+            NpcKind k = (!a.empty() && a[0] == "dummy") ? NpcKind::Dummy : NpcKind::Swordsman;
+            int n = a.size() > 1 ? std::clamp(std::atoi(a[1].c_str()), 1, 12) : 1;
+            glm::vec3 f = c.player.facing; f.y = 0.0f;
+            f = glm::length(f) > 1e-4f ? glm::normalize(f) : glm::vec3(0, 0, -1);
+            glm::vec3 side(f.z, 0.0f, -f.x);
+            for (int i = 0; i < n; i++) {
+                glm::vec3 at = c.player.position + f * 24.0f + side * (float)((i - (n - 1) * 0.5f) * 8.0f) + glm::vec3(0, 2, 0);
+                c.npcs->spawn(k, at, -f);
+            }
+            c.log("spawned " + std::to_string(n) + " " + npcKindName(k) + (n > 1 ? "s" : ""));
+        });
+    reg.add("despawn", "despawn", "remove every enemy",
+        [](C& c, const Args&) {
+            if (c.npcs) c.npcs->clear();
+            c.log("enemies removed");
+        });
+    reg.add("heal", "heal", "full health and stamina",
+        [](C& c, const Args&) {
+            c.player.health = c.player.maxHealth;
+            c.player.stamina = c.player.maxStamina;
+            c.log("healed");
+        });
+    reg.add("mass", "mass", "how heavy your body and gear are",
+        [](C& c, const Args&) {
+            const BodyMass& m = c.player.body;
+            char b[128];
+            auto lb = [](float kg) { return kg * 2.2046f; };
+            std::snprintf(b, sizeof(b), "body %.1f kg (%.0f lb) + gear %.1f kg (%.0f lb) = %.1f kg (%.0f lb)",
+                          m.bodyKg, lb(m.bodyKg), m.gearKg, lb(m.gearKg), m.total(), lb(m.total()));
+            c.log(b);
+            const Inventory& inv = c.player.activeInventory();
+            for (int s = 0; s < WORN_SLOTS; s++)
+                if (!inv.worn[s].empty()) {
+                    const ItemDef& d = gItems.get(inv.worn[s].itemID);
+                    std::snprintf(b, sizeof(b), "  %s: %s %.1f kg", wornSlotKey((WornSlot)s), d.name.c_str(), d.weight);
+                    c.log(b);
+                }
+            if (!inv.weapon.empty()) {
+                const ItemDef& d = gItems.get(inv.weapon.itemID);
+                std::snprintf(b, sizeof(b), "  weapon (%s): %s %.1f kg",
+                              c.player.combatStance ? "in hand" : "on back", d.name.c_str(), d.weight);
+                c.log(b);
+            }
+            if (!c.player.combatStance && !inv.held().empty()) {
+                const ItemDef& d = gItems.get(inv.held().itemID);
+                std::snprintf(b, sizeof(b), "  in hand: %s %.1f kg", d.name.c_str(), d.weight);
+                c.log(b);
+            }
+        });
+    reg.add("wear", "wear <item> | wear off <slot|all>",
+        "put on worn gear (head torso hands legs feet back)",
+        [](C& c, const Args& a) {
+            Inventory& inv = c.player.activeInventory();
+            if (a.empty()) {
+                std::string t = "worn gear:";
+                for (const char* n : { "leather_cap", "iron_helmet", "leather_jerkin", "chainmail", "plate_cuirass",
+                                       "iron_gauntlets", "iron_greaves", "leather_boots", "travel_pack" })
+                    if (gItems.find(n)) { t += " "; t += n; }
+                c.log("usage: wear <item> | wear off <slot|all>");
+                c.log(t);
+                return;
+            }
+            if (a[0] == "off") {
+                std::string w = a.size() > 1 ? a[1] : "all";
+                if (w == "all") { for (int s = 0; s < WORN_SLOTS; s++) inv.takeOff((WornSlot)s); c.log("took everything off"); return; }
+                int s = wornSlotFromKey(w.c_str());
+                if (s < 0) { c.log("no slot '" + w + "' (head torso hands legs feet back)"); return; }
+                inv.takeOff((WornSlot)s);
+                c.log("took off " + w);
+                return;
+            }
+            uint16_t id = gItems.find(a[0]);
+            if (!id) { c.log("no item '" + a[0] + "'"); return; }
+            if (!inv.wear(id)) { c.log(a[0] + " is not worn gear"); return; }
+            const ItemDef& d = gItems.get(id);
+            char b[96];
+            std::snprintf(b, sizeof(b), "wearing %s on %s (%.1f kg)", d.name.c_str(), wornSlotKey((WornSlot)d.worn), d.weight);
+            c.log(b);
+        });
+    reg.add("ragdoll", "ragdoll [active on|off]",
+        "ragdoll state; 'active on' simulates it all the time (dev)",
+        [](C& c, const Args& a) {
+            Ragdoll& rd = c.player.ragdoll;
+            if (a.size() >= 2 && a[0] == "active") {
+                rd.alwaysActive = a[1] == "on";
+                c.log(std::string("ragdoll always active: ") + (rd.alwaysActive ? "on" : "off"));
+                return;
+            }
+            const char* st = rd.state() == Ragdoll::State::Animated ? "animated"
+                           : rd.state() == Ragdoll::State::Reacting ? "reacting"
+                           : rd.state() == Ragdoll::State::Limp ? "limp" : "getting up";
+            char b[96];
+            std::snprintf(b, sizeof(b), "ragdoll %s, strength %.2f, %.1f kg%s", st, rd.strengthNow(),
+                          rd.bodyMass(), rd.alwaysActive ? ", always active" : "");
+            c.log(b);
+        });
+
     reg.add("heal", "heal", "restore full health",
         [](C& c, const Args&) {
             c.player.health = c.player.maxHealth;

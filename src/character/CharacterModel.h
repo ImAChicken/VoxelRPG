@@ -273,6 +273,18 @@ struct CharacterModel {
         return m;
     }
 
+    // A voxel grid filled from a shape and meshed the way the hair
+    // is (voxels or shards, per the hair mesh setting). Used for
+    // things held in the hands (character/HeldItemModel.h).
+    //   role(p)   0 = empty, else an index into colours (0..4)
+    //   lo, hi    the box to fill; vox = voxel size (inches)
+    static void meshVoxelShape(glm::vec3 lo, glm::vec3 hi, float vox, const std::function<int(glm::vec3)>& role,
+                               const glm::vec3* colours, HairMesh mode, std::vector<PartVertex>& out) {
+        Grid g(lo, hi, vox);
+        g.fill([&](glm::vec3 p) { return role(p); });
+        meshGrid(g, colours, mode, out);
+    }
+
 private:
     using V3 = glm::vec3;
 

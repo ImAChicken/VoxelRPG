@@ -36,6 +36,7 @@ struct Inventory {
 
     ItemStack toolbar[TOOLBAR_SLOTS];
     ItemStack weapon;
+    ItemStack worn[WORN_SLOTS];  // gear on the body, one per WornSlot (entity/BodyMass.h)
     int       selected = 0;     // 0..7
 
     // In the dev inventory, items never run out: placing a
@@ -116,11 +117,24 @@ struct Inventory {
         if (s.count == 0) s.clear();
     }
 
+    // Put on a worn item (items.toml: worn = "<slot>"); whatever
+    // was in that slot comes off. False if the item is not worn
+    // gear.
+    bool wear(uint16_t itemID) {
+        const ItemDef& d = gItems.get(itemID);
+        if (!d.valid() || d.worn < 0 || d.worn >= WORN_SLOTS) return false;
+        worn[d.worn].itemID = itemID;
+        worn[d.worn].count  = 1;
+        return true;
+    }
+    void takeOff(WornSlot slot) { worn[(int)slot].clear(); }
+
     // ── Save / load as text ───────────────────────────────
     // Items are stored by NAME so a save survives item IDs
     // being renumbered. One line per slot:
     //   <prefix>.slot3=stone 64
     //   <prefix>.weapon=iron_sword 1
+    //   <prefix>.worn.head=iron_helmet 1
     //   <prefix>.selected=2
     void write(std::ostream& out, const std::string& prefix) const {
         out << prefix << ".selected=" << selected << "\n";
@@ -133,6 +147,10 @@ struct Inventory {
             out << prefix << ".weapon="
                 << gItems.get(weapon.itemID).name << " "
                 << weapon.count << "\n";
+        for (int i = 0; i < WORN_SLOTS; i++)
+            if (!worn[i].empty())
+                out << prefix << ".worn." << wornSlotKey((WornSlot)i) << "="
+                    << gItems.get(worn[i].itemID).name << " 1\n";
     }
 
     // Feed one "key=value" line; returns true if it was ours
@@ -152,6 +170,12 @@ struct Inventory {
         uint16_t id = gItems.find(name);   // unknown names: dropped
         if (field == "weapon") {
             if (id) setSlot(-1, id, count);
+            return true;
+        }
+        if (field.compare(0, 5, "worn.") == 0) {
+            int slot = wornSlotFromKey(field.c_str() + 5);
+            if (id && slot >= 0 && gItems.get(id).worn == slot)
+                worn[slot] = { id, 1 };
             return true;
         }
         if (field.compare(0, 4, "slot") == 0) {

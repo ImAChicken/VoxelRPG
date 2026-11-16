@@ -399,6 +399,9 @@ OPENGL_glu_LIBRARY:STRING=glu32
 //Use MSVC runtime library DLL
 USE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=ON
 
+//Build the headless test programs in tests/
+VOXELRPG_TESTS:BOOL=OFF
+
 //Value Computed by CMake
 VoxelRPG_BINARY_DIR:STATIC=C:/Dev/VoxelRPG/build
 

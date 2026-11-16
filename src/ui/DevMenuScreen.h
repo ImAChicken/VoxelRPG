@@ -36,6 +36,7 @@ public:
         addItemPage("Blocks",       IC_BLOCK);
         addItemPage("Player Tools", IC_TOOL);
         addItemPage("Weapons",      IC_WEAPON);
+        addItemPage("Gear",         IC_WORN);
         addItemPage("Dev Tools",    IC_DEV);
         addItemPage("Decorations",  IC_DECOR);
         addPage("Structures", [this](UIRenderer& ui, const PageArea& a) {
@@ -315,6 +316,11 @@ private:
     // Put an item into the receiving inventory
     void give(const ItemDef& d) {
         Inventory& inv = target();
+        if (d.is(IC_WORN)) {                       // worn gear: put on, or take off if already on
+            if (inv.worn[d.worn].itemID == d.id) inv.takeOff((WornSlot)d.worn);
+            else                                 inv.wear(d.id);
+            return;
+        }
         if (d.is(IC_WEAPON) && !d.is(IC_TOOL)) {
             inv.setSlot(-1, d.id, 1);              // weapon slot
             return;
@@ -400,6 +406,7 @@ private:
         };
         tag(d.is(IC_BLOCK), "block"); tag(d.is(IC_TOOL), "tool");
         tag(d.is(IC_WEAPON), "weapon"); tag(d.is(IC_DEV), "dev");
+        if (d.is(IC_WORN)) tag(true, wornSlotKey((WornSlot)d.worn));
         if (d.is(IC_DECOR)) {
             const decor::Def* dd = decor::current()->get(d.decor);
             tag(true, !dd ? "decoration" : dd->layer == decor::Layer::Plant ? "plant"
@@ -409,6 +416,7 @@ private:
         char b[64];
         if (d.is(IC_TOOL)) { std::snprintf(b, sizeof(b), "  dig x%.0f", d.toolPower); t += b; }
         if (d.is(IC_WEAPON)) { std::snprintf(b, sizeof(b), "  dmg %.0f", d.damage); t += b; }
+        if (d.weight > 0.0f) { std::snprintf(b, sizeof(b), "  %.1f kg", d.weight); t += b; }
         return t.size() > 46 ? t.substr(0, 46) : t;
     }
 

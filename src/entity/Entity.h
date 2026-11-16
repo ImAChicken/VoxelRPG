@@ -23,6 +23,12 @@ public:
     glm::vec3 velocity = {0, 0, 0};   // voxels per second
     glm::vec3 facing   = {0, 0, -1};  // horizontal look direction
 
+    // Total mass in kg, gear included. Pushes, hits and
+    // explosions change velocity by impulse / mass, so heavy
+    // things are harder to move. Humans keep it in step with
+    // their BodyMass (see Human.h).
+    float     mass     = 70.0f;
+
 private:
     // Simple counter for now — swap for real UUIDs when
     // multiplayer needs IDs that are unique across machines

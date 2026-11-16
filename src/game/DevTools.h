@@ -180,9 +180,12 @@ public:
                 glm::vec3 dir = dist > 0.01f ? d / dist
                                              : glm::vec3(0, 1, 0);
                 dir.y = std::max(dir.y, 0.35f);   // always some lift
-                player->velocity += glm::normalize(dir) *
-                    EXPLOSION_PUSH * (1.0f - dist / reach);
-                player->grounded = false;
+                // an impulse: EXPLOSION_PUSH is the speed it gives
+                // an average 70 kg body; physics divides by the
+                // real mass and passes it to the ragdoll, which
+                // knocks the body down when it is strong enough
+                player->hit(centre + d * 0.8f, glm::normalize(dir) *
+                    EXPLOSION_PUSH * Human::REFERENCE_MASS * (1.0f - dist / reach));
             }
         }
     }

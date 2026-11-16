@@ -114,6 +114,8 @@ public:
 
         intent.move   = forward * ahead + right * side;
         intent.crouch = gInput.isHeld(InputAction::Crouch);
+        // Swinging an axe: a slow walk (game/AxeSwing.h)
+        intent.speedScale = player.swing.active() ? AxeSwing::MOVE_FACTOR : 1.0f;
 
         // One-shots stay set until a physics tick has used
         // them (afterTick clears), so a press is never lost
@@ -186,8 +188,12 @@ public:
 
         renderPosition = pos;
 
+        // The ragdoll moves the head when the body is hit or
+        // knocked down; both cameras follow it, so a shove
+        // jolts the view and a knocked-down body stays in frame
         glm::vec3 eyes = pos +
-            glm::vec3(0.0f, eye + stepOffset, 0.0f);
+            glm::vec3(0.0f, eye + stepOffset, 0.0f) +
+            player.ragdoll.headOffset(alpha);
 
         // ── First person: camera at the eyes ──────────────
         if (!usingThirdPerson(player.rules())) {
@@ -289,21 +295,29 @@ private:
         const GameModeRules now = player.rules();
 
         // ── Combat stance: combat actions ─────────────────
+        // Attacks are one-shots in the intent (kept until a
+        // physics tick uses them); the guard is held
         guarding = false;
         if (now.combatActions) {
-            if (gInput.isPressed(InputAction::UseLeft))
+            if (gInput.isPressed(InputAction::UseLeft)) {
                 note(PlayerAction::Attack);
-            if (gInput.isPressed(InputAction::UseRight))
+                intent.attackLight = true;
+            }
+            if (gInput.isPressed(InputAction::UseRight)) {
                 note(PlayerAction::HeavyAttack);
+                intent.attackHeavy = true;
+            }
             if (gInput.isPressed(InputAction::Block))
                 note(PlayerAction::Guard);
             guarding = gInput.isHeld(InputAction::Block);
         }
+        intent.guard = guarding;
 
-        // ── Toolbar — only out of combat ──────────────────
+        // ── Toolbar — not while a weapon is drawn ─────────
         // Survival scrolls the player inventory, Test Play
-        // the dev inventory
-        if (now.hasBody && !now.combatActions) {
+        // the dev inventory (a weapon held in the toolbar can
+        // be switched away from)
+        if (now.hasBody && !player.combatStance) {
             Inventory& inv = player.activeInventory();
             static const InputAction slots[] = {
                 InputAction::ToolbarSlot1, InputAction::ToolbarSlot2,

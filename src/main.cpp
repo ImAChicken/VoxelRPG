@@ -8,6 +8,7 @@
 #include <thread>
 #include <atomic>
 #include <memory>
+#include <unordered_map>
 #include <string>
 #include <vector>
 #include <glad/glad.h>
@@ -58,6 +59,10 @@
 #include "game/BuildTool.h"
 #include "ui/BuildMenuScreen.h"
 #include "world/StructureManager.h"
+#include "world/Woodcutting.h"
+#include "game/Npcs.h"
+#include "game/CombatHits.h"
+#include "render/PropRenderer.h"
 #include "worldgen/WorldType.h"
 #include "render/Sky.h"
 #include "world/WorldMemory.h"
@@ -269,6 +274,9 @@ int main() {
 
     CharacterRenderer charRenderer;
     if (!charRenderer.init()) std::cerr << "Character renderer failed to start\n";
+    PropRenderer props;                       // logs, wood, leaves: drawn like the world
+    if (!props.init()) std::cerr << "Prop renderer failed to start\n";
+    props.setBlocks(blockTable);
     auto playerBody  = std::make_unique<Character>();
     auto previewBody = std::make_unique<Character>();
 
@@ -369,6 +377,20 @@ int main() {
     std::unique_ptr<ChunkManager>     world;
     std::unique_ptr<WorldEditor>      editor;    // all world edits
     std::unique_ptr<StructureManager> structs;   // doors, trees, buildings
+    std::unique_ptr<Woodcutting>      wood;      // felled trees, logs, wood on the ground
+    // Meshes for woodcutting's logs (by log id), drawn like the
+    // world (render/PropRenderer.h)
+    std::unordered_map<uint32_t, PropRenderer::Mesh> logMeshes;
+    auto dropWoodMeshes = [&]() {
+        for (auto& [k, m] : logMeshes) m.release();
+        logMeshes.clear();
+    };
+    // Enemies (game/Npcs.h), their bodies to draw (by uuid), and
+    // the hits of this frame (game/CombatHits.h)
+    NpcManager npcs;
+    std::unordered_map<uint64_t, std::unique_ptr<Character>> npcBodies;
+    std::vector<combat::HitEvent> combatHits;
+    float playerDeadFor = 0.0f;
     std::unique_ptr<WorldStreamer>    streamer;
     std::unique_ptr<FarTerrain>       farView;   // distant terrain
     float autosaveTimer = 0.0f;
@@ -383,6 +405,7 @@ int main() {
         if (editor) editor->flush();     // finish queued edits first
         gWorldSave.saveDirtyChunks(*world);
         if (structs) structs->save(gWorldSave.getWorldPath());
+        if (wood) wood->save(gWorldSave.getWorldPath());
         memory.save(gWorldSave.getWorldPath() + "/lowres.dat");
         { std::ofstream tf(gWorldSave.getWorldPath() + "/time.txt"); tf << gClock.time << "\n"; }
         gWorldSave.savePlayer([&](std::ostream& out) {
@@ -404,6 +427,11 @@ int main() {
         streamer.reset();
         farView.reset();
         dev.attach(nullptr);
+        hands.wood = nullptr;
+        wood.reset();
+        dropWoodMeshes();
+        npcs.clear();
+        npcBodies.clear();
         structs.reset();
         editor.reset();
         gPhysics.reset();
@@ -548,6 +576,12 @@ int main() {
         structs = std::make_unique<StructureManager>(*world, *editor, *gen);
         structs->log = say;
         structs->load(gWorldSave.getWorldPath());
+        dropWoodMeshes();
+        wood = std::make_unique<Woodcutting>();
+        wood->load(gWorldSave.getWorldPath());
+        hands.wood = wood.get();
+        // bodies collide with fallen logs; raycasts hit them
+        gPhysics->setLooseSolids([&](int x, int y, int z) { return wood && wood->solidAt(x, y, z); });
         build.reset();
         dev.resetForNewWorld();
         dev.attach(editor.get());
@@ -721,59 +755,236 @@ int main() {
         // Culling OFF again so the UI draws normally
         glr->endWorldDraw();
 
-        // Third person: the player's body, posed from what
-        // it is doing this frame
+        // The player's body, posed from what it is doing this
+        // frame. Animated whenever there is a body (the ragdoll
+        // follows the animation even in first person); drawn
+        // in third person.
         const GameModeRules rules = player.rules();
-        if (rules.hasBody &&
-            controller.usingThirdPerson(rules) &&
-            controller.bodyVisible()) {
-            playerBody->setAppearance(player.appearance, hairMesh());
+        // What any human is doing, for its animation
+        auto animFor = [](const Human& h, bool combat, float pitch) {
             AnimInput in;
-            in.velocity     = player.velocity;
-            in.facingYawDeg = glm::degrees(std::atan2(player.facing.z, player.facing.x));
-            in.lookPitchDeg = camera.pitch;
-            in.grounded     = player.grounded;
-            in.crouching    = player.crouching;
-            in.sprinting    = player.sprinting;
-            in.flying       = player.flying;
-            in.combat       = player.combatStance;
-            in.frozen       = player.freeze != Human::Freeze::None;
+            in.velocity     = h.velocity;
+            glm::vec3 f     = h.attack.active() ? h.attack.dir : h.facing;   // an attack faces its swing
+            in.facingYawDeg = glm::degrees(std::atan2(f.z, f.x));
+            in.lookPitchDeg = pitch;
+            in.grounded     = h.grounded;
+            in.crouching    = h.crouching;
+            in.sprinting    = h.sprinting;
+            in.flying       = h.flying;
+            in.combat       = combat;
+            in.frozen       = h.freeze != Human::Freeze::None;
             in.walkSpeed    = Human::WALK_SPEED;
             in.sprintSpeed  = Human::SPRINT_SPEED;
-            switch (player.move) {
+            in.attack       = h.attack.kind;
+            in.attackT      = h.attack.t;
+            in.guard        = h.guarding;
+            switch (h.move) {
             case Human::Move::Roll:
                 in.move = AnimInput::Move::Roll;
-                in.moveProgress = 1.0f - player.moveTimer / Human::ROLL_TIME; break;
+                in.moveProgress = 1.0f - h.moveTimer / Human::ROLL_TIME; break;
             case Human::Move::Backstep:
                 in.move = AnimInput::Move::Backstep;
-                in.moveProgress = 1.0f - player.moveTimer / Human::BACKSTEP_TIME; break;
+                in.moveProgress = 1.0f - h.moveTimer / Human::BACKSTEP_TIME; break;
             case Human::Move::AirDodge:
                 in.move = AnimInput::Move::AirDodge;
-                in.moveProgress = 1.0f - player.moveTimer / Human::AIR_DODGE_TIME; break;
+                in.moveProgress = 1.0f - h.moveTimer / Human::AIR_DODGE_TIME; break;
             default: break;
             }
+            return in;
+        };
+        if (rules.hasBody) {
+            playerBody->setAppearance(player.appearance, hairMesh());
+            const ItemDef* wielded = player.wielded();
+            AnimInput in = animFor(player, player.combatStance || wielded, camera.pitch);
+            // the axe swing (game/AxeSwing.h): stops if the axe is
+            // put away or the body is knocked down
+            if (player.swing.active() &&
+                (!player.holdingAxe() || player.ragdoll.controlsLocked() || !rules.worldInteraction))
+                player.swing.cancel();
+            in.swing = player.swing.t;
+            in.carryAxe = player.holdingAxe() && !player.combatStance;
+            // what the right hand shows (items.toml held_model)
+            playerBody->setHeldModel(player.combatStance ? (wielded ? heldModelFromKey(wielded->heldModel) : HeldModel::None)
+                                     : heldModelFromKey(player.activeInventory().heldDef().heldModel));
             playerBody->animate(in, frameDt);
+
+            // Ragdoll: follows this pose (at the physics position);
+            // while it is visible (hit, limp, getting up) it is
+            // drawn instead, blended between the last two ticks
+            {
+                const CharacterModel& model = playerBody->getModel();
+                BoneMats target, drawn, out;
+                worldBoneMatrices(model, playerBody->pose(), player.position, target);
+                player.ragdoll.setModel(model);
+                player.ragdoll.setTarget(target);
+                worldBoneMatrices(model, playerBody->pose(), controller.renderPosition, drawn);
+                if (player.ragdoll.renderBones(physicsTime / PHYSICS_STEP, drawn, out))
+                    playerBody->setWorldPose(out);
+                else
+                    playerBody->clearWorldPose();
+
+                // Axe: trace the blade's edge from last frame to this
+                // one; the first solid voxel it passes is the hit
+                AxeSwing& sw = player.swing;
+                if (sw.active() && editor && structs) {
+                    auto bp = AxeGeometry::bladePoints(model);
+                    std::array<glm::vec3, 3> now;
+                    for (int k = 0; k < 3; k++) now[k] = glm::vec3(target[B_WRIST_R] * glm::vec4(bp[k], 1.0f));
+                    if (sw.striking() && sw.traceValid && sw.lastStep > 0.0f) {
+                        axeswing::BladeHit h = axeswing::trace(sw.lastBlade, now, sw.lastStep,
+                            [&](glm::ivec3 v) { return gPhysics->solidAt(v.x, v.y, v.z); });   // world and logs
+                        if (h.hit) {
+                            sw.hitDone = true;
+                            sw.stop = AxeSwing::HITSTOP;
+                            hands.axeHit(player, *structs, *editor, h,
+                                         player.activeInventory().heldDef().toolPower);
+                        }
+                    }
+                    sw.lastBlade = now;
+                    sw.traceValid = true;
+                }
+                sw.advance(frameDt);
+            }
+        }
+
+        // Enemies: posed the same way, with their ragdolls
+        {
+            float alpha = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
+            std::unordered_map<uint64_t, bool> alive;
+            for (auto& np : npcs.all()) {
+                Npc& n = *np;
+                alive[n.uuid] = true;
+                auto& ch = npcBodies[n.uuid];
+                if (!ch) ch = std::make_unique<Character>();
+                ch->setAppearance(n.appearance, hairMesh());
+                ch->setHeldModel(HeldModel::Sword);
+                ch->animate(animFor(n, true, 0.0f), frameDt);
+                const CharacterModel& model = ch->getModel();
+                BoneMats target, drawn, out;
+                glm::vec3 at = glm::mix(n.prevPosition, n.position, alpha);
+                worldBoneMatrices(model, ch->pose(), n.position, target);
+                n.ragdoll.setModel(model);
+                n.ragdoll.setTarget(target);
+                worldBoneMatrices(model, ch->pose(), at, drawn);
+                if (n.ragdoll.renderBones(alpha, drawn, out)) ch->setWorldPose(out);
+                else ch->clearWorldPose();
+            }
+            for (auto it = npcBodies.begin(); it != npcBodies.end();)
+                if (!alive.count(it->first)) it = npcBodies.erase(it); else ++it;
+        }
+
+        // Characters and loose objects are lit by the baked light
+        // where they stand
+        auto lightCharacters = [&](glm::vec3 feet) {
+            glm::vec3 at = feet + glm::vec3(0.0f, 9.0f, 0.0f);
+            uint16_t L = streamer->lightAt(at.x, at.y, at.z);
+            float sky = light::skyOf(L) / 15.0f;
+            const SkyState& ss = gFrameLight.sky;
+            charRenderer.lightDir  = ss.lightDir();
+            float shade = streamer->canopyAt(at.x, at.y, at.z);
+            glm::vec3 leafTint = glm::mix(glm::vec3(1.0f), glm::vec3(0.30f, 0.50f, 0.24f), shade);
+            charRenderer.skyTint   = ss.skyLight * leafTint * (sky * sky) + ss.ambient * 4.0f;
+            glm::vec3 b(light::rOf(L) / 15.0f, light::gOf(L) / 15.0f, light::bOf(L) / 15.0f);
+            charRenderer.blockTint = b * b * 1.3f;
+        };
+
+        // ── Woodcutting: logs, wood on the ground, leaves and
+        //    chips (world/Woodcutting.h), drawn like the world ─
+        if (wood && glr->hasAtlas()) {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
             glm::mat4 view = glr->getViewMatrix();
-            {   // light where the body stands, from the baked layer
-                glm::vec3 at = controller.renderPosition + glm::vec3(0.0f, 9.0f, 0.0f);
-                uint16_t L = streamer->lightAt(at.x, at.y, at.z);
-                float sky = light::skyOf(L) / 15.0f;
-                const SkyState& ss = gFrameLight.sky;
-                charRenderer.lightDir  = ss.lightDir();
-                float shade = streamer->canopyAt(at.x, at.y, at.z);
-                glm::vec3 leafTint = glm::mix(glm::vec3(1.0f), glm::vec3(0.30f, 0.50f, 0.24f), shade);
-                charRenderer.skyTint   = ss.skyLight * leafTint * (sky * sky) + ss.ambient * 4.0f;
-                glm::vec3 b(light::rOf(L) / 15.0f, light::gOf(L) / 15.0f, light::bOf(L) / 15.0f);
-                charRenderer.blockTint = b * b * 1.3f;
+            float alpha = physicsTime / PHYSICS_STEP;
+            // the baked light at a point, as the chunk shader reads it
+            PropLightFn lightAt = [&](glm::vec3 p) {
+                uint16_t L = streamer->lightAt(p.x, p.y, p.z);
+                PropLightSample s;
+                s.r = (uint8_t)light::rOf(L); s.g = (uint8_t)light::gOf(L); s.b = (uint8_t)light::bOf(L);
+                s.sky = (uint8_t)light::skyOf(L);
+                s.shade = std::clamp(streamer->canopyAt(p.x, p.y, p.z), 0.0f, 1.0f);
+                return s;
+            };
+            props.begin(view, proj, camera.position, glr->getAtlas());
+            std::unordered_map<uint32_t, bool> alive;
+            for (const auto& lg : wood->allLogs()) {
+                alive[lg->id] = true;
+                PropRenderer::Mesh& m = logMeshes[lg->id];
+                if (!m.count) props.buildVoxels(m, lg->body.voxels());
+                glm::mat4 M = lg->body.transform(lg->body.settled() ? 1.0f : alpha);
+                if (m.litFor != lg->moved) { props.relight(m, lg->body.transform(), lightAt); m.litFor = lg->moved; }
+                props.draw(m, M);
             }
+            for (auto it = logMeshes.begin(); it != logMeshes.end();)
+                if (!alive.count(it->first)) { it->second.release(); it = logMeshes.erase(it); }
+                else ++it;
+            for (const auto& d : wood->itemDrops()) {         // wood: short lengths of log
+                uint16_t blk = gItems.get(d.item).blockID;
+                if (!blk) continue;
+                float turn = d.resting ? (float)((d.item * 37 + (int)(d.pos.x * 7)) % 360) : d.age * 160.0f;
+                glm::mat4 M = glm::translate(glm::mat4(1.0f), d.pos);
+                M = glm::rotate(M, glm::radians(turn), glm::vec3(0, 1, 0));
+                M = glm::scale(M, glm::vec3(1.8f, 1.2f, 1.2f));
+                props.drawBlock(blk, M, lightAt(d.pos + glm::vec3(0, 0.8f, 0)));
+            }
+            for (const auto& pt : wood->allParticles()) {     // leaves are flat, chips chunky
+                float fade = std::min(1.0f, pt.life / (0.3f * pt.maxLife));
+                glm::mat4 M = glm::translate(glm::mat4(1.0f), pt.p);
+                M = glm::rotate(M, pt.spin * pt.life, glm::normalize(glm::vec3(0.3f, 1.0f, 0.5f)));
+                glm::vec3 sc = pt.drag > 0.0f ? glm::vec3(1.0f, 0.18f, 1.0f) : glm::vec3(1.0f);
+                M = glm::scale(M, sc * pt.size * fade);
+                props.drawBlock(pt.block, M, lightAt(pt.p));
+            }
+            props.end();
+            // "+3 Log" when wood is picked up
+            if (wood->lastPickupAge == 0.0f) { hands.notice = wood->lastPickup; hands.noticeAge = 0.0f; }
+        }
+        if (rules.hasBody &&
+            controller.usingThirdPerson(rules) &&
+            controller.bodyVisible()) {
+            glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
+                                              Camera::NEAR_PLANE, Camera::FAR_PLANE);
+            glm::mat4 view = glr->getViewMatrix();
+            lightCharacters(controller.renderPosition);   // from the baked layer where the body stands
             charRenderer.draw(*playerBody, proj * view, controller.renderPosition, camera.position,
                               OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
             // toon edge lines (hidden behind anything in front)
             int fw = gRenderer->getScreenWidth(), fh = gRenderer->getScreenHeight();
             charRenderer.drawEdges({ { playerBody.get(), controller.renderPosition } }, view, proj,
                                    0, 0, fw, fh, fw, fh, edgeStyle());
+        }
+
+        // Enemies
+        hud.enemyBars.clear();
+        if (!npcs.all().empty()) {
+            glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
+                                              Camera::NEAR_PLANE, Camera::FAR_PLANE);
+            glm::mat4 view = glr->getViewMatrix();
+            float alpha = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
+            std::vector<CharacterRenderer::Placed> placed;
+            for (auto& np : npcs.all()) {
+                auto it = npcBodies.find(np->uuid);
+                if (it == npcBodies.end()) continue;
+                glm::vec3 at = glm::mix(np->prevPosition, np->position, alpha);
+                if (glm::length(at - camera.position) > 220.0f) continue;
+                lightCharacters(at);
+                charRenderer.draw(*it->second, proj * view, at, camera.position,
+                                  OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
+                placed.push_back({ it->second.get(), at });
+                // a health bar over the head, once hurt (or always, close)
+                float dist = glm::length(at - camera.position);
+                if (!np->dead() && (np->sinceHurt < 8.0f || dist < 40.0f) && dist < 120.0f) {
+                    glm::vec4 c = proj * view * glm::vec4(at + np->ragdoll.headOffset(alpha) + glm::vec3(0.0f, Human::STAND_HEIGHT + 2.5f, 0.0f), 1.0f);
+                    if (c.w > 0.1f) {
+                        float sx = (c.x / c.w * 0.5f + 0.5f) * gRenderer->getScreenWidth();
+                        float sy = (1.0f - (c.y / c.w * 0.5f + 0.5f)) * gRenderer->getScreenHeight();
+                        float a = std::clamp(1.0f - (dist - 80.0f) / 40.0f, 0.0f, 1.0f);
+                        hud.enemyBars.push_back({ sx, sy, np->health / np->maxHealth, a, np->sinceHurt < 0.3f });
+                    }
+                }
+            }
+            int fw = gRenderer->getScreenWidth(), fh = gRenderer->getScreenHeight();
+            if (!placed.empty())
+                charRenderer.drawEdges(placed, view, proj, 0, 0, fw, fh, fw, fh, edgeStyle());
         }
 
         // ── Outlines: target block, selection, paste ──────
@@ -971,6 +1182,8 @@ int main() {
                     gRegistry, gResourcePacks);
                 if (streamer)
                     streamer->setRenderTable(blockTable);
+                props.setBlocks(blockTable);
+                dropWoodMeshes();
                 if (streamer) streamer->setLightTable(lightTable());
                 if (gPhysics && world) gPhysics->init(*world);
                 say("blocks and items reloaded");
@@ -988,6 +1201,8 @@ int main() {
                     gRegistry, gResourcePacks);
                 if (streamer)
                     streamer->setRenderTable(blockTable);
+                props.setBlocks(blockTable);
+                dropWoodMeshes();
                 // Faces and swatches may have changed too
                 loadCharacterArt();
                 playerBody->setAppearance(player.appearance, hairMesh(), true);
@@ -1119,10 +1334,39 @@ int main() {
                 // 2. Physics, in fixed 1/60 s ticks. A fast
                 //    frame may run none, a slow one several.
                 physicsTime = std::min(physicsTime + dt, 0.25f);
+                player.refreshMass();   // gear may have changed
+                player.refreshWeapon(); // the weapon in hand (game/Combat.h)
                 while (physicsTime >= PHYSICS_STEP) {
                     controller.beforeTick(player);
                     gPhysics->moveHuman(
                         player, controller.intent, PHYSICS_STEP);
+                    gPhysics->stepRagdoll(player, PHYSICS_STEP);
+                    // enemies, then every attack against every body
+                    npcs.tick(PHYSICS_STEP, *gPhysics, &player);
+                    {
+                        std::vector<Human*> bodies{ &player };
+                        for (auto& n : npcs.all()) bodies.push_back(n.get());
+                        combat::resolveHits(bodies, [&](glm::vec3 a, glm::vec3 b) {
+                            glm::vec3 d = b - a;
+                            int steps = (int)(glm::length(d) / 0.5f);
+                            for (int i = 1; i < steps; i++) {
+                                glm::vec3 p = a + d * ((float)i / steps);
+                                if (gPhysics->worldSolidAt((int)std::floor(p.x), (int)std::floor(p.y), (int)std::floor(p.z)))
+                                    return false;
+                            }
+                            return true;
+                        }, combatHits);
+                        combat::separate(bodies, [&](glm::vec3 p) {
+                            return gPhysics->capsuleIsClear(p, Human::RADIUS, Human::STAND_HEIGHT);
+                        });
+                        // Test Play: hits land, but you can't die
+                        if (!rules.tracksHealth) player.health = player.maxHealth;
+                        player.sinceHurt += PHYSICS_STEP;
+                    }
+                    if (wood)
+                        wood->tick(PHYSICS_STEP,
+                                   [&](int x, int y, int z) { return gPhysics->worldSolidAt(x, y, z); },
+                                   &player);
                     controller.afterTick(player);
                     physicsTime -= PHYSICS_STEP;
                 }
@@ -1151,6 +1395,34 @@ int main() {
                         std::cout << "Respawned\n";
                     }
                 }
+
+                // Died: the body lies there a moment, then back to
+                // the spawn point
+                for (const auto& h : combatHits) {
+                    char b[96];
+                    if (h.target == &player && h.killed) say("You died");
+                    else if (h.attacker == &player && h.killed) say("enemy killed");
+                    else if (h.attacker == &player) {
+                        std::snprintf(b, sizeof(b), h.blocked ? "%s blocked (%.0f)" : "%s hit %.0f",
+                                      combat::name(h.kind), h.damage);
+                        hands.notice = b; hands.noticeAge = 0.0f;
+                    }
+                }
+                combatHits.clear();
+                if (player.dead()) {
+                    playerDeadFor += dt;
+                    if (playerDeadFor > 3.0f) {
+                        glm::vec3 spot;
+                        if (gPhysics->findStandingSpot(player.spawnPoint.x, player.spawnPoint.z,
+                                                       Human::RADIUS, Human::STAND_HEIGHT, spot))
+                            player.position = spot;
+                        player.resetMotion();
+                        player.health = player.maxHealth;
+                        player.stamina = player.maxStamina;
+                        controller.snap(player);
+                        playerDeadFor = 0.0f;
+                    }
+                } else playerDeadFor = 0.0f;
 
                 // 4. Camera to the player's eyes — or behind
                 //    them in third person — blended between
@@ -1202,7 +1474,7 @@ int main() {
                     player, dev, hands.target, structs.get(),
                     [&](GameMode m) { changeMode(m); },
                     [&]() { saveWorld(); },
-                    say };
+                    say, &npcs };
                 commands.run(line, ctx);
             }
             gConsoleLines.clear();
@@ -1409,6 +1681,8 @@ int main() {
     playerBody.reset();
     previewBody.reset();
     charRenderer.cleanup();
+    dropWoodMeshes();
+    props.cleanup();
     skyRenderer.cleanup();
     distantLights.cleanup();
     editor.reset();
