@@ -69,7 +69,7 @@ public:
     // slot in the combat stance, else a weapon in the toolbar
     const ItemDef* wielded() const {
         const Inventory& inv = activeInventory();
-        if (combatStance) return inv.weapon.empty() ? nullptr : &gItems.get(inv.weapon.itemID);
+        if (combatStance) return inv.weapon().empty() ? nullptr : &gItems.get(inv.weapon().itemID);
         const ItemDef& d = inv.heldDef();
         return d.is(IC_WEAPON) ? &d : nullptr;
     }
@@ -113,20 +113,29 @@ public:
         body.clearGear();
         const Inventory& inv = activeInventory();
         for (int s = 0; s < WORN_SLOTS; s++)
-            if (!inv.worn[s].empty())
-                body.addWorn((WornSlot)s, gItems.get(inv.worn[s].itemID).weight);
-        if (!inv.weapon.empty()) {
-            float kg = gItems.get(inv.weapon.itemID).weight;
-            if (combatStance) body.addGear(SEG_HAND_R, kg);
-            else              body.addWorn(WornSlot::Back, kg);
+            if (!inv.worn((WornSlot)s).empty())
+                body.addWorn((WornSlot)s, gItems.get(inv.worn((WornSlot)s).itemID).weight);
+        // the equipped weapons: the drawn one in the hand, the
+        // rest on the back (an equipped weapon that is also the
+        // held hotbar item counts once, in the hand)
+        int heldSlot = combatStance ? -1 : inv.selected;
+        for (int w = 0; w < 2; w++) {
+            EquipSlot e = (EquipSlot)((int)EquipSlot::Weapon1 + w);
+            int s = inv.equip[(int)e];
+            if (s < 0 || s == heldSlot || (w == 1 && s == inv.equip[0])) continue;
+            float kg = gItems.get(inv.slots[s].itemID).weight;
+            if (combatStance && e == inv.weaponSlot()) body.addGear(SEG_HAND_R, kg);
+            else                                       body.addWorn(WornSlot::Back, kg);
         }
         if (!combatStance && !inv.held().empty())
             body.addGear(SEG_HAND_R, gItems.get(inv.held().itemID).weight);
+        if (!inv.offhandItem().empty())
+            body.addGear(SEG_HAND_L, gItems.get(inv.offhandItem().itemID).weight);
         mass = body.total();
         // poise: the base plus what is worn
         float wornKg = 0.0f;
         for (int s = 0; s < WORN_SLOTS; s++)
-            if (!inv.worn[s].empty()) wornKg += gItems.get(inv.worn[s].itemID).weight;
+            if (!inv.worn((WornSlot)s).empty()) wornKg += gItems.get(inv.worn((WornSlot)s).itemID).weight;
         float mp = combat::POISE_BASE + combat::POISE_PER_KG * wornKg;
         if (std::fabs(mp - maxPoise) > 1e-3f) { poise = std::min(poise, mp) + std::max(0.0f, mp - maxPoise); maxPoise = mp; }
     }

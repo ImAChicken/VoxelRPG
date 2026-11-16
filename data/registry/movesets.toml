@@ -24,10 +24,18 @@
 #   pose          the keyed pose it plays (combatanim in
 #                 Combat.h; later an animation clip)
 #   duration      s, wind-up + hit window + recovery
-#   active        [from, to] s: the hit window
+#   active        [from, to] s: the hit window: the only time the
+#                 blade can hit. With an animation clip, the clip's
+#                 marked strike plays across exactly this window
+#                 (data/animations/anim_map.toml 'strike')
 #   damage        × the weapon's damage
 #   poise         poise damage (× the weapon's weight scale)
 #   stamina       cost
+#   (A weapon with a voxel model hits with its voxels, swung by
+#   the animated arm, against the target's limbs: game/
+#   CombatHits.h. reach, arc and band below then only tell NPCs
+#   when to swing, and stand in for hits with no posed blade:
+#   the plunge's slam, far bodies, unarmed.)
 #   reach         voxels from the body's middle line
 #   arc           [from, to] degrees around the facing, positive
 #                 to the left, swept across the hit window
@@ -45,6 +53,50 @@
 #   armor_from    s: from here to the end of the hit window the
 #                 attacker's own poise can't be broken (hyper
 #                 armour; left out: none)
+
+[[moveset]]
+id = "axe"                # the iron axe, drawn from a weapon slot
+ref_weight = 2.5
+light = ["axe_light"]
+heavy = "axe_heavy"
+air_heavy = "sword_plunge"
+
+[[attack]]
+id = "axe_light"
+pose = "sword_light1"
+duration = 0.85
+active = [0.32, 0.46]
+damage = 1.0
+poise = 16
+stamina = 20
+reach = 9
+arc = [-60, 50]
+band = [3, 16]
+knock = 16
+lift = 0.15
+lunge = 8
+lunge_time = [0.12, 0.44]
+combo_from = 0.60
+cancel_from = 0.58
+
+[[attack]]
+id = "axe_heavy"
+pose = "sword_heavy"
+duration = 1.35
+active = [0.70, 0.84]
+damage = 2.4
+poise = 40
+stamina = 32
+reach = 10
+arc = [-15, 15]
+band = [0, 18]
+knock = 28
+lift = 0.30
+knockdown = true
+lunge = 12
+lunge_time = [0.55, 0.84]
+cancel_from = 1.0
+armor_from = 0.30
 
 [[moveset]]
 id = "sword"

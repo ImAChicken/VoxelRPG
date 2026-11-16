@@ -41,12 +41,20 @@ walk_to_run   = 18.0
 run_to_sprint = 46.0
 blend         = 5.0
 
-# Moveset attacks (movesets.toml ids) → clips. The clip is
-# stretched to the attack's duration, so the hit window in the
-# moveset stays where it is; pick a clip whose swing lands about
-# then. Attacks not listed keep their keyed poses.
+# Moveset attacks (movesets.toml ids) → clips.
+#   id = "Clip"                                   stretched evenly over the attack
+#   id = { clip = "Clip", strike = [from, to] }   'strike' marks where the clip's
+#        blade actually swings (fractions of the clip, 0..1); the clip is played
+#        so that part fills the moveset's hit window ('active'), the wind-up before
+#        it and the recovery after it. Only the blade during the hit window hits
+#        (game/CombatHits.h), so the marks are what make hits land when the blade
+#        is seen to swing. tests/hit_test.cpp checks each mark: the blade is
+#        fastest inside it.
+# Attacks not listed keep their keyed poses.
 [attacks]
-sword_light1    = "Sword_Regular_A"
-sword_light2    = "Sword_Regular_B"
-sword_heavy     = "Sword_Regular_C"
-sword_air_light = "Sword_Dash"
+sword_light1    = { clip = "Sword_Regular_A", strike = [0.45, 0.65] }   # low right, across, up to the left
+sword_light2    = { clip = "Sword_Regular_B", strike = [0.36, 0.57] }   # left to right
+sword_heavy     = { clip = "Sword_Regular_C", strike = [0.30, 0.38] }   # overhead, down in front
+sword_air_light = { clip = "Sword_Dash",      strike = [0.16, 0.26] }
+axe_light       = { clip = "Sword_Regular_A", strike = [0.45, 0.65] }
+axe_heavy       = { clip = "Sword_Regular_C", strike = [0.30, 0.38] }

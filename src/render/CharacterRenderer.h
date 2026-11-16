@@ -79,6 +79,21 @@ public:
     GLuint  heldVao = 0, heldVbo = 0;
     GLsizei heldCount = 0;
 
+    // What the left hand holds (the active off-hand slot): the
+    // same models, mirrored onto the left wrist
+    void setOffhandModel(const std::string& which) {
+        if (which == offKind && offFor == model.heightIn && offMode == hairMode && offGen == gHeldModels.generation()) return;
+        offKind = which; offFor = model.heightIn; offMode = hairMode; offGen = gHeldModels.generation();
+        const HeldModelDef* d = which.empty() ? nullptr : gHeldModels.find(which);
+        std::vector<PartVertex> v = d ? d->mesh(model, hairMode) : std::vector<PartVertex>();
+        for (PartVertex& p : v) { p.x = -p.x; p.nx = (int8_t)-p.nx; }
+        for (size_t i = 0; i + 2 < v.size(); i += 3) std::swap(v[i + 1], v[i + 2]);   // keep the winding
+        offCount = (GLsizei)v.size();
+        if (offCount) uploadPartMesh(v, offVao, offVbo);
+    }
+    GLuint  offVao = 0, offVbo = 0;
+    GLsizei offCount = 0;
+
     // A skeleton from outside the animation (the ragdoll), in
     // world voxels; drawn instead of the animated pose until
     // cleared. The animation keeps running underneath.
@@ -109,6 +124,10 @@ private:
     uint32_t          heldGen = 0;
     float             heldFor = 0.0f;
     HairMesh          heldMode = HairMesh::Shards;
+    std::string       offKind;
+    uint32_t          offGen = 0;
+    float             offFor = 0.0f;
+    HairMesh          offMode = HairMesh::Shards;
 
     void upload() {
         std::vector<PartVertex> all;
@@ -138,9 +157,11 @@ private:
         if (vao) glDeleteVertexArrays(1, &vao);
         if (heldVbo) glDeleteBuffers(1, &heldVbo);
         if (heldVao) glDeleteVertexArrays(1, &heldVao);
+        if (offVbo) glDeleteBuffers(1, &offVbo);
+        if (offVao) glDeleteVertexArrays(1, &offVao);
         if (faceTex[0]) glDeleteTextures(2, faceTex);
-        vao = vbo = heldVao = heldVbo = 0;
-        heldCount = 0; heldKind.clear();
+        vao = vbo = heldVao = heldVbo = offVao = offVbo = 0;
+        heldCount = offCount = 0; heldKind.clear(); offKind.clear();
         faceTex[0] = faceTex[1] = 0;
     }
 };
@@ -162,6 +183,10 @@ struct EdgeStyle {
 //                 direction jumps, and around silhouettes.
 //                 The lines carry the character's depth, so
 //                 walls in front of a character hide them.
+//                 Each character can also carry a glow
+//                 (render/OutlineFx.h: hurt, charging …): its
+//                 colour goes into its lines, a soft halo around
+//                 it and both tones of the echo.
 class CharacterRenderer {
 public:
     // How the next characters drawn are lit (set per character
@@ -228,15 +253,17 @@ void main() {
     gl_Position = uViewProj * uModel * vec4(aPos, 1.0);
 })", R"(#version 460 core
 in vec3 vN; in vec3 vColor; flat in float vPart;
+uniform vec4 uGlow;                        // the character's outline glow (rgb, a = strength)
 layout(location = 0) out vec4 outNormal;
 layout(location = 1) out vec4 outAlbedo;   // a = which part (body, hair, hat …)
-void main() { outNormal = vec4(normalize(vN) * 0.5 + 0.5, 1.0); outAlbedo = vec4(vColor, vPart / 255.0); }
+layout(location = 2) out vec4 outGlow;
+void main() { outNormal = vec4(normalize(vN) * 0.5 + 0.5, 1.0); outAlbedo = vec4(vColor, vPart / 255.0); outGlow = uGlow; }
 )");
         edges = link(R"(#version 460 core
 const vec2 P[3] = vec2[3](vec2(-1,-1), vec2(3,-1), vec2(-1,3));
 void main() { gl_Position = vec4(P[gl_VertexID], 0.0, 1.0); }
 )", R"(#version 460 core
-uniform sampler2D tNormal, tAlbedo, tDepth;
+uniform sampler2D tNormal, tAlbedo, tDepth, tGlow;
 uniform vec2 uInvSize; uniform int uMode, uColor; uniform float uThick;
 out vec4 outColor;
 float sil(vec2 uv) { return texture(tNormal, uv).a; }
@@ -247,6 +274,7 @@ void main() {
     float edge = 0.0, depth = n0.a > 0.5 ? d0 : 1.0;
     vec4 a0 = texture(tAlbedo, uv);
     vec3 under = a0.rgb;
+    vec4 glow = n0.a > 0.5 ? texture(tGlow, uv) : vec4(0.0);   // the glow of the figure this line belongs to
     vec2 o[4] = vec2[4](vec2(1,0), vec2(-1,0), vec2(0,1), vec2(0,-1));
     for (int i = 0; i < 4; i++) {
         vec2 q = uv + o[i] * uInvSize * uThick;
@@ -262,18 +290,47 @@ void main() {
             if (abs(texture(tAlbedo, q).a - a0.a) > 0.002) { edge = 1.0; depth = min(depth, d); }
         } else if (n0.a > 0.5 || n.a > 0.5) {
             edge = 1.0;                                     // silhouette, both sides
-            if (n.a > 0.5) { depth = min(depth, d); under = texture(tAlbedo, q).rgb; }
+            if (n.a > 0.5) {
+                depth = min(depth, d); under = texture(tAlbedo, q).rgb;
+                vec4 g = texture(tGlow, q);
+                if (g.a > glow.a) glow = g;
+            }
         }
     }
     vec3 ink = vec3(0.05, 0.04, 0.06);
     vec4 c = vec4(0.0);
-    if (uMode >= 1 && edge > 0.5)
-        c = vec4(uColor == 1 ? mix(under * 0.35, ink, 0.55) : ink, 1.0);
+    if (edge > 0.5 && (uMode >= 1 || glow.a > 0.02)) {
+        vec3 line = uColor == 1 ? mix(under * 0.35, ink, 0.55) : ink;
+        // a glowing figure's lines take its colour (they stay ink
+        // when lines are off and only the glow shows)
+        c = vec4(mix(line, glow.rgb, glow.a), uMode >= 1 ? 1.0 : glow.a);
+    }
     if (uMode == 2 && c.a == 0.0 && n0.a < 0.5) {
-        // colour echo behind the figure, like a print misregistration
+        // colour echo behind the figure, like a print misregistration;
+        // a glowing figure echoes in two tones of its glow
         vec2 qa = uv + vec2(-7.0, 5.0) * uInvSize, qb = uv + vec2(7.0, -3.0) * uInvSize;
-        if (sil(qa) > 0.5)      { c = vec4(0.84, 0.64, 0.74, 0.6); depth = texture(tDepth, qa).r; }
-        else if (sil(qb) > 0.5) { c = vec4(0.62, 0.72, 0.84, 0.6); depth = texture(tDepth, qb).r; }
+        if (sil(qa) > 0.5) {
+            vec4 g = texture(tGlow, qa);
+            c = vec4(mix(vec3(0.84, 0.64, 0.74), g.rgb, g.a), 0.6 + 0.3 * g.a); depth = texture(tDepth, qa).r;
+        } else if (sil(qb) > 0.5) {
+            vec4 g = texture(tGlow, qb);
+            c = vec4(mix(vec3(0.62, 0.72, 0.84), g.rgb * 0.55, g.a), 0.6 + 0.3 * g.a); depth = texture(tDepth, qb).r;
+        }
+    }
+    if (c.a == 0.0 && n0.a < 0.5) {
+        // the halo: a glowing figure within a few pixels
+        float best = 0.0; vec3 hc = vec3(0.0); float hd = 1.0;
+        for (int r = 1; r <= 2; r++) {
+            float rad = uThick * (r == 1 ? 2.5 : 4.5), fall = r == 1 ? 0.7 : 0.35;
+            for (int i = 0; i < 8; i++) {
+                float an = 0.7854 * float(i) + 0.39 * float(r);
+                vec2 q = uv + vec2(cos(an), sin(an)) * rad * uInvSize;
+                if (sil(q) < 0.5) continue;
+                vec4 g = texture(tGlow, q);
+                if (g.a * fall > best) { best = g.a * fall; hc = g.rgb; hd = texture(tDepth, q).r; }
+            }
+        }
+        if (best > 0.01) { c = vec4(hc, best); depth = hd; }
     }
     if (c.a == 0.0) discard;
     gl_FragDepth = depth - 0.00002;
@@ -348,6 +405,12 @@ void main() {
             glDrawArrays(GL_TRIANGLES, 0, ch.heldCount);
             glBindVertexArray(ch.vao);
         }
+        if (ch.offCount) {                        // the off-hand item
+            glBindVertexArray(ch.offVao);
+            glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[B_WRIST_L]));
+            glDrawArrays(GL_TRIANGLES, 0, ch.offCount);
+            glBindVertexArray(ch.vao);
+        }
         // face card on the front of the head
         glDisable(GL_CULL_FACE);
         glUseProgram(face);
@@ -369,13 +432,18 @@ void main() {
         glBindVertexArray(0);
     }
 
-    struct Placed { const Character* ch; glm::vec3 feet; };
+    struct Placed { const Character* ch; glm::vec3 feet; glm::vec4 glow = glm::vec4(0.0f); };
 
     // Edge lines for the characters just drawn. The viewport is
     // the one they were drawn in; fbW/fbH the whole framebuffer.
     void drawEdges(const std::vector<Placed>& list, const glm::mat4& view, const glm::mat4& proj,
                    int vx, int vy, int vw, int vh, int fbW, int fbH, EdgeStyle style) {
-        if (style.mode == 0 || list.empty() || !normals) return;
+        if (list.empty() || !normals) return;
+        if (style.mode == 0) {      // lines off: only glowing figures need the pass
+            bool any = false;
+            for (const Placed& p : list) any = any || p.glow.a > 0.004f;
+            if (!any) return;
+        }
         ensureTargets(fbW, fbH);
         GLint prevFbo = 0; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
 
@@ -393,8 +461,10 @@ void main() {
         glUniformMatrix4fv(loc(normals, "uViewProj"), 1, GL_FALSE, glm::value_ptr(vp));
         glUniformMatrix4fv(loc(normals, "uView"), 1, GL_FALSE, glm::value_ptr(view));
         GLint lm = loc(normals, "uModel");
+        GLint lg = loc(normals, "uGlow");
         for (const Placed& p : list) {
             if (!p.ch || !p.ch->ready()) continue;
+            glUniform4fv(lg, 1, glm::value_ptr(p.glow));
             std::array<glm::mat4, BONE_COUNT> mats;
             bodyMatrices(*p.ch, p.feet, mats);
             glBindVertexArray(p.ch->vao);
@@ -408,6 +478,11 @@ void main() {
                 glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[B_WRIST_R]));
                 glDrawArrays(GL_TRIANGLES, 0, p.ch->heldCount);
             }
+            if (p.ch->offCount) {
+                glBindVertexArray(p.ch->offVao);
+                glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[B_WRIST_L]));
+                glDrawArrays(GL_TRIANGLES, 0, p.ch->offCount);
+            }
         }
         glDisable(GL_CULL_FACE);
 
@@ -420,6 +495,8 @@ void main() {
         glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, texNormal);
         glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, texAlbedo);
         glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, texDepth);
+        glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, texGlow);
+        glUniform1i(loc(edges, "tGlow"), 3);
         glUniform1i(loc(edges, "tNormal"), 0);
         glUniform1i(loc(edges, "tAlbedo"), 1);
         glUniform1i(loc(edges, "tDepth"), 2);
@@ -466,7 +543,7 @@ void main() {
 private:
     GLuint body = 0, face = 0, normals = 0, edges = 0;
     GLuint quadVao = 0, quadVbo = 0, emptyVao = 0;
-    GLuint fbo = 0, texNormal = 0, texAlbedo = 0, texDepth = 0;
+    GLuint fbo = 0, texNormal = 0, texAlbedo = 0, texDepth = 0, texGlow = 0;
     int    fbW = 0, fbH = 0;
 
     static GLint loc(GLuint p, const char* n) { return glGetUniformLocation(p, n); }
@@ -486,14 +563,16 @@ private:
         };
         tex(texNormal, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
         tex(texAlbedo, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
+        tex(texGlow, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
         tex(texDepth, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT);
         glGenFramebuffers(1, &fbo);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texNormal, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, texAlbedo, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, texGlow, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texDepth, 0);
-        const GLenum bufs[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-        glDrawBuffers(2, bufs);
+        const GLenum bufs[3] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+        glDrawBuffers(3, bufs);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
             std::cerr << "CharacterRenderer: edge buffer incomplete\n";
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -501,9 +580,9 @@ private:
     }
     void freeTargets() {
         if (fbo) glDeleteFramebuffers(1, &fbo);
-        GLuint t[3] = { texNormal, texAlbedo, texDepth };
+        GLuint t[4] = { texNormal, texAlbedo, texDepth, texGlow };
         for (GLuint x : t) if (x) glDeleteTextures(1, &x);
-        fbo = texNormal = texAlbedo = texDepth = 0;
+        fbo = texNormal = texAlbedo = texDepth = texGlow = 0;
         fbW = fbH = 0;
     }
 

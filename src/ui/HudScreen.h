@@ -2,6 +2,7 @@
 #include <glm/glm.hpp>
 #include <string>
 #include "UIRenderer.h"
+#include "ItemIcon.h"
 #include "../entity/Player.h"
 #include "../entity/PlayerController.h"
 #include "../game/DevTools.h"
@@ -151,10 +152,19 @@ public:
         }
 
         // ── Health (Survival, both stances) and stamina ───
+        // bottom left, or above the hotbar's left end when the
+        // hotbar reaches that far
+        float barsBottom = sh;
+        {
+            const float k = gSettings.toolbarScale, slot = 44.0f * k, gap = 4.0f * k;
+            int n = Inventory::HOTBAR;
+            float hw = n * slot + (n - 1) * gap + 12.0f * k + slot + 16.0f * k;
+            if ((sw - hw) * 0.5f < 240.0f && rules.hasBody && !combat) barsBottom = sh - slot - 22.0f;
+        }
         if (rules.tracksHealth)
-            drawHealth(ui, player, 10.0f, sh - 42.0f);
+            drawHealth(ui, player, 10.0f, barsBottom - 42.0f);
         if (rules.tracksHealth || player.weaponDamage > 0.0f)
-            drawStamina(ui, player, 10.0f, sh - (rules.tracksHealth ? 58.0f : 26.0f));
+            drawStamina(ui, player, 10.0f, barsBottom - (rules.tracksHealth ? 58.0f : 26.0f));
         if (rules.tracksHealth && player.dead()) {
             std::string died = "YOU DIED";
             float w = (float)ui.textWidth(died, 4);
@@ -300,7 +310,8 @@ private:
         ui.drawRect(x + 2.0f, y + 2.0f, (w - 4.0f) * fill, h - 4.0f, player.staminaWait > 0.0f ? grey : green);
     }
 
-    // Eight slots plus the weapon slot (Survival only).
+    // The hotbar: off-hand slots 1 and 2, a gap, main-hand slots
+    // 3..0, then the active weapon (Survival only).
     // Size and opacity come from Settings. Returns the top
     // edge so text can sit above it.
     float drawToolbar(UIRenderer& ui, const Inventory& inv,
@@ -309,37 +320,32 @@ private:
         const float k    = gSettings.toolbarScale;
         const float a    = gSettings.toolbarOpacity;
         const float slot = 44.0f * k, gap = 4.0f * k;
-        const int   n    = Inventory::TOOLBAR_SLOTS;
-        const int   big  = k >= 0.8f ? 2 : 1;      // text size
-        float total = n * slot + (n - 1) * gap + (showWeapon ? slot + 20.0f * k : 0.0f);
+        const int   n    = Inventory::HOTBAR;
+        float total = n * slot + (n - 1) * gap + 12.0f * k + (showWeapon ? slot + 16.0f * k : 0.0f);
         float x = (sw - total) * 0.5f;
         float y = sh - slot - 14.0f;
 
-        float bg[4], edge[4], sel[4], red[4], dim[4], hi[4], white[4], ink[4];
+        float bg[4], edge[4], sel[4], red[4], dim[4], hi[4], white[4];
         fade(theme.bg, a, bg);       fade(theme.border, a, edge);
         fade(theme.accent, a, sel);  fade(COMBAT_RED, a, red);
         fade(theme.textDim, a, dim); fade(theme.textHover, a, hi);
         fade(WHITE, a, white);
-        const float black[4] = {10, 10, 10, 255};
-        fade(black, a, ink);
 
         for (int i = 0; i <= n; i++) {
             bool weaponSlot = (i == n);
             if (weaponSlot && !showWeapon) break;
             if (weaponSlot) x += 16.0f * k;
-            const ItemStack& s = weaponSlot ? inv.weapon : inv.toolbar[i];
-            bool on = !weaponSlot && i == inv.selected;
+            if (i == Inventory::OFFHAND) x += 12.0f * k;      // off-hand | main hand
+            const ItemStack& s = weaponSlot ? inv.weapon() : inv.slots[i];
+            bool off = i < Inventory::OFFHAND;
+            bool on = !weaponSlot && (i == inv.selected || i == inv.offhand);
             ui.drawRect(x, y, slot, slot, bg);
             ui.drawBorder(x, y, slot, slot,
-                weaponSlot ? red : (on ? sel : edge), on ? 3.0f : 1.0f);
+                weaponSlot ? red : (on ? (off ? hi : sel) : edge), on ? 3.0f : 1.0f);
             if (!s.empty()) {
                 const ItemDef& d = gItems.get(s.itemID);
-                float c[4] = { d.color[0] * 255, d.color[1] * 255, d.color[2] * 255, 255 * a };
-                float m = 9.0f * k;
-                ui.drawRect(x + m, y + m, slot - 2 * m, slot - 2 * m, c);
-                const char* mark = d.is(IC_DEV) ? "D" : d.is(IC_WEAPON) ? "W"
-                                 : d.is(IC_TOOL) ? "T" : nullptr;
-                if (mark) ui.drawTextCentered(mark, x, y, slot, slot, ink, big);
+                float m = (d.is(IC_BLOCK) ? 5.0f : 9.0f) * k;
+                drawItemIcon(ui, d, x + m, y + m, slot - 2 * m, 255.0f * a);
                 if (s.count > 1 && !inv.infinite) {
                     std::string cnt = std::to_string(s.count);
                     ui.drawText(cnt, x + slot - 3 - ui.textWidth(cnt, 1),
@@ -347,9 +353,15 @@ private:
                 }
             }
             if (!weaponSlot && k >= 0.7f) {
-                char num[2] = { (char)('1' + i), 0 };
+                char num[2] = { (char)(i == 9 ? '0' : '1' + i), 0 };
                 ui.drawText(num, x + 3.0f, y + 3.0f, on ? hi : dim, 1);
+                if (!s.empty() && inv.isEquipped(i))
+                    ui.drawText("E", x + 3.0f, y + slot - 11.0f, sel, 1);   // equipped
             }
+            if (weaponSlot && k >= 0.7f)
+                ui.drawText(inv.activeWeapon ? "2" : "1", x + 3.0f, y + 3.0f, red, 1);
+            if (off && i == 0 && k >= 0.7f)
+                ui.drawText("L", x - 1.0f, y - 11.0f, dim, 1);
             x += slot + gap;
         }
         return y;
@@ -365,9 +377,10 @@ private:
         const auto& theme = gResourcePacks.getTheme();
         const float w = 300.0f, h = 44.0f;
         float x = (sw - w) * 0.5f, y = sh - h - 14.0f;
-        const ItemStack& wpn = player.inventory.weapon;
+        const ItemStack& wpn = player.activeInventory().weapon();
         std::string name = wpn.empty() ? "UNARMED"
                                        : gItems.get(wpn.itemID).displayName;
+        name += player.activeInventory().activeWeapon ? "  [2]" : "  [1]";
         ui.drawRect(x, y, w, h, theme.bg);
         ui.drawBorder(x, y, w, h, COMBAT_RED, controller.guarding ? 3.0f : 1.0f);
         ui.drawTextCentered(controller.guarding ? "GUARDING" : name,

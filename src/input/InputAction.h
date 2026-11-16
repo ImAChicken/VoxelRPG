@@ -40,6 +40,9 @@ enum class InputAction {
     ToolbarSlot6,
     ToolbarSlot7,
     ToolbarSlot8,
+    ToolbarSlot9,
+    ToolbarSlot10,
+    SwapWeapon,     // Weapon 1 <-> Weapon 2
 
     // ── Camera ───────────────────────────────────────────
     CameraToggle,   // first/third person toggle F5

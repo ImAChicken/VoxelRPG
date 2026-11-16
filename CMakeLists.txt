@@ -107,13 +107,15 @@ endif()
 # ── Tests ─────────────────────────────────────────────────
 # Headless test programs (no window, no OpenGL). Off by default:
 #   cmake -B build -DVOXELRPG_TESTS=ON
-#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test
+#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test
 #   build/bin/Release/ragdoll_test      (build/bin/ragdoll_test elsewhere)
 #   build/bin/Release/woodcut_test      (from the repo root: it reads data/)
 #   build/bin/Release/combat_test
 #   build/bin/Release/sim_test          (from the repo root)
 #   build/bin/Release/npc_test          (from the repo root)
 #   build/bin/Release/anim_test         (from the repo root)
+#   build/bin/Release/inventory_test    (from the repo root)
+#   build/bin/Release/hit_test          (from the repo root)
 option(VOXELRPG_TESTS "Build the headless test programs in tests/" OFF)
 if(VOXELRPG_TESTS)
     add_executable(ragdoll_test tests/ragdoll_test.cpp)
@@ -123,7 +125,9 @@ if(VOXELRPG_TESTS)
     add_executable(sim_test tests/sim_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
     add_executable(npc_test tests/npc_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
     add_executable(anim_test tests/anim_test.cpp)
-    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test anim_test)
+    add_executable(inventory_test tests/inventory_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
+    add_executable(hit_test tests/hit_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
+    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test)
         target_include_directories(${t} PRIVATE src)
         # the animator plays clips (character/AnimClips.cpp, ozz)
         target_sources(${t} PRIVATE src/character/AnimClips.cpp)

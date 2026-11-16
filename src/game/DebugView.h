@@ -22,9 +22,14 @@
 //   ragdoll  the 20 ragdoll points and their links, coloured by
 //            ragdoll state (white animated, yellow reacting,
 //            red limp, blue recovering)
-//   combat   each attack's reach and arc (dim: the whole swing,
-//            bright red: swept so far in its hit window), its
-//            height band, guard cones, i-frames (green capsule)
+//   combat   what hits: every posed body's limb boxes (dim
+//            white; orange on the one a blade just touched) and
+//            the weapon's boxes in its hand (yellow; red while
+//            the attack's hit window is open). Attacks without a
+//            posed blade (the plunge's slam, unarmed, far
+//            bodies) show their reach and arc instead (dim: the
+//            whole swing, bright red: swept so far), with the
+//            height band. Guard cones, i-frames (green capsule)
 //   labels   over each body: health, stamina, attack and its
 //            time, move, ragdoll state, mass; NPC kind and plan
 //   props    fallen logs (bounds, awake / asleep / hinged,
@@ -120,7 +125,32 @@ inline void sector(DebugDraw& dd, glm::vec3 at, glm::vec3 facing, float deg0, fl
     }
 }
 
-inline void body(DebugDraw& dd, const Human& h, bool isPlayer, const std::string& title) {
+// An oriented box as twelve lines
+inline void obb(DebugDraw& dd, const hitshape::OBB& o, glm::vec3 c, float alpha) {
+    glm::vec3 k[8];
+    hitshape::corners(o, k);
+    static const int E[12][2] = { {0,1},{2,3},{4,5},{6,7},{0,2},{1,3},{4,6},{5,7},{0,4},{1,5},{2,6},{3,7} };
+    for (auto& e : E) dd.line(k[e[0]], k[e[1]], c, alpha);
+}
+
+// The shapes hits use (sim/BodyPoses.h, game/HitShapes.h)
+inline void hitShapes(DebugDraw& dd, const Simulation& sim, const Human& h) {
+    hitshape::Posed p;
+    if (!sim.bodyPoses().posed(h.uuid, p)) return;
+    bool recent = h.sinceHurt < 0.25f;
+    for (int i = 0; i < BONE_COUNT; i++)
+        if (p.body->has[i]) obb(dd, p.body->world(i, *p.now), recent ? ORANGE : WHITE, recent ? 0.8f : 0.25f);
+    if (p.held && p.model) {
+        const AttackDef& d = h.attack.def();
+        bool live = h.attack.active() && h.attack.kind != AttackKind::AirHeavy &&
+                    h.attack.t >= d.activeStart && h.attack.t <= d.activeEnd;
+        std::vector<hitshape::OBB> w;
+        hitshape::weaponBoxes(*p.held, *p.model, (*p.now)[B_WRIST_R], w);
+        for (auto& o : w) obb(dd, o, live ? RED : YELLOW, live ? 1.0f : 0.5f);
+    }
+}
+
+inline void body(DebugDraw& dd, const Human& h, bool isPlayer, const std::string& title, bool posedBlade = false) {
     bool inv = combat::invulnerable(h);
     glm::vec3 c = h.dead() ? GREY : inv ? GREEN : h.guarding ? BLUE : h.attack.active() ? ORANGE
                 : isPlayer ? CYAN : WHITE;
@@ -151,7 +181,7 @@ inline void body(DebugDraw& dd, const Human& h, bool isPlayer, const std::string
     }
 
     if (gDebug.combat) {
-        if (h.attack.active()) {
+        if (h.attack.active() && !(posedBlade && h.attack.kind != AttackKind::AirHeavy)) {
             const AttackDef& d = h.attack.def();
             glm::vec3 mid = h.position + glm::vec3(0, (d.yLo + d.yHi) * 0.5f, 0);
             bool live = h.attack.t >= d.activeStart && h.attack.t <= d.activeEnd;
@@ -196,13 +226,18 @@ inline void body(DebugDraw& dd, const Human& h, bool isPlayer, const std::string
 inline void build(DebugDraw& dd, Simulation& sim, const Woodcutting* wood, const Player& local,
                   const std::vector<std::array<glm::vec3, 3>>& axeBlade) {
     if (!gDebug.on) return;
+    auto blade = [&](const Human& h) { hitshape::Posed p; return sim.bodyPoses().posed(h.uuid, p) && p.held; };
     for (const auto& p : sim.players())
-        if (p->rules().hasBody) body(dd, *p, true, p.get() == &local ? "you" : "player");
+        if (p->rules().hasBody) {
+            body(dd, *p, true, p.get() == &local ? "you" : "player", blade(*p));
+            if (gDebug.combat) hitShapes(dd, sim, *p);
+        }
     for (const auto& n : sim.npcs().all()) {
+        if (gDebug.combat) hitShapes(dd, sim, *n);
         std::string t = n->name + "  [" + (n->state ? n->state->debug(*n) : std::string("-")) + "]";
         if (n->tier == 1) t += "  lite"; else if (n->tier == 2) t += "  frozen";
         if (const FactionRegistry::Faction* f = gFactions.get(n->faction)) t += "  " + f->id;
-        body(dd, *n, false, t);
+        body(dd, *n, false, t, blade(*n));
         if (gDebug.ai) {
             // what it knows: home and patrol, territory, sight, last known spot
             glm::vec3 h = n->home + glm::vec3(0, 0.2f, 0);

@@ -7,6 +7,7 @@
 #include "../entity/Player.h"
 #include "../npc/NpcManager.h"
 #include "../sim/Simulation.h"
+#include "../render/OutlineFx.h"
 #include "../npc/Factions.h"
 #include "DebugView.h"
 #include "../physics/IPhysics.h"
@@ -364,13 +365,11 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
                                      : c.player.mode != GameMode::Survival;
             Inventory& inv = dev ? c.player.devInventory : c.player.inventory;
             const ItemDef& d = gItems.get(id);
-            if (d.is(IC_WEAPON) && !d.is(IC_TOOL)) {
-                inv.setSlot(-1, id, 1);
-                c.log(d.displayName + " put in the " +
-                      (dev ? "dev" : "player") + " weapon slot");
-                return;
-            }
             int left = inv.add(id, count);
+            // a weapon with a free weapon slot is equipped there
+            if (d.is(IC_WEAPON) && !d.is(IC_TOOL) && left < count &&
+                (inv.equip[(int)EquipSlot::Weapon1] < 0 || inv.equip[(int)EquipSlot::Weapon2] < 0))
+                inv.equipItem(id);
             c.log("gave " + std::to_string(count - left) + " " + d.displayName +
                   " to the " + (dev ? "dev" : "player") + " inventory" +
                   (left ? "  (" + std::to_string(left) + " did not fit)" : ""));
@@ -380,8 +379,7 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             bool dev = a.empty() ? c.player.mode != GameMode::Survival
                                  : a[0] == "dev";
             Inventory& inv = dev ? c.player.devInventory : c.player.inventory;
-            for (auto& s : inv.toolbar) s.clear();
-            inv.weapon.clear();
+            inv.clearAll();
             c.log(std::string(dev ? "dev" : "player") + " inventory emptied");
         });
     reg.add("tp", "tp <x y z>", "move to a position",
@@ -487,6 +485,25 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
                 if (Human* h = c.sim->find(id)) { c.sim->toolHit(c.player.uuid, id, 9999.0f, 999.0f, h->bodyPoint(0.6f), h->facing * -1.0f); n++; }
             c.log("smote " + std::to_string(n));
         });
+    reg.add("outline", "outline <effect> [me|npc]",
+        "flash an outline effect (data/registry/outline.toml: hurt, blocked, guard_break …) on you or the nearest NPC",
+        [](C& c, const Args& a) {
+            if (a.empty()) { c.log("outline <effect> [me|npc]"); return; }
+            if (!gOutlineFx.effect(a[0])) { c.log("no outline effect '" + a[0] + "'"); return; }
+            EntityId who = c.player.uuid;
+            if (a.size() > 1 && a[1] == "npc" && c.sim) {
+                float best = 1e9f;
+                who = 0;
+                for (auto& x : c.sim->npcs().all()) {
+                    float d = glm::length(x->position - c.player.position);
+                    if (!x->dead() && d < best) { best = d; who = x->uuid; }
+                }
+                if (!who) { c.log("no NPC near"); return; }
+            }
+            // (charge normally comes from an attack's wind-up; here it plays as a flash)
+            gOutlineFx.start(who, a[0]);
+            c.log("outline " + a[0]);
+        });
     reg.add("despawn", "despawn", "remove every NPC",
         [](C& c, const Args&) {
             if (c.npcs) c.npcs->clear();
@@ -518,13 +535,13 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             c.log(b);
             const Inventory& inv = c.player.activeInventory();
             for (int s = 0; s < WORN_SLOTS; s++)
-                if (!inv.worn[s].empty()) {
-                    const ItemDef& d = gItems.get(inv.worn[s].itemID);
+                if (!inv.worn((WornSlot)s).empty()) {
+                    const ItemDef& d = gItems.get(inv.worn((WornSlot)s).itemID);
                     std::snprintf(b, sizeof(b), "  %s: %s %.1f kg", wornSlotKey((WornSlot)s), d.name.c_str(), d.weight);
                     c.log(b);
                 }
-            if (!inv.weapon.empty()) {
-                const ItemDef& d = gItems.get(inv.weapon.itemID);
+            if (!inv.weapon().empty()) {
+                const ItemDef& d = gItems.get(inv.weapon().itemID);
                 std::snprintf(b, sizeof(b), "  weapon (%s): %s %.1f kg",
                               c.player.combatStance ? "in hand" : "on back", d.name.c_str(), d.weight);
                 c.log(b);
@@ -559,7 +576,8 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             }
             uint16_t id = gItems.find(a[0]);
             if (!id) { c.log("no item '" + a[0] + "'"); return; }
-            if (!inv.wear(id)) { c.log(a[0] + " is not worn gear"); return; }
+            if (!gItems.get(id).is(IC_WORN)) { c.log(a[0] + " is not worn gear"); return; }
+            if (!inv.wear(id)) { c.log("no room in the inventory for " + a[0]); return; }
             const ItemDef& d = gItems.get(id);
             char b[96];
             std::snprintf(b, sizeof(b), "wearing %s on %s (%.1f kg)", d.name.c_str(), wornSlotKey((WornSlot)d.worn), d.weight);

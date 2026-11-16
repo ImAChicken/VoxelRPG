@@ -1,5 +1,6 @@
 #pragma once
 #include "UIScreen.h"
+#include "ItemIcon.h"
 #include "../entity/Player.h"
 #include "../game/BuildTool.h"
 #include "../game/StructureRegistry.h"
@@ -64,9 +65,14 @@ public:
             ui.drawRect(x, y, tileW, tileH, hov ? theme.bgHover : theme.inputBg);
             ui.drawBorder(x, y, tileW, tileH, on ? theme.accent : theme.border,
                           on ? 2.0f : 1.0f);
+            // the material it is built from, as its block icon
             const VoxelTypeDef& b = gRegistry.get(t->block);
-            float c[4] = { b.color[0] * 255, b.color[1] * 255, b.color[2] * 255, 255 };
-            ui.drawRect(x + 8, y + 8, 42, 42, c);
+            uint16_t mat = gItems.itemForBlock(t->block);
+            if (mat) drawItemIcon(ui, gItems.get(mat), x + 8, y + 8, 42);
+            else {
+                float c[4] = { b.color[0] * 255, b.color[1] * 255, b.color[2] * 255, 255 };
+                ui.drawRect(x + 8, y + 8, 42, 42, c);
+            }
             ui.drawText(t->displayName, x + 62, y + 9,
                         hov ? theme.textHover : theme.text, 2);
             ui.drawText(t->feet() + "   " + t->costText(), x + 62, y + 34,

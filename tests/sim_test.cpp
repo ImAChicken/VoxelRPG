@@ -59,8 +59,8 @@ int main() {
     p.position = glm::vec3(128, GROUND + 0.5f, 128);
     p.spawnPoint = glm::vec3(128, GROUND, 128);
     p.facing = glm::vec3(0, 0, -1);
-    if (uint16_t s = gItems.find("iron_sword")) p.inventory.setSlot(0, s, 1);
-    p.inventory.selected = 0;
+    if (uint16_t s = gItems.find("iron_sword")) p.inventory.setSlot(Inventory::FIRST_MAIN, s, 1);
+    p.inventory.select(Inventory::FIRST_MAIN);
 
     std::printf("players by intent\n");
     {

@@ -5,6 +5,7 @@
 #include "AnimMap.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -259,7 +260,7 @@ public:
 
         // ── Ease every joint toward its target ───────────
         float k = 1.0f - std::exp(-dt * 14.0f);
-        for (int b = 0; b < BONE_COUNT; b++) pose.rot[b] += angleDiff(t[b], pose.rot[b]) * k;
+        for (int b = 0; b < BONE_COUNT; b++) pose.rot[b] = blendRot(pose.rot[b], t[b], k);
         pose.rootOffset += (rootOff - pose.rootOffset) * k;
         pose.spinPitch = spin;
 
@@ -276,7 +277,7 @@ public:
             std::array<glm::vec3, BONE_COUNT> g = shown.rot; glm::vec3 ro(0.0f);
             gAnims.sample(guardClip, gAnims.info(guardClip).duration * 0.5f, model, g, ro);
             for (int b = B_SPINE; b < BONE_COUNT; b++)
-                if (b <= B_WRIST_R && gAnims.drives(b)) shown.rot[b] += angleDiff(g[b], shown.rot[b]) * guardW;   // upper body only
+                if (b <= B_WRIST_R && gAnims.drives(b)) shown.rot[b] = blendRot(shown.rot[b], g[b], guardW);   // upper body only
         } else if (guardW > 0.01f) {
             // the blade held up across the body, the off hand behind it
             auto put = [&](int b, glm::vec3 v) { shown.rot[b] += (v - shown.rot[b]) * guardW; };
@@ -289,15 +290,16 @@ public:
         }
         int atkClip = in.attack ? gAnimMap.attackClip(in.attack->id) : -1;
         if (in.attack && atkClip >= 0) {
-            // the clip, stretched over the attack's duration, eased
-            // in and out of the base pose
+            // the clip over the attack's duration, its marked strike
+            // on the attack's hit window (AnimMap::attackClipAt),
+            // eased in and out of the base pose
             float d = std::max(in.attack->duration, 1e-3f);
-            float u = std::clamp(in.attackT / d, 0.0f, 1.0f);
+            float u = gAnimMap.attackClipAt(in.attack->id, in.attackT, d, in.attack->activeStart, in.attack->activeEnd);
             std::array<glm::vec3, BONE_COUNT> a = shown.rot; glm::vec3 ro(0.0f);
             gAnims.sample(atkClip, u * gAnims.info(atkClip).duration, model, a, ro);
             auto ss = [](float a0, float b0, float x) { float v = std::clamp((x - a0) / (b0 - a0), 0.0f, 1.0f); return v * v * (3 - 2 * v); };
             float w = ss(0.0f, 0.06f, in.attackT) * (1.0f - ss(d - 0.12f, d, in.attackT));
-            for (int b = 0; b < BONE_COUNT; b++) if (gAnims.drives(b)) shown.rot[b] += angleDiff(a[b], shown.rot[b]) * w;
+            for (int b = 0; b < BONE_COUNT; b++) if (gAnims.drives(b)) shown.rot[b] = blendRot(shown.rot[b], a[b], w);
         } else if (in.attack) {
             float drop = 0.0f;
             combatanim::apply(in.attack->pose, in.attack->duration, in.attackT, shown.rot, drop);
@@ -326,6 +328,32 @@ public:
     // a - b, each angle the short way round (degrees)
     static glm::vec3 angleDiff(const glm::vec3& a, const glm::vec3& b) {
         return glm::vec3(std::remainder(a.x - b.x, 360.0f), std::remainder(a.y - b.y, 360.0f), std::remainder(a.z - b.z, 360.0f));
+    }
+
+    // A joint rotation (degrees, applied Y then X then Z, as
+    // boneMatrices does) as a quaternion, and back
+    static glm::quat toQuat(const glm::vec3& r) {
+        return glm::angleAxis(glm::radians(r.y), glm::vec3(0, 1, 0)) *
+               glm::angleAxis(glm::radians(r.x), glm::vec3(1, 0, 0)) *
+               glm::angleAxis(glm::radians(r.z), glm::vec3(0, 0, 1));
+    }
+    static glm::vec3 fromQuat(const glm::quat& q) {
+        glm::mat3 M = glm::mat3_cast(q);
+        float t1 = std::atan2(M[2][0], M[2][2]);
+        float c2 = std::sqrt(M[0][1] * M[0][1] + M[1][1] * M[1][1]);
+        float t2 = std::atan2(-M[2][1], c2);
+        float s1 = std::sin(t1), c1 = std::cos(t1);
+        float t3 = std::atan2(s1 * M[1][2] - c1 * M[1][0], c1 * M[0][0] - s1 * M[0][2]);
+        return glm::degrees(glm::vec3(t2, t1, t3));
+    }
+    // From rotation a toward b by w (0..1), the shortest way: two
+    // sets of angles for nearly the same rotation (a clip passing
+    // a gimbal point) blend smoothly instead of swinging the limb
+    // all the way round
+    static glm::vec3 blendRot(const glm::vec3& a, const glm::vec3& b, float w) {
+        if (w <= 0.0f) return a;
+        if (w >= 1.0f) return b;
+        return fromQuat(glm::slerp(toQuat(a), toQuat(b), w));
     }
 
 private:
@@ -388,7 +416,7 @@ private:
             if (!gAnims.sample(p.clip, p.time, model, r, ro)) continue;
             float f = p.w / (total + p.w);
             for (int bn = 0; bn < BONE_COUNT; bn++)
-                if (gAnims.drives(bn)) acc[bn] = total == 0.0f ? r[bn] : acc[bn] + angleDiff(r[bn], acc[bn]) * f;
+                if (gAnims.drives(bn)) acc[bn] = total == 0.0f ? r[bn] : blendRot(acc[bn], r[bn], f);
             accRoot = total == 0.0f ? ro : accRoot + (ro - accRoot) * f;
             total += p.w;
         }

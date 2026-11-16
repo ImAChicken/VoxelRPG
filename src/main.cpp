@@ -42,6 +42,8 @@
 #include "chunk/ChunkLoader.h"
 #include "render/FarTerrain.h"
 #include "render/CharacterRenderer.h"
+#include "character/HumanAnim.h"
+#include "render/OutlineFx.h"
 #include "ui/CharacterScreen.h"
 #include "chunk/TerrainGenerator.h"
 #include "voxel/VoxelRegistry.h"
@@ -58,6 +60,7 @@
 #include "game/StructureRegistry.h"
 #include "game/BuildTool.h"
 #include "ui/BuildMenuScreen.h"
+#include "ui/InventoryScreen.h"
 #include "world/StructureManager.h"
 #include "world/Woodcutting.h"
 #include "sim/Simulation.h"
@@ -91,6 +94,7 @@ enum class GameState {
     Controls,
     Settings,
     BuildMenu,
+    Inventory,      // the inventory screen (I)
     Character,      // character creator
 };
 
@@ -224,6 +228,7 @@ int main() {
     gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
     gAnims.load("data/animations", "data/animations/retarget.toml");
     gAnimMap.load("data/animations/anim_map.toml");
+    gOutlineFx.load("data/registry/outline.toml");
     decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
     gItems.addDecor(*decor::current());
 
@@ -331,6 +336,8 @@ int main() {
     SettingsScreen  settingsScreen(window);
     CharacterScreen characterScreen(window);
     BuildMenuScreen buildMenu(window);
+    InventoryScreen inventoryScreen(window);
+    bool inventoryOpenedFrame = false;
     Hud             hud;
     Console         console;
     gMainMenu = &mainMenu;
@@ -633,6 +640,8 @@ int main() {
                 else if (!player.read(key, value) && !build.read(key, value))
                     dev.read(key, value);
             });
+        player.inventory.finishLoad();
+        player.devInventory.finishLoad();
 
         if (returning) {
             mode = player.mode;
@@ -649,15 +658,15 @@ int main() {
             const char* kit[] = { "dev_wand", "dev_fill", "dev_brush",
                                   "dev_copy", "dev_paste", "dev_cube",
                                   "stone", "builders_hammer" };
-            for (int i = 0; i < Inventory::TOOLBAR_SLOTS; i++)
+            for (int i = 0; i < 8; i++)
                 if (uint16_t id = gItems.find(kit[i]))
-                    player.devInventory.setSlot(i, id, 1);
+                    player.devInventory.setSlot(Inventory::FIRST_MAIN + i, id, 1);
             // Every player starts with a Builder's Hammer
             if (uint16_t h = gItems.find("builders_hammer"))
-                player.inventory.setSlot(0, h, 1);
+                player.inventory.setSlot(Inventory::FIRST_MAIN, h, 1);
             // …and a pickaxe
             if (uint16_t pk = gItems.find("stone_pickaxe"))
-                player.inventory.setSlot(1, pk, 1);
+                player.inventory.setSlot(Inventory::FIRST_MAIN + 1, pk, 1);
         }
         changeMode(mode);
 
@@ -774,38 +783,9 @@ int main() {
         // follows the animation even in first person); drawn
         // in third person.
         const GameModeRules rules = player.rules();
-        // What any human is doing, for its animation
-        auto animFor = [](const Human& h, bool combat, float pitch) {
-            AnimInput in;
-            in.velocity     = h.velocity;
-            glm::vec3 f     = h.attack.active() ? h.attack.dir : h.facing;   // an attack faces its swing
-            in.facingYawDeg = glm::degrees(std::atan2(f.z, f.x));
-            in.lookPitchDeg = pitch;
-            in.grounded     = h.grounded;
-            in.crouching    = h.crouching;
-            in.sprinting    = h.sprinting;
-            in.flying       = h.flying;
-            in.combat       = combat;
-            in.frozen       = h.freeze != Human::Freeze::None;
-            in.walkSpeed    = Human::WALK_SPEED;
-            in.sprintSpeed  = Human::SPRINT_SPEED;
-            in.attack       = h.attack.active() ? h.attack.d : nullptr;
-            in.attackT      = h.attack.t;
-            in.guard        = h.guarding;
-            switch (h.move) {
-            case Human::Move::Roll:
-                in.move = AnimInput::Move::Roll;
-                in.moveProgress = 1.0f - h.moveTimer / Human::ROLL_TIME; break;
-            case Human::Move::Backstep:
-                in.move = AnimInput::Move::Backstep;
-                in.moveProgress = 1.0f - h.moveTimer / Human::BACKSTEP_TIME; break;
-            case Human::Move::AirDodge:
-                in.move = AnimInput::Move::AirDodge;
-                in.moveProgress = 1.0f - h.moveTimer / Human::AIR_DODGE_TIME; break;
-            default: break;
-            }
-            return in;
-        };
+        // What any human is doing, for its animation (shared with
+        // the simulation's poses: character/HumanAnim.h)
+        auto animFor = [](const Human& h, bool combat, float pitch) { return animInputFor(h, combat, pitch); };
         if (rules.hasBody) {
             playerBody->setAppearance(player.appearance, hairMesh());
             const ItemDef* wielded = player.wielded();
@@ -820,6 +800,11 @@ int main() {
             // what the right hand shows (items.toml held_model)
             playerBody->setHeldModel(player.combatStance ? (wielded ? wielded->heldModel : std::string())
                                      : player.activeInventory().heldDef().heldModel);
+            // the left hand: the active off-hand slot
+            {
+                const ItemStack& off = player.activeInventory().offhandItem();
+                playerBody->setOffhandModel(off.empty() ? std::string() : gItems.get(off.itemID).heldModel);
+            }
             playerBody->animate(in, frameDt);
 
             // Ragdoll: follows this pose (at the physics position);
@@ -986,7 +971,7 @@ int main() {
                               OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
             // toon edge lines (hidden behind anything in front)
             int fw = gRenderer->getScreenWidth(), fh = gRenderer->getScreenHeight();
-            charRenderer.drawEdges({ { playerBody.get(), controller.renderPosition } }, view, proj,
+            charRenderer.drawEdges({ { playerBody.get(), controller.renderPosition, gOutlineFx.glowFor(player) } }, view, proj,
                                    0, 0, fw, fh, fw, fh, edgeStyle());
         }
 
@@ -1006,7 +991,7 @@ int main() {
                 lightCharacters(at);
                 charRenderer.draw(*it->second, proj * view, at, camera.position,
                                   OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
-                placed.push_back({ it->second.get(), at });
+                placed.push_back({ it->second.get(), at, gOutlineFx.glowFor(*np) });
                 // a health bar over the head, once hurt (or always, close)
                 float dist = glm::length(at - camera.position);
                 if (!np->dead() && (np->sinceHurt < 8.0f || dist < 40.0f) && dist < 120.0f) {
@@ -1188,6 +1173,12 @@ int main() {
         frameDt = dt;
         if (gState == GameState::Playing || gState == GameState::Console) gClock.update(dt);
 
+        // Menus draw block icons from the world atlas (ui/ItemIcon.h)
+        {
+            const AtlasTexture& at = glr->getAtlas();
+            gIconAtlas = { at.id, at.tileU(), at.tileV() };
+        }
+
         // Events first, then input — poll() must run before
         // any isPressed / isHeld check this frame
         glfwPollEvents();
@@ -1220,6 +1211,24 @@ int main() {
                 say(gDebug.on ? "debug overlay on (console: debug)" : "debug overlay off");
             }
 
+            // I — the inventory; X — swap weapon 1 / 2
+            if (rulesFor(player.mode, false).hasBody) {
+                if (gInput.isPressed(InputAction::Inventory)) {
+                    inventoryScreen.setContext(&player);
+                    inventoryScreen.onEnter();
+                    inventoryOpenedFrame = true;     // the same I press must not close it
+                    gState = GameState::Inventory;
+                    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                }
+                if (gInput.isPressed(InputAction::SwapWeapon)) {
+                    Inventory& inv = player.activeInventory();
+                    inv.swapWeapons();
+                    const ItemStack& w = inv.weapon();
+                    say(std::string(inv.activeWeapon ? "weapon 2: " : "weapon 1: ") +
+                        (w.empty() ? "empty" : gItems.get(w.itemID).displayName));
+                }
+            }
+
             // ` — open the console
             if (gInput.isPressed(InputAction::ToggleConsole)) {
                 console.toggle();
@@ -1248,6 +1257,7 @@ int main() {
                 gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
                 gAnims.load("data/animations", "data/animations/retarget.toml");
                 gAnimMap.load("data/animations/anim_map.toml");
+                gOutlineFx.load("data/registry/outline.toml");
                 decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
                 gItems.addDecor(*decor::current());
                 gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current());
@@ -1418,7 +1428,9 @@ int main() {
                 }
 
                 // 3. What happened, as it concerns this player
+                gOutlineFx.update(frameDt);
                 for (const SimEvent& e : sim.takeEvents()) {
+                    gOutlineFx.onEvent(e);       // flashing outlines (hurt, blocked …)
                     char b[96];
                     switch (e.kind) {
                     case SimEvent::Kind::Killed:
@@ -1603,6 +1615,24 @@ int main() {
             ScreenResult r = buildMenu.update(*gRenderer->getUIRenderer(), dt);
             if (r == ScreenResult::CloseMenu ||
                 gInput.isPressed(InputAction::Pause)) {
+                gState = GameState::Playing;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                camera.firstMouse = true;
+                gInput.resetMouseDelta(window);
+            }
+
+        } else if (gState == GameState::Inventory) {
+
+            drawWorld();
+            hud.draw(*gRenderer->getUIRenderer(),
+                     player, controller, hands, dev);
+            if (gInput.isPressed(InputAction::SwapWeapon)) player.activeInventory().swapWeapons();
+            ScreenResult r = inventoryScreen.update(*gRenderer->getUIRenderer(), dt);
+            bool justOpened = inventoryOpenedFrame;
+            inventoryOpenedFrame = false;
+            if (!justOpened && (r == ScreenResult::CloseMenu ||
+                gInput.isPressed(InputAction::Inventory) ||
+                gInput.isPressed(InputAction::Pause))) {
                 gState = GameState::Playing;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 camera.firstMouse = true;

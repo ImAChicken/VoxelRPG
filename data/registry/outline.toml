@@ -1,0 +1,57 @@
+# Outline effects: things that make a character's outline glow or
+# flash (render/OutlineFx.h). The colour goes into the edge lines,
+# a soft halo around the figure, and — with "Lines + echo" on
+# (Settings → Character edges) — both tones of the echo.
+#
+# Each [[effect]]:
+#   id         what triggers it (below)
+#   color      [r, g, b] 0..1
+#   time       seconds it lasts
+#   strength   0..1 at its peak
+#   blinks     0: fades out smoothly; n: flashes n times while fading
+#   priority   when several are on at once, the higher one shows
+#
+# Triggers:
+#   hurt         took damage (health)
+#   blocked      a hit landed on the guard
+#   guard_break  the guard was broken
+#   charge       an attack winding up: builds from its start to the
+#                moment its hit window opens, then fades. Only
+#                attacks with at least 'min_windup' seconds of wind-up
+#                (the heavies, not the quick lights)
+#
+# New triggers need a line of code in OutlineFx; new looks only
+# need this file. F6 reloads it.
+
+[[effect]]
+id = "hurt"
+color = [1.0, 0.16, 0.10]
+time = 0.35
+strength = 1.0
+blinks = 2
+priority = 3
+
+[[effect]]
+id = "blocked"
+color = [1.0, 1.0, 1.0]
+time = 0.25
+strength = 0.9
+blinks = 1
+priority = 2
+
+[[effect]]
+id = "guard_break"
+color = [1.0, 1.0, 1.0]
+time = 0.6
+strength = 1.0
+blinks = 3
+priority = 4
+
+[[effect]]
+id = "charge"
+color = [1.0, 0.85, 0.15]
+time = 0.15          # the fade once the hit window opens
+strength = 1.0
+blinks = 0
+priority = 1
+min_windup = 0.3

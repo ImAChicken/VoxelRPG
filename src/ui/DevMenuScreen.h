@@ -1,5 +1,6 @@
 #pragma once
 #include "UIScreen.h"
+#include "ItemIcon.h"
 #include "../entity/Player.h"
 #include "../game/DevTools.h"
 #include "../game/BuildTool.h"
@@ -308,8 +309,8 @@ private:
         Inventory& inv = player->devInventory;
         uint16_t item = gItems.find(name);
         if (!item) return;
-        for (int i = 0; i < Inventory::TOOLBAR_SLOTS; i++)
-            if (inv.toolbar[i].itemID == item) { inv.select(i); return; }
+        for (int i = Inventory::FIRST_MAIN; i < Inventory::HOTBAR; i++)
+            if (inv.slots[i].itemID == item) { inv.select(i); return; }
         inv.setSlot(inv.selected, item, 1);
     }
 
@@ -317,12 +318,12 @@ private:
     void give(const ItemDef& d) {
         Inventory& inv = target();
         if (d.is(IC_WORN)) {                       // worn gear: put on, or take off if already on
-            if (inv.worn[d.worn].itemID == d.id) inv.takeOff((WornSlot)d.worn);
-            else                                 inv.wear(d.id);
+            if (inv.worn((WornSlot)d.worn).itemID == d.id) inv.takeOff((WornSlot)d.worn);
+            else                                            inv.wear(d.id);
             return;
         }
         if (d.is(IC_WEAPON) && !d.is(IC_TOOL)) {
-            inv.setSlot(-1, d.id, 1);              // weapon slot
+            inv.equipItem(d.id, (int)inv.weaponSlot());   // the active weapon slot
             return;
         }
         int count = 1;
@@ -337,13 +338,14 @@ private:
         Inventory& inv = target();
         ui.drawText(giveToPlayer ? "Player inventory" : "Dev inventory",
                     x, y, theme.textDim, 2);
-        const float slot = 52.0f, gap = 6.0f;
+        const float slot = 46.0f, gap = 5.0f;
         float sx = x, sy = y + 22;
-        for (int i = 0; i <= Inventory::TOOLBAR_SLOTS; i++) {
-            bool weaponSlot = (i == Inventory::TOOLBAR_SLOTS);
-            if (weaponSlot) sx += 24.0f;
-            const ItemStack& s = weaponSlot ? inv.weapon : inv.toolbar[i];
-            bool on  = !weaponSlot && i == inv.selected;
+        for (int i = 0; i <= Inventory::HOTBAR; i++) {
+            bool weaponSlot = (i == Inventory::HOTBAR);
+            if (weaponSlot) sx += 20.0f;
+            if (i == Inventory::OFFHAND) sx += 8.0f;
+            const ItemStack& s = weaponSlot ? inv.weapon() : inv.slots[i];
+            bool on  = !weaponSlot && (i == inv.selected || i == inv.offhand);
             bool hov = hovered(sx, sy, slot, slot);
             ui.drawRect(sx, sy, slot, slot, hov ? theme.bgHover : theme.bg);
             ui.drawBorder(sx, sy, slot, slot, on ? theme.accent : theme.border,
@@ -359,11 +361,12 @@ private:
                 if (hov) { hoverText = describe(d); hoverHint = hint(d); }
             }
             if (weaponSlot)
-                ui.drawText("weapon", sx, sy + slot + 4, theme.textDim, 1);
-            if (hov && clicked() && !weaponSlot) inv.select(i);
+                ui.drawText(inv.activeWeapon ? "weapon 2" : "weapon 1", sx, sy + slot + 4, theme.textDim, 1);
+            if (i == 0) ui.drawText("off-hand", sx, sy + slot + 4, theme.textDim, 1);
+            if (hov && clicked() && !weaponSlot) inv.pressHotbarKey(i);
             if (hov && rightClicked()) {
-                if (weaponSlot) inv.weapon.clear();
-                else            inv.toolbar[i].clear();
+                if (weaponSlot) inv.unequip(inv.weaponSlot());
+                else            inv.setSlot(i, 0, 0);
             }
             sx += slot + gap;
         }
@@ -373,17 +376,7 @@ private:
     // A coloured square standing in for an icon. Tools and
     // weapons get a letter so they can be told apart.
     static void swatch(UIRenderer& ui, const ItemDef& d, float x, float y, float s) {
-        float c[4] = { d.color[0] * 255.0f, d.color[1] * 255.0f,
-                       d.color[2] * 255.0f, 255.0f };
-        float edge[4] = {0, 0, 0, 200};
-        ui.drawRect(x, y, s, s, c);
-        ui.drawBorder(x, y, s, s, edge, 1.0f);
-        const char* mark = d.is(IC_DECOR) ? decorMark(d) : d.is(IC_DEV) ? "D" : d.is(IC_WEAPON) && d.is(IC_TOOL) ? "X"
-                         : d.is(IC_WEAPON) ? "W" : d.is(IC_TOOL) ? "T" : nullptr;
-        if (mark) {
-            float ink[4] = {10, 10, 10, 255};
-            ui.drawTextCentered(mark, x, y, s, s, ink, 2);
-        }
+        drawItemIcon(ui, d, x, y, s, 255.0f, d.is(IC_DECOR) ? decorMark(d) : nullptr);
     }
 
     static const char* decorMark(const ItemDef& d) {

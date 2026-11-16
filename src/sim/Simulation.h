@@ -4,6 +4,7 @@
 #include "../npc/Pathfinder.h"
 #include "../npc/Encounters.h"
 #include "../game/CombatHits.h"
+#include "BodyPoses.h"
 #include "../physics/IPhysics.h"
 #include "../world/Woodcutting.h"
 #include "../chunk/ChunkManager.h"
@@ -161,7 +162,10 @@ public:
             events.push_back(e);
         }
 
-        // every attack against every body; then bodies apart
+        // every nearby body posed for this tick (where blades and
+        // limbs are), then every attack against every body; then
+        // bodies apart
+        poseBodies(dt);
         std::vector<Human*> all;
         for (Human* h : bodies()) if (!untouchable(*h)) all.push_back(h);
         std::vector<combat::HitEvent> hits;
@@ -174,7 +178,7 @@ public:
         }, hits, [this](const Human& a, const Human& b) {
             // NPCs only hit what they're hostile to; players hit anyone
             return a.isPlayer() || hostile(static_cast<const Npc&>(a), b);
-        });
+        }, [this](const Human& h, hitshape::Posed& out) { return poses.posed(h.uuid, out); });
         combat::separate(all, [&](glm::vec3 pos) {
             return physics->capsuleIsClear(pos, Human::RADIUS, Human::STAND_HEIGHT);
         });
@@ -246,10 +250,37 @@ public:
         }
     }
 
-    // A living body (other than 'except') whose capsule holds p
+    // The skeletons the hits use (debug overlay, tests)
+    const BodyPoses& bodyPoses() const { return poses; }
+
+    // What a body holds in its right hand (held model id) and
+    // whether it stands ready to fight, for its pose
+    static void handsOf(const Human& h, std::string& held, bool& combat) {
+        held.clear();
+        if (h.isPlayer()) {
+            const Player& p = static_cast<const Player&>(h);
+            const ItemDef* w = p.wielded();
+            combat = p.combatStance || w;
+            held = p.combatStance ? (w ? w->heldModel : std::string()) : p.activeInventory().heldDef().heldModel;
+        } else {
+            const Npc& n = static_cast<const Npc&>(h);
+            uint16_t id = gItems.find(n.weaponItem);
+            held = id ? gItems.get(id).heldModel : std::string();
+            combat = true;
+        }
+    }
+
+    // A living body (other than 'except') with a limb (or, with
+    // no pose, its capsule) at p
     EntityId bodyAt(glm::vec3 p, EntityId except) {
         for (Human* h : bodies()) {
             if (h->uuid == except || h->dead() || untouchable(*h)) continue;
+            hitshape::Posed ph;
+            if (poses.posed(h->uuid, ph)) {
+                for (int i = 0; i < BONE_COUNT; i++)
+                    if (ph.body->has[i] && hitshape::contains(ph.body->world(i, *ph.now), p, 0.15f)) return h->uuid;
+                continue;
+            }
             if (p.y < h->position.y || p.y > h->position.y + h->height) continue;
             glm::vec2 d(p.x - h->position.x, p.z - h->position.z);
             if (glm::length(d) <= Human::RADIUS + 0.4f) return h->uuid;
@@ -428,6 +459,25 @@ public:
     static constexpr float STEP_RUN        = 32.0f;   // … and sprinting
 
 private:
+    BodyPoses poses;
+
+    // Pose players with a body and Full-tier NPCs; the rest are
+    // too far for their limbs to matter (they keep the capsule)
+    void poseBodies(float dt) {
+        std::string held;
+        bool combat = false;
+        for (auto& p : playerList) {
+            if (!p->rules().hasBody) continue;
+            handsOf(*p, held, combat);
+            poses.update(*p, p->appearance, held, combat, dt);
+        }
+        for (auto& n : npcList.all()) {
+            if (n->tier != (uint8_t)NpcManager::Tier::Full) continue;
+            handsOf(*n, held, combat);
+            poses.update(*n, n->appearance, held, combat, dt);
+        }
+        poses.endTick();
+    }
     int replansLeft = REPLANS_PER_TICK;
     // Can a body walk straight from a to b? (level ground, nothing
     // in the way at the knees or the chest, no holes)

@@ -834,8 +834,8 @@ private:
         uint16_t item = gItems.itemForBlock(blockID);
         if (!item) return;
         Inventory& inv = player.activeInventory();
-        for (int i = 0; i < Inventory::TOOLBAR_SLOTS; i++)
-            if (inv.toolbar[i].itemID == item) {
+        for (int i = Inventory::FIRST_MAIN; i < Inventory::HOTBAR; i++)
+            if (inv.slots[i].itemID == item) {
                 inv.select(i);
                 if (!survival) dev.setMaterial(blockID);
                 return;
@@ -846,8 +846,8 @@ private:
         if (!inv.held().empty() && !inv.heldDef().is(IC_BLOCK)) {
             // Don't overwrite a tool: use the first empty slot
             slot = -1;
-            for (int i = 0; i < Inventory::TOOLBAR_SLOTS; i++)
-                if (inv.toolbar[i].empty()) { slot = i; break; }
+            for (int i = Inventory::FIRST_MAIN; i < Inventory::HOTBAR; i++)
+                if (inv.slots[i].empty()) { slot = i; break; }
             if (slot < 0) return;
         }
         inv.setSlot(slot, item, 1);

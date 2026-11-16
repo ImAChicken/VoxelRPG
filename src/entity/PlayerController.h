@@ -324,10 +324,13 @@ private:
                 InputAction::ToolbarSlot3, InputAction::ToolbarSlot4,
                 InputAction::ToolbarSlot5, InputAction::ToolbarSlot6,
                 InputAction::ToolbarSlot7, InputAction::ToolbarSlot8,
+                InputAction::ToolbarSlot9, InputAction::ToolbarSlot10,
             };
-            for (int i = 0; i < Inventory::TOOLBAR_SLOTS && !slotKeysBlocked; i++)
+            // 1 and 2 put the off-hand item in the left hand (or
+            // take it out); 3..0 and the wheel pick the right hand
+            for (int i = 0; i < Inventory::HOTBAR && !slotKeysBlocked; i++)
                 if (gInput.isPressed(slots[i]))
-                    inv.select(i);
+                    inv.pressHotbarKey(i);
             if (gInput.isPressed(InputAction::ToolbarNext))
                 inv.selectNext();
             if (gInput.isPressed(InputAction::ToolbarPrev))

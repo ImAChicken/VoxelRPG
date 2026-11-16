@@ -19,6 +19,8 @@
 #              and weight in the hand slows that arm's recovery.
 # worn:        head | torso | hands | legs | feet | back
 #              gear worn on that part of the body (console: wear <item>)
+# accessory:   ring | amulet   goes in the Ring / Amulet equipment slots
+#              (none exist yet)
 # No recompile needed after editing — F6 reloads blocks and items.
 
 # ── Player tools ──────────────────────────────────────────
@@ -112,6 +114,10 @@ tool_power = 6.0          # damage of a full-speed chop (an oak has 40); also wh
 poise_damage = 20         # poise damage of a full-speed chop on a body
 damage_type = "slash"
 held_model = "axe"        # drawn in the hand: data/models/held/axe.vxm
+# As a weapon: it can go in a weapon slot (inventory, I) and fights
+# with the axe moveset when drawn (R). In the hotbar it stays a tool.
+moveset = "axe"
+damage = 9
 color = [0.75, 0.70, 0.65]
 
 # ── Weapons ───────────────────────────────────────────────

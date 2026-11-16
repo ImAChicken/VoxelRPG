@@ -62,10 +62,10 @@ int main() {
         Player p;
         p.setMode(GameMode::Survival);
         check(!p.rules().forceThirdPerson, "empty hands: camera is the player's choice");
-        p.inventory.setSlot(0, AXE, 1);
-        p.inventory.select(0);
+        p.inventory.setSlot(Inventory::FIRST_MAIN, AXE, 1);
+        p.inventory.select(Inventory::FIRST_MAIN);
         check(p.rules().forceThirdPerson, "axe in hand forces third person");
-        p.inventory.select(1);
+        p.inventory.select(Inventory::FIRST_MAIN + 1);
         check(!p.rules().forceThirdPerson, "put away: back to the player's choice");
     }
 

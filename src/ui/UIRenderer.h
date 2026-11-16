@@ -42,6 +42,10 @@ public:
             "        if (t.a < 0.05) discard;\n"
             "        outColor = vec4(fragColor.rgb,"
             "                        fragColor.a * t.a);\n"
+            "    } else if (uUseTexture == 2) {\n"
+            "        vec4 t = texture(uTex, fragUV);\n"
+            "        if (t.a < 0.05) discard;\n"
+            "        outColor = t * fragColor;\n"
             "    } else {\n"
             "        outColor = fragColor;\n"
             "    }\n"
@@ -156,6 +160,28 @@ public:
         drawRect(x+w-thickness, y, thickness, h, color);
     }
 
+    // A picture from any texture (block icons from the world
+    // atlas): a four-cornered shape p[0..3] (clockwise from top
+    // left) showing uv[0..3], its colour times 'shade', 'alpha'
+    // (0-255) see-through. Drawn at once.
+    void drawTexturedQuad(GLuint tex, const glm::vec2 p[4], const glm::vec2 uv[4],
+                          float shade = 1.0f, float alpha = 255.0f) {
+        if (!tex) return;
+        flush();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glUniform1i(glGetUniformLocation(program, "uTex"), 0);
+        float a = alpha / 255.0f;
+        int idx[6] = { 0, 1, 2, 0, 2, 3 };
+        for (int i : idx) verts.push_back({ p[i].x, p[i].y, uv[i].x, uv[i].y, shade, shade, shade, a });
+        useTexture = true;
+        texMode = 2;
+        flush();
+        texMode = 1;
+        useTexture = false;
+        glUniform1i(glGetUniformLocation(program, "uUseTexture"), 0);
+    }
+
     void drawText(const std::string& text,
                   float x, float y,
                   const float* color,
@@ -247,6 +273,7 @@ private:
     glm::mat4 proj;
     std::vector<UIVertex> verts;
     bool useTexture = false;
+    int  texMode = 1;        // 1: font (alpha mask), 2: a picture (drawTexturedQuad)
 
     void updateProjection() {
         proj = glm::ortho(
@@ -279,7 +306,7 @@ private:
         if (verts.empty()) return;
         glUniform1i(
             glGetUniformLocation(program, "uUseTexture"),
-            useTexture ? 1 : 0);
+            useTexture ? texMode : 0);
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBufferData(GL_ARRAY_BUFFER,

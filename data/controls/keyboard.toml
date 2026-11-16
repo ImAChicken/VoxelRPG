@@ -23,17 +23,20 @@ draw_weapon     = "R"               # toggle draw/sheathe
                                     # switches survival <-> combat mode
 interact        = "E"               # use / open / talk
 ledge_grab      = "F"               # burst to face, hang, press again = lift
-inventory       = "TAB"             # open full inventory
-toolbar_next    = "MOUSE_SCROLL_DOWN"
+inventory       = "I"               # open the inventory (50 slots + equipment)
+swap_weapon     = "X"               # switch between weapon 1 and weapon 2
+toolbar_next    = "MOUSE_SCROLL_DOWN"   # main-hand hotbar slots 3..10
 toolbar_prev    = "MOUSE_SCROLL_UP"
-toolbar_slot_1  = "1"
-toolbar_slot_2  = "2"
-toolbar_slot_3  = "3"
+toolbar_slot_1  = "1"               # off-hand slot 1: in the left hand / out
+toolbar_slot_2  = "2"               # off-hand slot 2
+toolbar_slot_3  = "3"               # main-hand hotbar slots
 toolbar_slot_4  = "4"
 toolbar_slot_5  = "5"
 toolbar_slot_6  = "6"
 toolbar_slot_7  = "7"
 toolbar_slot_8  = "8"
+toolbar_slot_9  = "9"
+toolbar_slot_10 = "0"
 rotate_piece    = "T"              # Builder's Hammer: turn the structure
 
 [camera]

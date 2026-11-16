@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <cmath>
+#include <climits>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -35,6 +36,11 @@
 // named edge* are the cutting edge, which a swing traces through
 // the world (game/AxeSwing.h).
 //
+// What it hits bodies with is the voxels themselves: when the
+// file loads they are merged into a few boxes (hitBoxes), and a
+// hit is one of those boxes, grown by hit_margin inches on every
+// side, touching a limb (game/HitShapes.h, CombatHits.h).
+//
 // File format (one statement a line, '#' comments):
 //   vxm 1
 //   voxel <size>                 inches a voxel
@@ -42,6 +48,7 @@
 //   along / edge / across <x y z>   the frame, in the wrist's
 //   color <index> <r g b>        palette, 1..255 (0 = empty)
 //   point <name> <u v w>
+//   hit_margin <inches>          how much bigger than its voxels it hits (default 0.75)
 //   v <i j k> <color>            a voxel at origin + (i+.5, j+.5, k+.5) · size
 
 // Where the fist holds things, in the wrist frame
@@ -59,6 +66,49 @@ struct HeldModelDef {
     struct Vox { glm::ivec3 p; uint8_t c; };
     std::vector<Vox> voxels;
     std::vector<std::pair<std::string, glm::vec3>> points;
+    // The voxels as boxes (model frame, inches: lo, hi), and how
+    // much they are grown by for hits
+    std::vector<std::pair<glm::vec3, glm::vec3>> hitBoxes;
+    float hitMargin = 0.75f;
+
+    // Merge the voxels into boxes: from each voxel not yet used,
+    // grow a box along u as far as the voxels go, then along v
+    // while every row is full, then along w while every layer is.
+    void buildHitBoxes() {
+        hitBoxes.clear();
+        if (voxels.empty()) return;
+        glm::ivec3 lo(INT32_MAX), hi(INT32_MIN);
+        for (auto& v : voxels) { lo = glm::min(lo, v.p); hi = glm::max(hi, v.p); }
+        glm::ivec3 n = hi - lo + 1;
+        std::vector<uint8_t> grid((size_t)n.x * n.y * n.z, 0);   // 1 filled, 2 used
+        auto at = [&](int i, int j, int k) -> uint8_t& { return grid[((size_t)k * n.y + j) * n.x + i]; };
+        for (auto& v : voxels) { glm::ivec3 q = v.p - lo; at(q.x, q.y, q.z) = 1; }
+        for (int k = 0; k < n.z; k++)
+            for (int j = 0; j < n.y; j++)
+                for (int i = 0; i < n.x; i++) {
+                    if (at(i, j, k) != 1) continue;
+                    int i1 = i;
+                    while (i1 + 1 < n.x && at(i1 + 1, j, k) == 1) i1++;
+                    auto rowFull = [&](int jj, int kk) {
+                        for (int ii = i; ii <= i1; ii++) if (at(ii, jj, kk) != 1) return false;
+                        return true;
+                    };
+                    int j1 = j;
+                    while (j1 + 1 < n.y && rowFull(j1 + 1, k)) j1++;
+                    int k1 = k;
+                    auto layerFull = [&](int kk) {
+                        for (int jj = j; jj <= j1; jj++) if (!rowFull(jj, kk)) return false;
+                        return true;
+                    };
+                    while (k1 + 1 < n.z && layerFull(k1 + 1)) k1++;
+                    for (int kk = k; kk <= k1; kk++)
+                        for (int jj = j; jj <= j1; jj++)
+                            for (int ii = i; ii <= i1; ii++) at(ii, jj, kk) = 2;
+                    glm::vec3 a = origin + glm::vec3(lo + glm::ivec3(i, j, k)) * voxel;
+                    glm::vec3 b = origin + glm::vec3(lo + glm::ivec3(i1 + 1, j1 + 1, k1 + 1)) * voxel;
+                    hitBoxes.push_back({ a, b });
+                }
+    }
 
     // Model frame (u, v, w) → wrist frame
     glm::vec3 toWrist(const CharacterModel& m, glm::vec3 uvw) const {
@@ -130,6 +180,7 @@ struct HeldModelDef {
             auto v3 = [&](glm::vec3& o) { s >> o.x >> o.y >> o.z; };
             if (k == "vxm") { int ver; s >> ver; }
             else if (k == "voxel") s >> d->voxel;
+            else if (k == "hit_margin") s >> d->hitMargin;
             else if (k == "origin") v3(d->origin);
             else if (k == "along") v3(d->along);
             else if (k == "edge") v3(d->edge);
@@ -149,6 +200,7 @@ struct HeldModelDef {
         d->edge = glm::normalize(d->edge);
         d->across = glm::normalize(d->across);
         for (auto& v : d->voxels) if (v.c >= d->palette.size()) d->palette.resize(v.c + 1, glm::vec3(200));
+        d->buildHitBoxes();
         return d;
     }
 };

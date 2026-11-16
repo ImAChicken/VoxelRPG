@@ -88,10 +88,14 @@ struct ItemDef {
     float       weight      = 0.0f;         // kg, one of it (worn, held or sheathed: entity/BodyMass.h)
     std::string heldModel;                  // drawn in the hand ("axe"), "" = nothing
     int         worn        = -1;           // worn items: which WornSlot (-1: not worn)
+    std::string accessory;                  // "ring" or "amulet": goes in those equipment slots
 
     float       color[3]    = {0.7f, 0.7f, 0.7f};   // menu swatch
 
     bool is(uint32_t category) const { return (categories & category) != 0; }
+    // Can it go in a weapon slot and fight when drawn (R): a
+    // weapon, or a tool with a moveset (the axe)
+    bool canFight() const { return is(IC_WEAPON) || !moveset.empty(); }
     bool valid() const { return id != 0; }
 };
 
@@ -255,6 +259,7 @@ private:
 
                 d.weight = (float)(*t)["weight"].value_or(0.0);
                 d.heldModel = (*t)["held_model"].value_or(std::string());
+                d.accessory = (*t)["accessory"].value_or(std::string());
                 {
                     std::string w = (*t)["worn"].value_or(std::string());
                     if (!w.empty()) {
