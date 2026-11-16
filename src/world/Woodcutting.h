@@ -126,18 +126,31 @@ public:
     // ── One physics tick ──────────────────────────────────
     //   worldSolid: the world's voxels only
     //   player: may be hit by falling logs and picks up drops
-    void tick(float dt, const SolidFn& worldSolid, Player* player) {
+    //   bodies:  every body a falling log can hit
+    //   pickers: the players who pick up drops (the nearest takes it)
+    void tick(float dt, const SolidFn& worldSolid,
+              const std::vector<Human*>& bodies, const std::vector<Player*>& pickers) {
         for (auto& lg : logs) {
             if (lg->body.settled()) continue;
             const RigidVoxelBody* self = &lg->body;
             lg->body.step(dt, [&](int x, int y, int z) { return worldSolid(x, y, z) || solidAt(x, y, z, self); });
             lg->moved++;
-            if (player) hurt(*lg, *player, dt);
+            for (Human* b : bodies) if (b) hurt(*lg, *b, dt);
         }
         SolidFn all = [&](int x, int y, int z) { return worldSolid(x, y, z) || solidAt(x, y, z); };
-        tickDrops(dt, all, player);
+        tickDrops(dt, all, pickers);
         tickParticles(dt, all);
     }
+    // One player (tests, single player)
+    void tick(float dt, const SolidFn& worldSolid, Player* player) {
+        std::vector<Human*> b; std::vector<Player*> p;
+        if (player) { b.push_back(player); p.push_back(player); }
+        tick(dt, worldSolid, b, p);
+    }
+    // Who picked up what since last asked (Simulation turns these
+    // into events)
+    struct Pickup { uint64_t player; uint16_t item; int count; };
+    std::vector<Pickup> takePickups() { std::vector<Pickup> p; p.swap(pickups); return p; }
 
     // ── Logs as solid things ──────────────────────────────
     // Is voxel (x, y, z) filled by a log (its centre inside one)?
@@ -233,6 +246,7 @@ public:
     const std::vector<Particle>& allParticles() const { return particles; }
     size_t logCount() const { return logs.size(); }
     std::string lastPickup;          // "+3 Log" when wood is picked up
+    std::vector<Pickup> pickups;
     float       lastPickupAge = 99.0f;
 
     // ── Save / load ───────────────────────────────────────
@@ -327,9 +341,9 @@ private:
 
     // A falling log meeting a body: the blow goes to the
     // ragdoll (Human::hit), by the log's speed and weight
-    void hurt(Log& t, Player& player, float dt) {
+    void hurt(Log& t, Human& player, float dt) {
         t.hurtCooldown = std::max(0.0f, t.hurtCooldown - dt);
-        if (t.hurtCooldown > 0.0f || !player.rules().hasBody) return;
+        if (t.hurtCooldown > 0.0f) return;
         const float r = t.body.pointRadius();
         for (size_t i = 0; i < t.body.pointCount(); i++) {
             glm::vec3 p = t.body.point(i);
@@ -349,18 +363,26 @@ private:
         }
     }
 
-    void tickDrops(float dt, const SolidFn& solid, Player* player) {
-        bool canTake = player && player->rules().hasBody && !player->ragdoll.controlsLocked();
-        auto bodyPointNear = [&](glm::vec3 p) {      // closest point on the body's feet-to-head line
-            float y = std::clamp(p.y, player->position.y, player->position.y + player->height);
-            return glm::vec3(player->position.x, y, player->position.z);
+    void tickDrops(float dt, const SolidFn& solid, const std::vector<Player*>& pickers) {
+        auto canTake = [](const Player* p) { return p && p->rules().hasBody && !p->ragdoll.controlsLocked() && !p->dead(); };
+        auto bodyPointNear = [](const Player* p, glm::vec3 at) {   // closest point on the body's feet-to-head line
+            float y = std::clamp(at.y, p->position.y, p->position.y + p->height);
+            return glm::vec3(p->position.x, y, p->position.z);
         };
         for (size_t i = 0; i < drops.size();) {
             ItemDrop& d = drops[i];
             d.age += dt;
             if (d.age > DROP_LIFE) { drops.erase(drops.begin() + i); continue; }
-            if (canTake && d.age > 0.6f) {
-                glm::vec3 to = bodyPointNear(d.pos) - d.pos;
+            Player* player = nullptr;
+            float best = 1e9f;
+            if (d.age > 0.6f)
+                for (Player* p : pickers) {
+                    if (!canTake(p)) continue;
+                    float dist = glm::length(bodyPointNear(p, d.pos) - d.pos);
+                    if (dist < best) { best = dist; player = p; }
+                }
+            if (player) {
+                glm::vec3 to = bodyPointNear(player, d.pos) - d.pos;
                 float dist = glm::length(to);
                 if (dist < PICKUP_RANGE) {
                     int before = d.count;
@@ -368,6 +390,7 @@ private:
                     if (d.count < before) {
                         lastPickup = "+" + std::to_string(before - d.count) + " " + gItems.get(d.item).displayName;
                         lastPickupAge = 0.0f;
+                        pickups.push_back({ player->uuid, d.item, before - d.count });
                     }
                     if (d.count <= 0) { drops.erase(drops.begin() + i); continue; }
                 } else if (dist < MAGNET_RANGE) {

@@ -20,22 +20,32 @@ inline glm::vec3 flatFacing(const Human& h) {
     return glm::vec3(f.x, 0.0f, f.y);
 }
 
-inline void beginAttack(Human& h, AttackKind k) {
+inline bool beginAttack(Human& h, AttackKind k, int chain = 0) {
+    if (!h.moveset) return false;
+    const AttackDef* d = h.moveset->get(k, chain);
+    if (!d) return false;
+    WeightScales w = weightScales(*h.moveset, h.weaponWeight);
+    if (!h.spend(d->stamina * w.stamina)) return false;
     h.attack = AttackState();
     h.attack.kind = k;
+    h.attack.chain = chain;
+    h.attack.d = d;
+    h.attack.speed = w.speed;
+    h.attack.poiseScale = w.poise;
     h.attack.dir = flatFacing(h);
     h.move = Human::Move::None;                      // an air dodge burst ends
     h.sprinting = false;
     if (!h.grounded) h.hasAirAttack = false;
     if (k == AttackKind::AirLight) h.velocity.y = std::max(h.velocity.y, LURCH_UP);
     if (k == AttackKind::AirHeavy) h.velocity = glm::vec3(0.0f);
+    return true;
 }
 
 // Start one from the intent, or queue the next light swing of
-// a combo (a press once the swing is active). Ground: light / heavy. Air: lurch / plunge, once per
-// jump.
+// a combo (a press once the swing is active). Ground: light /
+// heavy. Air: lurch / plunge, once per jump.
 inline void startAttack(Human& h, const HumanIntent& in) {
-    if (!(in.attackLight || in.attackHeavy) || h.weaponDamage <= 0.0f || h.dead()) return;
+    if (!(in.attackLight || in.attackHeavy) || !h.moveset || h.weaponDamage <= 0.0f || h.dead()) return;
     if (h.move == Human::Move::Roll || h.move == Human::Move::Backstep) return;
     if (h.flying) return;
     AttackState& a = h.attack;
@@ -44,16 +54,15 @@ inline void startAttack(Human& h, const HumanIntent& in) {
         if (in.attackLight && d.comboFrom >= 0.0f && a.t >= d.activeStart) a.queuedLight = true;
         return;
     }
-    AttackKind k = h.grounded ? (in.attackHeavy ? AttackKind::Heavy : AttackKind::Light1)
+    AttackKind k = h.grounded ? (in.attackHeavy ? AttackKind::Heavy : AttackKind::Light)
                               : (in.attackHeavy ? AttackKind::AirHeavy : AttackKind::AirLight);
     if (!h.grounded && !h.hasAirAttack) return;
-    if (!h.spend(def(k).stamina)) return;
     beginAttack(h, k);
 }
 
-// One tick of the attack: its clock, the combo, the plunge.
-// Physics calls this after moving the body (so it knows if the
-// plunge has landed).
+// One tick of the attack: its clock (scaled by the weapon's
+// weight), the combo, the plunge. Physics calls this after
+// moving the body (so it knows if the plunge has landed).
 inline void advanceAttack(Human& h, float dt) {
     AttackState& a = h.attack;
     if (!a.active()) return;
@@ -67,14 +76,19 @@ inline void advanceAttack(Human& h, float dt) {
         else a.plunging = true;
         return;
     }
-    a.t += dt;
+    a.t += dt * a.speed;
     // the combo: a queued press cuts the recovery short
-    if (a.queuedLight && h.grounded && d.comboFrom >= 0.0f && a.t >= d.comboFrom) {
-        AttackKind next = a.kind == AttackKind::Light1 ? AttackKind::Light2 : AttackKind::Light1;
-        if (h.spend(def(next).stamina)) { beginAttack(h, next); return; }
+    if (a.queuedLight && h.grounded && d.comboFrom >= 0.0f && a.t >= d.comboFrom && a.kind == AttackKind::Light) {
+        if (beginAttack(h, AttackKind::Light, a.chain + 1)) return;
         a.queuedLight = false;
     }
     if (a.t >= d.duration) a = AttackState();
+}
+
+// Poise refills after a few seconds without hits
+inline void regainPoise(Human& h, float dt) {
+    h.sincePoiseHit += dt;
+    if (h.sincePoiseHit > POISE_DELAY) h.poise = std::min(h.maxPoise, h.poise + POISE_REFILL * dt);
 }
 
 // Stamina comes back after a pause; slower while guarding, not

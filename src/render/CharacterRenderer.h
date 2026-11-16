@@ -68,10 +68,11 @@ public:
     // What the right hand holds (character/HeldItemModel.h).
     // Rebuilt only when it, the body or the hair mesh mode
     // changes.
-    void setHeldModel(HeldModel which) {
-        if (which == heldKind && heldFor == model.heightIn && heldMode == hairMode) return;
-        heldKind = which; heldFor = model.heightIn; heldMode = hairMode;
-        std::vector<PartVertex> v = heldItemMesh(which, model, hairMode);
+    void setHeldModel(const std::string& which) {
+        if (which == heldKind && heldFor == model.heightIn && heldMode == hairMode && heldGen == gHeldModels.generation()) return;
+        heldKind = which; heldFor = model.heightIn; heldMode = hairMode; heldGen = gHeldModels.generation();
+        const HeldModelDef* d = which.empty() ? nullptr : gHeldModels.find(which);
+        std::vector<PartVertex> v = d ? d->mesh(model, hairMode) : std::vector<PartVertex>();
         heldCount = (GLsizei)v.size();
         if (heldCount) uploadPartMesh(v, heldVao, heldVbo);
     }
@@ -104,7 +105,8 @@ private:
     float             blinkClock = 0.0f;
     std::array<glm::mat4, BONE_COUNT> worldMats{};
     bool              useWorld = false;
-    HeldModel         heldKind = HeldModel::None;
+    std::string       heldKind;
+    uint32_t          heldGen = 0;
     float             heldFor = 0.0f;
     HairMesh          heldMode = HairMesh::Shards;
 
@@ -138,7 +140,7 @@ private:
         if (heldVao) glDeleteVertexArrays(1, &heldVao);
         if (faceTex[0]) glDeleteTextures(2, faceTex);
         vao = vbo = heldVao = heldVbo = 0;
-        heldCount = 0; heldKind = HeldModel::None;
+        heldCount = 0; heldKind.clear();
         faceTex[0] = faceTex[1] = 0;
     }
 };

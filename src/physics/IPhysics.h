@@ -57,6 +57,9 @@ public:
     virtual bool solidAt(int x, int y, int z) const = 0;
     // The world's voxels only, without loose objects
     virtual bool worldSolidAt(int x, int y, int z) const = 0;
+    // Is the world column at (x, z) loaded? (bodies over unloaded
+    // ground are frozen, not dropped through it)
+    virtual bool columnLoaded(int x, int z) const = 0;
     // Loose objects that bodies collide with, raycasts hit, etc.
     // (world/Woodcutting.h logs). Empty = none.
     virtual void setLooseSolids(std::function<bool(int, int, int)> fn) = 0;

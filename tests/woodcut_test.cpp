@@ -71,15 +71,22 @@ int main() {
 
     // ── The model ──────────────────────────────────────────
     CharacterModel model = CharacterModel::build(Appearance{});
+    gHeldModels.loadDir("data/models/held");
+    const HeldModelDef* AXEM = gHeldModels.find("axe");
+    if (!AXEM) { std::printf("no data/models/held/axe.vxm\n"); return 1; }
+    auto bladeOf = [&](const CharacterModel& m) {
+        auto e = AXEM->edgePoints(m);
+        return std::array<glm::vec3, 3>{ e[0], e[1], e[2] };
+    };
     {
         std::printf("axe model\n");
-        auto shards = AxeGeometry::mesh(model, HairMesh::Shards);
-        auto cubes  = AxeGeometry::mesh(model, HairMesh::Voxels);
+        auto shards = AXEM->mesh(model, HairMesh::Shards);
+        auto cubes  = AXEM->mesh(model, HairMesh::Voxels);
         std::printf("    %zu triangles as shards, %zu as voxels\n", shards.size() / 3, cubes.size() / 3);
         check(shards.size() > 300 && cubes.size() > 300, "the voxel axe meshes both ways");
         // the edge points sit at the blade, about 2 ft from the fist
-        auto bp = AxeGeometry::bladePoints(model);
-        float reach = glm::length(bp[1] - AxeGeometry::grip(model));
+        auto bp = bladeOf(model);
+        float reach = glm::length(bp[1] - heldGrip(model));
         std::printf("    edge %.1f in from the fist\n", reach);
         check(reach > 15.0f && reach < 25.0f, "edge 15-25 in from the fist");
     }
@@ -90,7 +97,7 @@ int main() {
         std::printf("swing\n");
         CharacterAnimator an;
         AnimInput in; in.grounded = true; in.facingYawDeg = 90.0f;   // facing +Z
-        auto bp = AxeGeometry::bladePoints(model);
+        auto bp = bladeOf(model);
         glm::vec3 prev(0);
         const float dt = 1.0f / 120.0f;
         for (int f = 0; f <= 120; f++) {
@@ -103,7 +110,7 @@ int main() {
                 float sp = glm::length(e - prev) / dt;
                 if (sp > peak) {
                     peak = sp; impactY = e.y; impactZ = e.z;
-                    glm::vec3 edge = glm::normalize(glm::mat3(W[B_WRIST_R]) * AxeGeometry::edgeDir());
+                    glm::vec3 edge = glm::normalize(glm::mat3(W[B_WRIST_R]) * AXEM->edge);
                     lead = glm::dot(edge, glm::normalize(e - prev));
                 }
             }
@@ -126,7 +133,7 @@ int main() {
         CharacterAnimator an;
         AnimInput in; in.grounded = true; in.facingYawDeg = 90.0f;
         AxeSwing sw; sw.start();
-        auto bp = AxeGeometry::bladePoints(model);
+        auto bp = bladeOf(model);
         axeswing::BladeHit hit;
         float hitAt = -1;
         const float dt = 1.0f / 60.0f;
@@ -160,7 +167,7 @@ int main() {
             CharacterAnimator an;
             AnimInput in; in.grounded = true; in.facingYawDeg = 90.0f; in.lookPitchDeg = pitch;
             AxeSwing sw; sw.start();
-            auto bp = AxeGeometry::bladePoints(model);
+            auto bp = bladeOf(model);
             const float dt = 1.0f / 60.0f;
             while (sw.active()) {
                 in.swing = sw.t;

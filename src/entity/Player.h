@@ -1,4 +1,5 @@
 #pragma once
+#include <unordered_map>
 #include "Human.h"
 #include "../game/GameMode.h"
 #include "../game/Inventory.h"
@@ -18,6 +19,12 @@ public:
     // Where the player comes back to after falling out of
     // the world
     glm::vec3 spawnPoint = {0, 0, 0};
+    float     deadFor = 0.0f;          // s since dying (Simulation respawns)
+    bool isPlayer() const override { return true; }
+
+    // Reputation with each faction (npc/Factions.h), by faction
+    // id; a faction not listed is at its player_standing
+    std::unordered_map<std::string, float> reputation;
 
     // ── Game mode ─────────────────────────────────────────
     // Per player, never global — see game/GameMode.h
@@ -71,6 +78,8 @@ public:
     void refreshWeapon() {
         const ItemDef* w = wielded();
         weaponDamage = w ? w->damage : 0.0f;
+        moveset = w ? gMovesets.find(w->moveset) : nullptr;
+        weaponWeight = w ? w->weight : 0.0f;
         infiniteStamina = (mode == GameMode::Dev);
         if (!w) { attack = AttackState(); guarding = false; }
     }
@@ -114,6 +123,12 @@ public:
         if (!combatStance && !inv.held().empty())
             body.addGear(SEG_HAND_R, gItems.get(inv.held().itemID).weight);
         mass = body.total();
+        // poise: the base plus what is worn
+        float wornKg = 0.0f;
+        for (int s = 0; s < WORN_SLOTS; s++)
+            if (!inv.worn[s].empty()) wornKg += gItems.get(inv.worn[s].itemID).weight;
+        float mp = combat::POISE_BASE + combat::POISE_PER_KG * wornKg;
+        if (std::fabs(mp - maxPoise) > 1e-3f) { poise = std::min(poise, mp) + std::max(0.0f, mp - maxPoise); maxPoise = mp; }
     }
 
     // Change mode. The combat stance never carries over;
@@ -140,6 +155,7 @@ public:
         inventory.write(out, "inv");
         devInventory.write(out, "dev");
         appearance.write(out);
+        for (const auto& [f, v] : reputation) out << "rep." << f << "=" << v << "\n";
     }
 
     bool read(const std::string& key, const std::string& value) {
@@ -153,6 +169,8 @@ public:
             setMode(gameModeFromKey(value, mode));
         } else if (key == "health") {
             health = (float)std::atof(value.c_str());
+        } else if (key.rfind("rep.", 0) == 0) {
+            reputation[key.substr(4)] = (float)std::atof(value.c_str());
         } else {
             return appearance.read(key, value) ||
                    inventory.read(key, value, "inv") ||

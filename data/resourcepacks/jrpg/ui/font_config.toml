@@ -1,0 +1,7 @@
+# VoxelRPG Bitmap Font Configuration
+char_width  = 8
+char_height = 8
+cols        = 16
+rows        = 8
+first_char  = 32
+font_file   = "data/resourcepacks/default/ui/font.png"

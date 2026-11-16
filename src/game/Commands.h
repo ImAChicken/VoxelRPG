@@ -5,7 +5,10 @@
 #include "GameMode.h"
 #include "ItemRegistry.h"
 #include "../entity/Player.h"
-#include "Npcs.h"
+#include "../npc/NpcManager.h"
+#include "../sim/Simulation.h"
+#include "../npc/Factions.h"
+#include "DebugView.h"
 #include "../physics/IPhysics.h"
 #include "../render/Sky.h"
 #include <algorithm>
@@ -43,6 +46,7 @@ struct CommandContext {
     std::function<void()>         saveWorld;
     std::function<void(const std::string&)> log;
     NpcManager*          npcs = nullptr;  // nullptr outside a world
+    Simulation*          sim = nullptr;
 };
 
 class CommandRegistry {
@@ -431,25 +435,72 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             push(c, speed, a.size() > 1 ? a[1] : "front", 0.35f);
         });
     // ── Combat (game/Combat.h, game/Npcs.h) ───────────────
-    reg.add("spawn", "spawn <swordsman|dummy> [count]",
-        "spawn enemies a few steps in front of you",
+    reg.add("spawn", "spawn <type> [count] [distance]",
+        "spawn NPCs of a type (npcs.toml) in front of you; no type: list them",
         [](C& c, const Args& a) {
             if (!c.npcs) { c.log("no world"); return; }
-            NpcKind k = (!a.empty() && a[0] == "dummy") ? NpcKind::Dummy : NpcKind::Swordsman;
+            if (a.empty() || !gNpcTypes.find(a[0])) {
+                std::string l;
+                for (auto& id : gNpcTypes.ids()) l += (l.empty() ? "" : ", ") + id;
+                c.log("types: " + l);
+                return;
+            }
             int n = a.size() > 1 ? std::clamp(std::atoi(a[1].c_str()), 1, 12) : 1;
+            float dist = a.size() > 2 ? std::clamp((float)std::atof(a[2].c_str()), 4.0f, 200.0f) : 24.0f;
             glm::vec3 f = c.player.facing; f.y = 0.0f;
             f = glm::length(f) > 1e-4f ? glm::normalize(f) : glm::vec3(0, 0, -1);
             glm::vec3 side(f.z, 0.0f, -f.x);
             for (int i = 0; i < n; i++) {
-                glm::vec3 at = c.player.position + f * 24.0f + side * (float)((i - (n - 1) * 0.5f) * 8.0f) + glm::vec3(0, 2, 0);
-                c.npcs->spawn(k, at, -f);
+                glm::vec3 at = c.player.position + f * dist + side * (float)((i - (n - 1) * 0.5f) * 8.0f) + glm::vec3(0, 2, 0);
+                c.npcs->spawn(a[0], at, -f);
             }
-            c.log("spawned " + std::to_string(n) + " " + npcKindName(k) + (n > 1 ? "s" : ""));
+            c.log("spawned " + std::to_string(n) + " " + a[0]);
         });
-    reg.add("despawn", "despawn", "remove every enemy",
+    reg.add("rep", "rep [faction] [value]",
+        "your reputation with the factions (npc/Factions.h); set one",
+        [](C& c, const Args& a) {
+            if (a.size() >= 2) {
+                if (gFactions.find(a[0]) < 0) { c.log("no faction " + a[0]); return; }
+                c.player.reputation[a[0]] = std::clamp((float)std::atof(a[1].c_str()), -100.0f, 100.0f);
+            }
+            std::string l;
+            for (int i = 0; i < gFactions.count(); i++) {
+                const auto* f = gFactions.get(i);
+                auto it = c.player.reputation.find(f->id);
+                float v = it == c.player.reputation.end() ? f->playerStanding : it->second;
+                char b[64]; std::snprintf(b, sizeof(b), "%s %.0f%s", f->id.c_str(), v,
+                                          gFactions.hostile(v) ? " (hostile)" : gFactions.friendly(v) ? " (friendly)" : "");
+                l += (l.empty() ? "" : ", ") + std::string(b);
+            }
+            c.log(l);
+        });
+    reg.add("smite", "smite [radius]",
+        "kill every hostile NPC near you, as if you did it (tests encounter reviews)",
+        [](C& c, const Args& a) {
+            if (!c.sim) { c.log("no world"); return; }
+            float r = a.empty() ? 60.0f : (float)std::atof(a[0].c_str());
+            int n = 0;
+            std::vector<EntityId> ids;
+            for (auto& x : c.sim->npcs().all())
+                if (!x->dead() && glm::length(x->position - c.player.position) < r && c.sim->hostile(*x, c.player)) ids.push_back(x->uuid);
+            for (EntityId id : ids)
+                if (Human* h = c.sim->find(id)) { c.sim->toolHit(c.player.uuid, id, 9999.0f, 999.0f, h->bodyPoint(0.6f), h->facing * -1.0f); n++; }
+            c.log("smote " + std::to_string(n));
+        });
+    reg.add("despawn", "despawn", "remove every NPC",
         [](C& c, const Args&) {
             if (c.npcs) c.npcs->clear();
             c.log("enemies removed");
+        });
+    reg.add("debug", "debug [layer] [on|off]",
+        "the debug overlay (F3); layers: bodies ragdoll combat labels props sight world",
+        [](C& c, const Args& a) {
+            if (a.empty()) { gDebug.on = !gDebug.on; c.log(std::string("overlay ") + (gDebug.on ? "on: " : "off: ") + gDebug.list()); return; }
+            bool* l = gDebug.find(a[0]);
+            if (!l) { c.log("layers: " + gDebug.list()); return; }
+            *l = a.size() > 1 ? (a[1] == "on") : !*l;
+            gDebug.on = true;
+            c.log(a[0] + (*l ? " on" : " off"));
         });
     reg.add("heal", "heal", "full health and stamina",
         [](C& c, const Args&) {

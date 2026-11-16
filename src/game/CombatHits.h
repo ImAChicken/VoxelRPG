@@ -20,20 +20,22 @@
 //   guarding, facing the attacker   GUARD_KEEP of the damage,
 //                                   stamina pays for the rest;
 //                                   out of stamina = guard broken
-//   otherwise                       full damage, the knock goes
-//                                   to the ragdoll, and it
-//                                   interrupts the target's own
-//                                   attack unless it has poise
+//   otherwise                       full damage and poise damage
+//                                   (poiseHit): a flinch while
+//                                   poise holds; broken = stagger
+//                                   or knockdown, attack interrupted
 // Health at zero: dead. The body goes limp and stays down.
 namespace combat {
 
 struct HitEvent {
-    Human*     attacker = nullptr;
-    Human*     target   = nullptr;
+    uint64_t   attacker = 0;      // Entity::uuid
+    uint64_t   target   = 0;
     AttackKind kind     = AttackKind::None;
     float      damage   = 0.0f;   // what got through
     bool       blocked  = false;
     bool       guardBroken = false;
+    bool       poiseBroken = false;    // staggered (or knocked down)
+    bool       knockedDown = false;
     bool       killed   = false;
     glm::vec3  point{0.0f};
 };
@@ -85,22 +87,52 @@ inline bool sweeps(const Human& a, const Human& b, float t0, float t1) {
     return ang >= std::min(a0, a1) - pad && ang <= std::max(a0, a1) + pad;
 }
 
+// How a hit lands on a body, after guard and damage: poise
+// decides between a flinch, a stagger and a knockdown. Shared by
+// weapons and tools (the axe), so everything breaks poise the
+// same way.
+//   poiseDmg   poise damage of the hit
+//   knock      vox/s the attack would give on a stagger
+//   knockdown  a break knocks down
+// Returns what happened (sets ev.poiseBroken / ev.knockedDown).
+inline float poiseHit(Human& b, float poiseDmg, float knock, bool knockdown, HitEvent& ev) {
+    b.sincePoiseHit = 0.0f;
+    bool armored = b.attack.active() && b.attack.armored();
+    if (!armored) b.poise -= poiseDmg;
+    if (b.dead()) { ev.knockedDown = true; return KNOCKDOWN_KNOCK; }
+    if (b.poise > 0.0f) return std::min(knock, FLINCH_KNOCK);          // holds: a flinch
+    ev.poiseBroken = true;
+    b.poise = b.maxPoise;                                               // broken: refills
+    b.attack = AttackState();                                           // and interrupted
+    if (knockdown) { ev.knockedDown = true; return std::max(knock, KNOCKDOWN_KNOCK); }
+    return std::clamp(knock, STAGGER_MIN, KNOCKDOWN_KNOCK * 0.7f);      // a stagger, never a fall
+}
+
+// Give the body its knock: a speed change of 'knock' vox/s
+// whatever its mass (poise already accounts for toughness)
+inline void knockBody(Human& b, glm::vec3 point, glm::vec3 dir, float lift, float knock) {
+    if (knock <= 0.0f) return;
+    glm::vec3 J = glm::normalize(dir + glm::vec3(0.0f, lift, 0.0f)) * knock * b.mass;
+    b.hit(point, J);
+}
+
 // Apply one landed hit
 inline HitEvent land(Human& a, Human& b) {
     const AttackDef& d = a.attack.def();
     HitEvent ev;
-    ev.attacker = &a; ev.target = &b; ev.kind = a.attack.kind;
+    ev.attacker = a.uuid; ev.target = b.uuid; ev.kind = a.attack.kind;
     float dmg = a.weaponDamage * d.damage;
+    float poiseDmg = d.poise * a.attack.poiseScale;
     glm::vec3 off = b.position - a.position; off.y = 0.0f;
     glm::vec3 away = glm::length(off) > 1e-3f ? glm::normalize(off) : a.attack.dir;
     // AirHeavy throws outward from the slam; the rest along the swing
     glm::vec3 push = a.attack.kind == AttackKind::AirHeavy ? away : glm::normalize(a.attack.dir * 0.6f + away * 0.4f);
-    float knock = d.knock;
     ev.point = b.bodyPoint(a.attack.kind == AttackKind::Heavy ? 0.85f : 0.6f);
 
     // guard: held, standing, the attacker in front
     glm::vec2 bf(b.facing.x, b.facing.z);
     bool facing = glm::length(bf) > 1e-3f && glm::dot(glm::normalize(bf), -glm::vec2(away.x, away.z)) > 0.35f;
+    float knock;
     if (b.guarding && facing) {
         ev.blocked = true;
         float cost = dmg * (1.0f - GUARD_KEEP) * GUARD_COST;
@@ -109,14 +141,18 @@ inline HitEvent land(Human& a, Human& b) {
             ev.guardBroken = true;
             b.stamina = 0.0f;
             dmg *= 0.5f;
-            knock = std::max(knock, 24.0f);
             b.attack = AttackState();
+            knock = std::clamp(d.knock, STAGGER_MIN, KNOCKDOWN_KNOCK * 0.7f);
         } else {
             dmg *= GUARD_KEEP;
-            knock *= 0.25f;                           // pushed back a little
+            knock = std::min(d.knock * 0.25f, FLINCH_KNOCK);   // pushed back a little
         }
+        b.health = std::max(0.0f, b.health - dmg);
+        if (b.dead()) { knock = KNOCKDOWN_KNOCK; ev.knockedDown = true; }
+    } else {
+        b.health = std::max(0.0f, b.health - dmg);
+        knock = poiseHit(b, poiseDmg, d.knock, d.knockdown, ev);
     }
-    b.health = std::max(0.0f, b.health - dmg);
     b.sinceHurt = 0.0f;
     b.lastHitBy = a.uuid;
     ev.damage = dmg;
@@ -124,22 +160,18 @@ inline HitEvent land(Human& a, Human& b) {
         ev.killed = true;
         b.attack = AttackState();
         b.ragdoll.stayDown = true;
-        knock = std::max(knock, 42.0f);              // falls
     }
-    // poise: the target's own attack goes on through a small hit
-    if (b.attack.active() && !ev.blocked) {
-        const AttackDef& bd = b.attack.def();
-        bool armoured = bd.poiseFrom >= 0.0f && b.attack.t >= bd.poiseFrom && b.attack.t <= bd.activeEnd;
-        if (knock > (armoured ? HEAVY_POISE : POISE)) b.attack = AttackState();
-    }
-    glm::vec3 J = glm::normalize(push + glm::vec3(0.0f, d.lift, 0.0f)) * knock * Human::REFERENCE_MASS;
-    if (knock > 0.0f) b.hit(ev.point - push * 1.0f, J);
+    knockBody(b, ev.point - push * 1.0f, push, d.lift, knock);
     a.attack.stop = HITSTOP;
     return ev;
 }
 
 // Every attack in its active window against every other body
-inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear, std::vector<HitEvent>& out) {
+// canHit(attacker, target): false skips the pair (an NPC's swing
+// passes through its friends)
+using CanHitFn = std::function<bool(const Human&, const Human&)>;
+inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear, std::vector<HitEvent>& out,
+                        const CanHitFn& canHit = nullptr) {
     for (Human* a : bodies) {
         if (!a || !a->attack.active() || a->dead()) continue;
         AttackState& st = a->attack;
@@ -147,6 +179,7 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
         float t0 = st.prevT, t1 = st.t;
         for (Human* b : bodies) {
             if (!b || b == a || b->dead()) continue;
+            if (canHit && !canHit(*a, *b)) continue;
             if (std::find(st.hitIds.begin(), st.hitIds.end(), b->uuid) != st.hitIds.end()) continue;
             if (!sweeps(*a, *b, t0, t1)) continue;
             if (invulnerable(*b)) continue;          // stays live: can still hit when the roll ends

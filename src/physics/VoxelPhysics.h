@@ -93,7 +93,7 @@ public:
         // An attack breaks the freeze (the window it was made for)
         if (h.freeze != Human::Freeze::None) {
             h.freezeTimer -= dt;
-            bool attack = (in.attackLight || in.attackHeavy) && h.weaponDamage > 0.0f && h.hasAirAttack;
+            bool attack = (in.attackLight || in.attackHeavy) && h.moveset && h.hasAirAttack;
             if (h.freezeTimer > TIMER_EPSILON && !attack) return;
             releaseFreeze(h);
         }
@@ -112,7 +112,7 @@ public:
             if (h.grounded) {
                 h.velocity.y = launchSpeed(Human::JUMP_HEIGHT);
                 h.grounded   = false;
-            } else if (h.hasDoubleJump) {
+            } else if (h.canDoubleJump && h.hasDoubleJump) {
                 h.hasDoubleJump = false;
                 startFreeze(h, Human::Freeze::DoubleJump,
                             Human::DOUBLE_JUMP_FREEZE);
@@ -281,6 +281,7 @@ public:
 
         combat::advanceAttack(h, dt);
         combat::regainStamina(h, dt);
+        combat::regainPoise(h, dt);
     }
 
     // ── The body: hits and the ragdoll ────────────────────
@@ -403,6 +404,8 @@ public:
         }
         return result;
     }
+
+    bool columnLoaded(int x, int z) const override { return world && world->isColumnLoaded(x, z); }
 
     bool capsuleIsClear(glm::vec3 position,
                         float radius,

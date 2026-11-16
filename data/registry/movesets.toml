@@ -1,0 +1,142 @@
+# ══════════════════════════════════════════════════════════
+# Movesets — how each kind of weapon (or tool) fights
+# ══════════════════════════════════════════════════════════
+# A weapon item names its moveset (items.toml: moveset = "sword").
+# Every body that holds it — the player, an enemy — attacks with
+# these, through the same code (game/Combat.h, CombatMoves.h,
+# CombatHits.h). Reloaded with F6.
+#
+# A moveset lists which attack goes in each slot:
+#   light       the light chain, in order; pressing light again
+#               during a swing goes to the next one (and back to
+#               the first after the last)
+#   heavy       right click on the ground
+#   air_light   left click in the air (lurches forward)
+#   air_heavy   right click in the air (hangs, plunges, slams)
+# A slot left out: that attack doesn't exist for this weapon.
+#
+#   ref_weight  kg the numbers below are tuned for. A heavier
+#               weapon of this moveset swings slower, costs more
+#               stamina and breaks poise faster; a lighter one
+#               the other way (see Combat.h: WeightScales)
+#
+# Each attack ([[attack]], referred to by id):
+#   pose          the keyed pose it plays (combatanim in
+#                 Combat.h; later an animation clip)
+#   duration      s, wind-up + hit window + recovery
+#   active        [from, to] s: the hit window
+#   damage        × the weapon's damage
+#   poise         poise damage (× the weapon's weight scale)
+#   stamina       cost
+#   reach         voxels from the body's middle line
+#   arc           [from, to] degrees around the facing, positive
+#                 to the left, swept across the hit window
+#                 ([-180, 180]: all around)
+#   band          [low, high] voxels above the feet it can hit
+#   knock         vox/s the hit gives the target's ragdoll when it
+#                 staggers (more if it knocks down)
+#   lift          share of the knock that goes upward
+#   knockdown     a poise break from this attack knocks down
+#                 (otherwise it staggers)
+#   lunge         vox/s forward during lunge_time [from, to]
+#   combo_from    s: a queued light press starts the next swing
+#                 from here (left out: doesn't chain)
+#   cancel_from   s: a dodge can cancel it from here
+#   armor_from    s: from here to the end of the hit window the
+#                 attacker's own poise can't be broken (hyper
+#                 armour; left out: none)
+
+[[moveset]]
+id = "sword"
+ref_weight = 1.5
+light = ["sword_light1", "sword_light2"]
+heavy = "sword_heavy"
+air_light = "sword_air_light"
+air_heavy = "sword_plunge"
+
+[[attack]]
+id = "sword_light1"
+pose = "sword_light1"
+duration = 0.60
+active = [0.20, 0.32]
+damage = 1.0
+poise = 10
+stamina = 15
+reach = 10
+arc = [-70, 60]
+band = [3, 16]
+knock = 14
+lift = 0.15
+lunge = 12
+lunge_time = [0.08, 0.32]
+combo_from = 0.40
+cancel_from = 0.38
+
+[[attack]]
+id = "sword_light2"
+pose = "sword_light2"
+duration = 0.58
+active = [0.16, 0.28]
+damage = 1.0
+poise = 10
+stamina = 15
+reach = 10
+arc = [60, -70]
+band = [3, 16]
+knock = 14
+lift = 0.15
+lunge = 12
+lunge_time = [0.04, 0.28]
+combo_from = 0.38
+cancel_from = 0.36
+
+[[attack]]
+id = "sword_heavy"
+pose = "sword_heavy"
+duration = 1.10
+active = [0.52, 0.66]
+damage = 2.2
+poise = 30
+stamina = 28
+reach = 11
+arc = [-20, 20]
+band = [0, 18]
+knock = 24
+lift = 0.30
+knockdown = true
+lunge = 16
+lunge_time = [0.40, 0.66]
+cancel_from = 0.80
+armor_from = 0.25
+
+[[attack]]
+id = "sword_air_light"
+pose = "sword_air_light"
+duration = 0.55
+active = [0.08, 0.26]
+damage = 1.1
+poise = 15
+stamina = 16
+reach = 10
+arc = [-80, 80]
+band = [-4, 14]
+knock = 20
+lift = 0.20
+cancel_from = 0.45
+
+[[attack]]
+id = "sword_plunge"
+pose = "sword_plunge"
+duration = 0.85
+active = [0.20, 0.30]
+damage = 2.0
+poise = 40
+stamina = 25
+reach = 12
+arc = [-180, 180]
+band = [-3, 7]
+knock = 30
+lift = 0.45
+knockdown = true
+cancel_from = 0.65
+armor_from = 0.0

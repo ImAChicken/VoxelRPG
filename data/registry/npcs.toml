@@ -1,0 +1,148 @@
+# ══════════════════════════════════════════════════════════
+# NPC types (npc/NpcTypes.h)
+# ══════════════════════════════════════════════════════════
+# An NPC is a Human like the player — same body, physics,
+# ragdoll, moveset — driven by a brain instead of a keyboard.
+# A type says which faction it's in, how it looks, what it
+# carries, how it senses, and which STATES its brain may use.
+# Spawn one with: spawn <type> [count]
+#
+#   name            shown over its head
+#   faction         factions.toml
+#   look            appearance preset (data/characters/presets.toml)
+#   weapon          item it fights with (its moveset comes from the item)
+#   health, poise   its toughness
+#   states          the brain states it may use (npc/Brain.h); a
+#                   state it doesn't have is skipped (no patrol →
+#                   it idles instead). "dead" is always there.
+#                   Built in: idle, unavailable, patrol, alert,
+#                   combat, search, return, flee, dead
+#   start           the state it starts in (default: idle, or
+#                   patrol if it has one)
+#   idle            "stand" (stays put, faces where it was put)
+#                   or "wander" (strolls about home)
+#   wander_radius   how far it strolls from home
+#   territory       radius: its patrol area around home;
+#                   leash: how far it chases before giving up
+#                   and going back (left out: no limit)
+#   patrol_points   waypoints made around home for its patrol
+#   sight           range (voxels) and fov (degrees)
+#   hearing         × how far it hears noises
+#   alert_time      [min, max] s it spends deciding when it first
+#                   sees an enemy
+#   battle_cry      range (voxels) and cooldown (s); left out: none
+#   slots           preferred places around its target in a fight,
+#                   best first (front, rear_flank, left, right,
+#                   front_left, front_right, rear_left, rear_right, ring)
+#   aggression      0..1: how often it attacks when it may (it
+#                   also needs an attack token: npc/Encounters.h)
+#   tracks          true: having lost you, follows your trail of
+#                   breadcrumbs (where you actually went)
+#   xp              for killing it (default: health / 4), shared
+#                   by the players in the encounter
+#   on_menu_attack  "interrupt" (drops the menu and reacts) or
+#                   "protected" (ignores attacks while in a menu)
+
+[[npc]]
+id = "bandit"
+name = "Bandit"
+faction = "bandits"
+look = "bandit"
+weapon = "iron_sword"
+health = 100
+poise = 35
+states = ["idle", "patrol", "alert", "combat", "search", "return", "dead"]
+idle = "stand"
+territory = { radius = 60, leash = 160 }
+patrol_points = 4
+sight = { range = 70, fov = 140 }
+hearing = 1.0
+alert_time = [0.6, 1.2]
+battle_cry = { range = 90, cooldown = 20 }
+slots = ["front", "rear_flank", "left", "right"]
+aggression = 0.75
+on_menu_attack = "interrupt"
+
+[[npc]]
+id = "swordsman"
+name = "Swordsman"
+faction = "bandits"
+look = "bandit"
+weapon = "iron_sword"
+health = 100
+poise = 35
+states = ["idle", "alert", "combat", "search", "return", "dead"]
+idle = "stand"
+sight = { range = 90, fov = 160 }
+hearing = 1.0
+alert_time = [0.4, 0.8]
+battle_cry = { range = 90, cooldown = 20 }
+slots = ["front", "rear_flank", "left", "right"]
+aggression = 0.75
+
+[[npc]]
+id = "guard"
+name = "Guard"
+faction = "guards"
+look = "guard"
+weapon = "iron_sword"
+health = 140
+poise = 50
+states = ["idle", "unavailable", "patrol", "alert", "combat", "search", "return", "dead"]
+idle = "stand"
+territory = { radius = 80, leash = 200 }
+patrol_points = 5
+sight = { range = 80, fov = 140 }
+hearing = 1.2
+alert_time = [0.5, 1.0]
+battle_cry = { range = 120, cooldown = 15 }
+slots = ["front", "left", "right", "rear_flank"]
+aggression = 0.6
+on_menu_attack = "interrupt"
+
+[[npc]]
+id = "villager"
+name = "Villager"
+faction = "villagers"
+look = "villager"
+health = 60
+poise = 20
+states = ["idle", "unavailable", "alert", "flee", "return", "dead"]
+idle = "wander"
+wander_radius = 24
+sight = { range = 50, fov = 160 }
+hearing = 1.0
+alert_time = [0.3, 0.6]
+on_menu_attack = "protected"
+
+[[npc]]
+id = "undead"
+name = "Restless Dead"
+faction = "undead"
+look = "undead"
+weapon = "iron_sword"
+health = 80
+poise = 25
+states = ["idle", "alert", "combat", "search", "dead"]
+idle = "wander"
+wander_radius = 16
+sight = { range = 50, fov = 120 }
+hearing = 1.6
+alert_time = [0.8, 1.6]
+slots = ["front", "left", "right", "rear_flank", "ring"]
+aggression = 0.9
+tracks = true
+
+[[npc]]
+id = "dummy"
+name = "Training Dummy"
+faction = "wildlife"
+look = "dummy"
+weapon = "iron_sword"
+health = 300
+poise = 60
+states = ["idle", "dead"]
+idle = "stand"
+sight = { range = 0, fov = 0 }
+hearing = 0.0
+heals_after = 4          # s without hits, then back to full health (a training target)

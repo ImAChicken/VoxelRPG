@@ -6,7 +6,6 @@
 //   cmake -DVOXELRPG_TESTS=ON ... && build/bin/combat_test
 #include "game/CombatMoves.h"
 #include "game/CombatHits.h"
-#include "game/Npcs.h"
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -19,14 +18,21 @@ static void check(bool ok, const std::string& what) {
 
 static const float DT = 1.0f / 60.0f;
 
-// A body standing at (x, 0, z) facing f, holding a 12-damage sword
+static const Moveset* SWORD = nullptr;
+static const AttackDef& atk(AttackKind k, int chain = 0) { return *SWORD->get(k, chain); }
+
+// A body standing at (x, 0, z) facing f, holding a 12-damage
+// sword at the moveset's own weight
 static void stand(Human& h, glm::vec3 at, glm::vec3 f) {
     h.position = at;
     h.facing = glm::normalize(f);
     h.grounded = true;
     h.weaponDamage = 12.0f;
+    h.moveset = SWORD;
+    h.weaponWeight = SWORD->refWeight;
     h.health = h.maxHealth = 100.0f;
     h.stamina = h.maxStamina;
+    h.poise = h.maxPoise = combat::POISE_BASE;
 }
 static HumanIntent press(bool light, bool heavy = false) {
     HumanIntent in; in.attackLight = light; in.attackHeavy = heavy; return in;
@@ -39,6 +45,7 @@ static std::vector<combat::HitEvent> tick(std::vector<Human*> bodies, std::vecto
         bodies[i]->guarding = in.guard && !bodies[i]->attack.active();
         combat::advanceAttack(*bodies[i], DT);
         combat::regainStamina(*bodies[i], DT);
+        combat::regainPoise(*bodies[i], DT);
         if (bodies[i]->move != Human::Move::None) {
             bodies[i]->moveTimer -= DT;
             if (bodies[i]->moveTimer <= 0.0f) bodies[i]->move = Human::Move::None;
@@ -63,6 +70,10 @@ static float hitSpeed(const Human& h) {
 }
 
 int main() {
+    if (!gMovesets.load("data/registry/movesets.toml") || !(SWORD = gMovesets.find("sword"))) {
+        std::printf("run from the repo root (needs data/registry/movesets.toml)\n");
+        return 1;
+    }
     const glm::vec3 F(0, 0, -1);   // everyone attacks toward −z
 
     std::printf("light attack\n");
@@ -70,13 +81,14 @@ int main() {
         Human a, b;
         stand(a, {0, 0, 0}, F); stand(b, {0, 0, -8}, -F);
         auto ev = runFor(0.05f, {&a, &b}, {press(true)});
-        check(a.attack.kind == AttackKind::Light1, "starts a light attack");
-        check(std::fabs(a.stamina - (100.0f - combat::def(AttackKind::Light1).stamina)) < 0.01f, "costs stamina");
+        check(a.attack.kind == AttackKind::Light && a.attack.chain == 0, "starts a light attack");
+        check(std::fabs(a.stamina - (100.0f - atk(AttackKind::Light).stamina)) < 0.01f, "costs stamina");
         ev = runFor(1.0f, {&a, &b});
         check(ev.size() == 1, "hits the body in front exactly once (" + std::to_string(ev.size()) + ")");
         check(std::fabs(b.health - 88.0f) < 0.01f, "for the weapon's damage (" + std::to_string(b.health) + ")");
         float sp = hitSpeed(b);
-        check(sp > 5.0f && sp < Ragdoll::KNOCKDOWN_DV, "staggers, doesn't knock down (" + std::to_string(sp) + ")");
+        check(sp > 1.0f && sp <= combat::FLINCH_KNOCK + 0.01f, "poise holds: only a flinch (" + std::to_string(sp) + ")");
+        check(std::fabs(b.poise - (combat::POISE_BASE - atk(AttackKind::Light).poise)) < 0.01f, "and wears poise down");
         check(!a.attack.active(), "and ends");
     }
 
@@ -96,11 +108,11 @@ int main() {
         Human a, b;
         stand(a, {0, 0, 0}, F); stand(b, {0, 0, -8}, -F);
         tick({&a, &b}, {press(true)});
-        while (a.attack.t < combat::def(AttackKind::Light1).activeEnd) tick({&a, &b});
+        while (a.attack.t < atk(AttackKind::Light).activeEnd) tick({&a, &b});
         tick({&a, &b}, {press(true)});
         check(a.attack.queuedLight, "a press once the swing is active is queued");
-        while (a.attack.kind == AttackKind::Light1) tick({&a, &b});
-        check(a.attack.kind == AttackKind::Light2, "and chains into the backhand");
+        while (a.attack.active() && a.attack.chain == 0) tick({&a, &b});
+        check(a.attack.kind == AttackKind::Light && a.attack.chain == 1, "and chains into the backhand");
         check(a.attack.t < 0.05f, "cutting the recovery short");
         std::vector<combat::HitEvent> ev;
         ev = runFor(1.0f, {&a, &b});
@@ -119,31 +131,67 @@ int main() {
         stand(a, {0, 0, 0}, F); stand(b, {0, 0, -8}, -F);
         auto ev = runFor(1.3f, {&a, &b}, {press(false, true)});
         check(a.attack.kind == AttackKind::None && ev.size() == 1, "one heavy, one hit");
-        check(std::fabs(b.health - (100.0f - 12.0f * combat::def(AttackKind::Heavy).damage)) < 0.01f, "hits harder");
-        check(hitSpeed(b) >= Ragdoll::KNOCKDOWN_DV, "knocks down (" + std::to_string(hitSpeed(b)) + ")");
+        check(std::fabs(b.health - (100.0f - 12.0f * atk(AttackKind::Heavy).damage)) < 0.01f, "hits harder");
+        check(hitSpeed(b) >= Ragdoll::KNOCKDOWN_DV, "breaks a plain body's poise and knocks it down (" + std::to_string(hitSpeed(b)) + ")");
+        Human c, t;
+        stand(c, {0, 0, 0}, F); stand(t, {0, 0, -8}, -F);
+        t.poise = t.maxPoise = 60.0f;                      // a tough one
+        runFor(1.3f, {&c, &t}, {press(false, true)});
+        check(hitSpeed(t) <= combat::FLINCH_KNOCK + 0.01f && t.poise > 0.0f, "a tough body's poise holds: no knockdown");
     }
 
     std::printf("poise\n");
     {
-        // b's heavy, wound up past its poise, takes a light hit and goes on
+        // lights wear it down; the hit that breaks it staggers
         Human a, b;
         stand(a, {0, 0, 0}, F); stand(b, {0, 0, -8}, -F);
-        tick({&a, &b}, {HumanIntent(), press(false, true)});
-        float lightHit = combat::def(AttackKind::Light1).activeStart;
-        float wait = combat::def(AttackKind::Heavy).poiseFrom - lightHit + 0.02f;
-        runFor(wait, {&a, &b});
-        auto ev = runFor(lightHit + 0.1f, {&a, &b}, {press(true)});
-        check(!ev.empty() && ev[0].target == &b, "a light hit lands on the heavy");
-        check(b.attack.kind == AttackKind::Heavy, "the heavy isn't interrupted");
-        // but a light attack is
+        a.infiniteStamina = true;
+        int hits = 0; bool broke = false;
+        for (int n = 0; n < 6 && !broke; n++) {
+            auto ev = runFor(0.7f, {&a, &b}, {press(true)});
+            for (auto& e : ev) { hits++; if (e.poiseBroken) broke = true; }
+            if (!broke) check(hitSpeed(b) <= combat::FLINCH_KNOCK + 0.01f, "hit " + std::to_string(hits) + ": a flinch");
+            b.hits.clear();
+        }
+        check(broke && hits == 3, "the third light hit breaks 30 poise (" + std::to_string(hits) + ")");
+        check(b.poise == b.maxPoise, "which refills once broken");
+        // after a while without hits it refills on its own
+        b.poise = 5.0f; b.sincePoiseHit = 0.0f;
+        runFor(combat::POISE_DELAY + 1.0f, {&b});
+        check(b.poise == b.maxPoise, "and refills after a few seconds without hits");
+
+        // hyper armour: a light hit on a heavy past armor_from doesn't break it
         Human c, d;
         stand(c, {0, 0, 0}, F); stand(d, {0, 0, -8}, -F);
-        tick({&c, &d}, {HumanIntent(), press(true)});
-        runFor(0.02f, {&c, &d});
-        tick({&c, &d}, {press(false, true)});
-        // d's light lands first and interrupts c's heavy wind-up
-        runFor(0.4f, {&c, &d});
-        check(c.attack.kind == AttackKind::None || c.health < 100.0f, "a wind-up without poise is interrupted");
+        d.poise = 5.0f; d.sincePoiseHit = 0.0f;
+        tick({&c, &d}, {HumanIntent(), press(false, true)});
+        float lightHit = atk(AttackKind::Light).activeStart;
+        float wait = atk(AttackKind::Heavy).armorFrom - lightHit + 0.02f;
+        runFor(wait, {&c, &d});
+        auto ev = runFor(lightHit + 0.1f, {&c, &d}, {press(true)});
+        check(!ev.empty() && ev[0].target == d.uuid, "a light hit lands on the heavy");
+        check(d.attack.kind == AttackKind::Heavy, "hyper armour: the heavy goes on with almost no poise");
+        // without armour, the same hit breaks low poise and interrupts
+        Human e2, f2;
+        stand(e2, {0, 0, 0}, F); stand(f2, {0, 0, -8}, -F);
+        f2.poise = 5.0f; f2.sincePoiseHit = 0.0f;
+        tick({&e2, &f2}, {press(true), press(true)});
+        ev = runFor(0.25f, {&e2, &f2});
+        bool interrupted = false;
+        for (auto& x : ev) if (x.target == f2.uuid && x.poiseBroken) interrupted = true;
+        check(interrupted && !f2.attack.active(), "a swing without armour is interrupted when poise breaks");
+    }
+
+    std::printf("weapon weight\n");
+    {
+        Human light, heavy;
+        stand(light, {0, 0, 0}, F); stand(heavy, {20, 0, 0}, F);
+        heavy.weaponWeight = SWORD->refWeight + 4.0f;
+        tick({&light, &heavy}, {press(true), press(true)});
+        check(heavy.stamina < light.stamina, "a heavier sword costs more stamina");
+        runFor(0.3f, {&light, &heavy});
+        check(heavy.attack.t < light.attack.t, "and swings slower");
+        check(heavy.attack.poiseScale > 1.0f, "and is harder on poise");
     }
 
     std::printf("guard\n");
@@ -186,9 +234,9 @@ int main() {
         stand(a, {0, 0, 0}, F); stand(b, {0, 0, -8}, -F);
         tick({&a, &b}, {press(true)});
         // b rolls just as the swing becomes active
-        runFor(combat::def(AttackKind::Light1).activeStart - 0.1f, {&a, &b});
+        runFor(atk(AttackKind::Light).activeStart - 0.1f, {&a, &b});
         b.move = Human::Move::Roll; b.moveTimer = Human::ROLL_TIME;
-        auto ev = runFor(combat::def(AttackKind::Light1).activeEnd - combat::def(AttackKind::Light1).activeStart + 0.15f, {&a, &b});
+        auto ev = runFor(atk(AttackKind::Light).activeEnd - atk(AttackKind::Light).activeStart + 0.15f, {&a, &b});
         check(ev.empty() && b.health == 100.0f, "a roll's i-frames dodge it");
     }
 
@@ -258,33 +306,7 @@ int main() {
         check(ev.empty(), "a wall in between stops it");
     }
 
-    std::printf("enemies use the same moves\n");
-    {
-        Npc n;
-        stand(n, {0, 0, 0}, F);
-        n.kind = NpcKind::Swordsman;
-        Human target;
-        stand(target, {0, 0, -60}, -F);
-        npcbrain::think(n, &target, DT);
-        check(glm::dot(n.intent.move, glm::vec2(0, -1)) > 0.9f, "walks toward a target out of reach");
-        target.position = {0, 0, -10};
-        bool attacked = false;
-        for (int i = 0; i < 60 * 6 && !attacked; i++) {
-            npcbrain::think(n, &target, DT);
-            combat::startAttack(n, n.intent);
-            combat::advanceAttack(n, DT);
-            combat::regainStamina(n, DT);
-            n.intent.clearOneShots();
-            attacked = n.attack.active();
-        }
-        check(attacked, "attacks a target in reach within a few seconds");
-        std::vector<combat::HitEvent> ev;
-        for (int i = 0; i < 90; i++) {
-            combat::advanceAttack(n, DT);
-            combat::resolveHits({&n, &target}, nullptr, ev);
-        }
-        check(!ev.empty() && target.health < 100.0f, "and its hits land like the player's");
-    }
+    // enemies using these moves: tests/npc_test.cpp
 
     std::printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);
     return failures ? 1 : 0;

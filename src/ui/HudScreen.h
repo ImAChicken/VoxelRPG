@@ -1,4 +1,6 @@
 #pragma once
+#include <glm/glm.hpp>
+#include <string>
 #include "UIRenderer.h"
 #include "../entity/Player.h"
 #include "../entity/PlayerController.h"
@@ -34,6 +36,22 @@ public:
     struct EnemyBar { float x, y, fill, alpha; bool hurt; };
     std::vector<EnemyBar> enemyBars;
 
+    // The debug overlay (F3): labels placed by the game (screen
+    // pixels) and a block of text for the corner
+    struct DebugLabel { float x, y; std::string text; glm::vec3 color; };
+    std::vector<DebugLabel> debugLabels;
+    std::vector<std::string> debugText;
+    std::string talkingTo;              // an NPC menu is open (placeholder until menus exist)
+
+    // Encounter bookends (npc/Encounters.h): a banner when a
+    // fight starts, a review when it ends. Neither pauses.
+    std::string encounterBanner;
+    float encounterBannerAge = 99.0f;
+    std::vector<std::string> review;
+    float reviewAge = 99.0f;
+    static constexpr float BANNER_TIME = 3.0f, REVIEW_TIME = 10.0f;
+    float frameDt = 0.0f;               // set by the game each frame (timers above)
+
     void draw(UIRenderer& ui, const Player& player,
               const PlayerController& controller,
               const PlayerInteraction& hands, const DevTools& dev) {
@@ -66,6 +84,61 @@ public:
             ui.drawRect(sw * 0.5f - w * 0.5f, sh * 0.5f + 14.0f, w, 6.0f, SHADOW);
             ui.drawRect(sw * 0.5f - w * 0.5f, sh * 0.5f + 14.0f,
                         w * hands.breakProgress, 6.0f, WHITE);
+        }
+
+        // ── Encounter bookends ────────────────────────────
+        encounterBannerAge += frameDt;
+        reviewAge += frameDt;
+        frameDt = 0.0f;
+        if (encounterBannerAge < BANNER_TIME && !encounterBanner.empty()) {
+            float a = std::clamp(std::min(encounterBannerAge * 4.0f, (BANNER_TIME - encounterBannerAge) * 2.0f), 0.0f, 1.0f);
+            float w = (float)ui.textWidth(encounterBanner, 3);
+            float bg[4] = {20, 8, 8, 190 * a};
+            float col[4] = {235, 90, 70, 255 * a};
+            ui.drawRect(0, sh * 0.2f - 14, sw, 52, bg);
+            ui.drawText(encounterBanner, (sw - w) * 0.5f, sh * 0.2f, col, 3);
+        }
+        if (reviewAge < REVIEW_TIME && !review.empty()) {
+            float a = std::clamp(std::min(reviewAge * 4.0f, (REVIEW_TIME - reviewAge) * 1.5f), 0.0f, 1.0f);
+            float pw = 0.0f;
+            for (size_t i = 0; i < review.size(); i++) pw = std::max(pw, (float)ui.textWidth(review[i], i ? 2 : 3));
+            pw += 48.0f;
+            float ph = 30.0f + 34.0f + (review.size() - 1) * 24.0f;
+            float px = (sw - pw) * 0.5f, py = sh * 0.30f;
+            float bg[4] = {12, 10, 8, 210 * a};
+            float title[4] = {240, 210, 140, 255 * a};
+            float text[4] = {225, 220, 210, 255 * a};
+            ui.drawRect(px, py, pw, ph, bg);
+            ui.drawText(review[0], px + (pw - ui.textWidth(review[0], 3)) * 0.5f, py + 14, title, 3);
+            for (size_t i = 1; i < review.size(); i++)
+                ui.drawText(review[i], px + 24, py + 30 + 34 + (i - 1) * 24.0f - 20, text, 2);
+        }
+
+        // ── Talking to an NPC (a placeholder menu) ────────
+        if (!talkingTo.empty()) {
+            std::string t = "Talking to " + talkingTo + "   (E to leave)";
+            float w = (float)ui.textWidth(t, 2);
+            float bg[4] = {0, 0, 0, 170};
+            float col[4] = {240, 230, 200, 255};
+            ui.drawRect((sw - w) * 0.5f - 12, sh * 0.62f - 8, w + 24, 34, bg);
+            ui.drawText(t, (sw - w) * 0.5f, sh * 0.62f, col, 2);
+        }
+
+        // ── Debug overlay ─────────────────────────────────
+        for (const DebugLabel& l : debugLabels) {
+            float w = (float)ui.textWidth(l.text, 1);
+            float bg[4] = {0, 0, 0, 150};
+            float col[4] = {l.color.r * 255, l.color.g * 255, l.color.b * 255, 255};
+            ui.drawRect(l.x - w * 0.5f - 2, l.y - 1, w + 4, 11, bg);
+            ui.drawText(l.text, l.x - w * 0.5f, l.y, col, 1);
+        }
+        if (!debugText.empty()) {
+            float y = 150.0f, w = 0.0f;
+            for (const auto& t : debugText) w = std::max(w, (float)ui.textWidth(t, 1));
+            float bg[4] = {0, 0, 0, 160};
+            ui.drawRect(6, y - 4, w + 12, debugText.size() * 12.0f + 8, bg);
+            float col[4] = {230, 230, 230, 255};
+            for (const auto& t : debugText) { ui.drawText(t, 12, y, col, 1); y += 12.0f; }
         }
 
         // ── Enemies' health, over their heads ─────────────
@@ -169,7 +242,7 @@ public:
 
         // ── The attack in progress (game/Combat.h) ────────
         if (player.attack.active()) {
-            std::string note = combat::name(player.attack.kind);
+            std::string note = combat::kindName(player.attack.kind);
             float w = (float)ui.textWidth(note, 2);
             ui.drawText(note, (sw - w) * 0.5f, sh - 150.0f, COMBAT_RED, 2);
         } else if (combat && controller.lastAction == PlayerAction::Guard && controller.guarding) {

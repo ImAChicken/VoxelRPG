@@ -405,6 +405,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\CombatMoves.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\Commands.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\CubeTool.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\DebugView.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\DevTools.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\GameMode.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\Inventory.h" />
@@ -428,6 +429,14 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\Dev\VoxelRPG\src\main.cpp" />
     <ClCompile Include="C:\Dev\VoxelRPG\src\noise\FastNoiseLite.cpp" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\noise\FastNoiseLite.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\Brain.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\Encounters.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\Factions.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\Npc.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\NpcManager.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\NpcTypes.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\Pathfinder.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\States.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\physics\IPhysics.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\physics\Ragdoll.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\physics\RigidVoxelBody.h" />
@@ -438,6 +447,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Camera.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\CharacterRenderer.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\ChunkMesh.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\DebugDraw.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\FarTerrain.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\Mesher.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\PropMeshes.h" />
@@ -449,6 +459,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\IRenderer.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\OpenGLRenderer.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\RaytracingRenderer.h" />
+    <ClInclude Include="C:\Dev\VoxelRPG\src\sim\Simulation.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\ui\BuildMenuScreen.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\ui\CharacterScreen.h" />
     <ClInclude Include="C:\Dev\VoxelRPG\src\ui\ConsoleScreen.h" />

@@ -1,0 +1,51 @@
+# ══════════════════════════════════════════════════════════
+# Appearance presets — how an NPC type looks (npcs.toml: look)
+# ══════════════════════════════════════════════════════════
+# A preset starts from a random look (random = true, seeded per
+# NPC, so a camp of bandits isn't a row of twins) or the default
+# one, then sets any of the keys a saved character uses:
+#   look_body = "build height shoulders chest hips limbs head face"
+#   look_face = "eyeStyle expression"
+#   look_hair = "style extra"
+#   look_outfit = "top bottom shoes"
+#   look_skin / look_eyes / look_hairc / look_topc / look_bottomc = "r g b"
+# Choose-one lists pick per NPC: e.g. topc_choices = ["r g b", ...]
+#
+#   texture_set   a set of character sheets in the resource pack
+#                 (characters/<set>/face_*.png …) for looks the
+#                 shared sheets can't do — undead, say. Loaded per
+#                 set by the renderer (not drawn yet: falls back
+#                 to the shared sheets).
+
+[[preset]]
+id = "bandit"
+random = true
+topc_choices = ["92 70 52", "70 64 58", "104 48 40", "60 70 52"]
+bottomc_choices = ["58 50 44", "46 44 50"]
+
+[[preset]]
+id = "villager"
+random = true
+
+[[preset]]
+id = "guard"
+random = true
+look_topc = "120 40 40"
+look_bottomc = "60 60 70"
+
+[[preset]]
+id = "undead"
+random = true
+look_skin = "150 160 140"
+look_eyes = "200 40 30"
+look_face = "14 0"
+look_topc = "70 70 64"
+look_bottomc = "52 50 48"
+texture_set = "undead"
+
+[[preset]]
+id = "dummy"
+random = false
+look_skin = "176 140 96"
+look_topc = "150 120 80"
+look_bottomc = "120 96 64"

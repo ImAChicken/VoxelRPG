@@ -111,6 +111,9 @@
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\CubeTool.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\game\DebugView.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\game\DevTools.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -159,6 +162,30 @@
     <ClInclude Include="C:\Dev\VoxelRPG\src\noise\FastNoiseLite.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\Brain.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\Encounters.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\Factions.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\Npc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\NpcManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\NpcTypes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\Pathfinder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\npc\States.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\physics\IPhysics.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -189,6 +216,9 @@
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\ChunkMesh.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\render\DebugDraw.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\render\FarTerrain.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -217,6 +247,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\renderer\RaytracingRenderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Dev\VoxelRPG\src\sim\Simulation.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Dev\VoxelRPG\src\ui\BuildMenuScreen.h">

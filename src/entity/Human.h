@@ -145,6 +145,12 @@ public:
     //   stamina       spent by attacks, dodges and blocking;
     //                 comes back after a short pause
     float       weaponDamage = 0.0f;
+    const Moveset* moveset = nullptr;      // the weapon's (game/Combat.h); nullptr: can't attack
+    float       weaponWeight = 0.0f;       // kg, bends the moveset (combat::weightScales)
+    // poise: hits wear it down; broken = stagger / knockdown
+    float       poise = combat::POISE_BASE, maxPoise = combat::POISE_BASE;
+    float       sincePoiseHit = 99.0f;
+    bool        canDoubleJump = false;     // an ability, off by default
     float       stamina = combat::MAX_STAMINA, maxStamina = combat::MAX_STAMINA;
     float       staminaWait = 0.0f;
     bool        infiniteStamina = false;   // Test Play
@@ -155,6 +161,7 @@ public:
     uint64_t    lastHitBy = 0;
 
     bool dead() const { return health <= 0.0f; }
+    virtual bool isPlayer() const { return false; }
     bool spend(float s) {                  // false if out of stamina
         if (infiniteStamina) return true;
         if (stamina <= 0.0f) return false;

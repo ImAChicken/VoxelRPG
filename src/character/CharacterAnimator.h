@@ -39,7 +39,7 @@ struct AnimInput {
     float moveProgress = 0.0f;         // 0 → 1 through the move
     float swing = -1.0f;               // axe swing: seconds into it, < 0 = none (game/AxeSwing.h)
     bool  carryAxe = false;            // an axe in the right hand: carried head-down beside the leg
-    AttackKind attack = AttackKind::None;   // game/Combat.h
+    const AttackDef* attack = nullptr;  // game/Combat.h: the attack playing (its pose)
     float attackT = 0.0f;              // seconds into it
     bool  guard   = false;             // guarding (held)
     float walkSpeed    = 30.0f;        // for scaling the stride
@@ -260,9 +260,9 @@ public:
             put(B_ELBOW_L,    {-100, 0, 0});
             put(B_SPINE,      {10, 0, 0});
         }
-        if (in.attack != AttackKind::None) {
+        if (in.attack) {
             float drop = 0.0f;
-            combatanim::apply(in.attack, in.attackT, shown.rot, drop);
+            combatanim::apply(in.attack->pose, in.attack->duration, in.attackT, shown.rot, drop);
             if (!in.grounded) shown.rootOffset.y -= drop;
         }
 

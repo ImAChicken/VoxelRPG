@@ -1,0 +1,73 @@
+# ══════════════════════════════════════════════════════════
+# Factions — who is on whose side (npc/Factions.h)
+# ══════════════════════════════════════════════════════════
+# Every NPC type belongs to a faction (npcs.toml). How two sides
+# feel about each other is a STANDING from -100 to 100:
+#   <= hostile_below    hostile: attack on sight
+#   >= friendly_above   friendly: help each other, hear each
+#                       other's battle cries
+#   between             neutral: leave each other alone
+#
+# NPC to NPC: the [[relation]] table (unlisted pairs are 0,
+# neutral; a faction is always friendly to itself).
+# NPC to a player: each player has their own reputation with
+# every faction, starting at the faction's player_standing and
+# changed by what they do (hitting a neutral villager lowers it).
+# It is saved with the player (rep.<faction>=value).
+hostile_below = -30
+friendly_above = 30
+
+[[faction]]
+id = "villagers"
+name = "Villagers"
+player_standing = 20
+
+[[faction]]
+id = "guards"
+name = "Guards"
+player_standing = 10
+
+[[faction]]
+id = "bandits"
+name = "Bandits"
+player_standing = -100
+
+[[faction]]
+id = "wildlife"
+name = "Wildlife"
+player_standing = 0
+
+[[faction]]
+id = "undead"
+name = "Undead"
+player_standing = -100
+
+[[relation]]
+a = "villagers"
+b = "guards"
+standing = 80
+
+[[relation]]
+a = "bandits"
+b = "villagers"
+standing = -80
+
+[[relation]]
+a = "bandits"
+b = "guards"
+standing = -100
+
+[[relation]]
+a = "undead"
+b = "villagers"
+standing = -100
+
+[[relation]]
+a = "undead"
+b = "guards"
+standing = -100
+
+[[relation]]
+a = "undead"
+b = "bandits"
+standing = -100

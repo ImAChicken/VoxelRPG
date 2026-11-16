@@ -145,6 +145,7 @@ struct BladeHit {
     glm::vec3  point{0};      // where the edge entered it
     glm::vec3  dir{0};        // which way the edge was moving
     float      speed = 0.0f;  // edge speed, voxels/s
+    float      s = 0.0f;      // how far along the frame's sweep (0..1) it hit
 };
 
 // Trace the edge points from 'from' to 'to' (world voxels) and
@@ -166,6 +167,7 @@ inline BladeHit trace(const std::array<glm::vec3, 3>& from, const std::array<glm
             if (!blocks(v)) continue;
             bestS = s;
             best.hit = true;
+            best.s = s;
             best.voxel = v;
             best.point = p;
             best.dir = len > 1e-5f ? d / len : glm::vec3(0);

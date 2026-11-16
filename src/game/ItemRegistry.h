@@ -77,6 +77,9 @@ struct ItemDef {
 
     std::string weaponClass;                // "sword", "axe", "spear"
     float       damage      = 0.0f;
+    std::string moveset;                    // weapons: how it fights (movesets.toml)
+    std::string damageType;                 // "slash", "pierce", "blunt" (resistances later)
+    float       poiseDamage = 0.0f;         // tools that hit bodies (the axe): poise damage of a full-speed hit
 
     DevToolKind devTool     = DevToolKind::None;
 
@@ -246,6 +249,9 @@ private:
 
                 d.weaponClass = (*t)["weapon_class"].value_or(std::string());
                 d.damage      = (float)(*t)["damage"].value_or(0.0);
+                d.moveset     = (*t)["moveset"].value_or(std::string());
+                d.damageType  = (*t)["damage_type"].value_or(std::string());
+                d.poiseDamage = (float)(*t)["poise_damage"].value_or(0.0);
 
                 d.weight = (float)(*t)["weight"].value_or(0.0);
                 d.heldModel = (*t)["held_model"].value_or(std::string());

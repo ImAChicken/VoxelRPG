@@ -60,8 +60,8 @@
 #include "ui/BuildMenuScreen.h"
 #include "world/StructureManager.h"
 #include "world/Woodcutting.h"
-#include "game/Npcs.h"
-#include "game/CombatHits.h"
+#include "sim/Simulation.h"
+#include "game/DebugView.h"
 #include "render/PropRenderer.h"
 #include "worldgen/WorldType.h"
 #include "render/Sky.h"
@@ -218,6 +218,10 @@ int main() {
 
     // Items: every block, plus tools / weapons / dev tools
     gItems.load(gRegistry, "data/registry/items.toml");
+    gMovesets.load("data/registry/movesets.toml");
+    gHeldModels.loadDir("data/models/held");
+    gFactions.load("data/registry/factions.toml");
+    gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
     decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
     gItems.addDecor(*decor::current());
 
@@ -276,6 +280,10 @@ int main() {
     if (!charRenderer.init()) std::cerr << "Character renderer failed to start\n";
     PropRenderer props;                       // logs, wood, leaves: drawn like the world
     if (!props.init()) std::cerr << "Prop renderer failed to start\n";
+    DebugDraw debugDraw;                      // the debug overlay's lines (F3, game/DebugView.h)
+    if (!debugDraw.init()) std::cerr << "Debug lines failed to start\n";
+    std::vector<std::array<glm::vec3, 3>> axeTrail;   // the last axe swing's blade, for the overlay
+    bool wasSwinging = false;
     props.setBlocks(blockTable);
     auto playerBody  = std::make_unique<Character>();
     auto previewBody = std::make_unique<Character>();
@@ -353,8 +361,11 @@ int main() {
     // Quit. Declaration order matters: the streamer's worker
     // threads use 'gen' and 'world', so it is declared last
     // and therefore destroyed first.
+    // The game itself (sim/Simulation.h): every body, the fixed
+    // tick, combat. This window shows one of its players.
+    Simulation       sim;
     Camera           camera;
-    Player           player;
+    Player&          player = sim.addPlayer();
     PlayerController controller;
 
     // Left-over frame time not yet turned into physics ticks
@@ -385,12 +396,10 @@ int main() {
         for (auto& [k, m] : logMeshes) m.release();
         logMeshes.clear();
     };
-    // Enemies (game/Npcs.h), their bodies to draw (by uuid), and
-    // the hits of this frame (game/CombatHits.h)
-    NpcManager npcs;
+    // Enemies live in the simulation; their bodies to draw (by id)
+    NpcManager& npcs = sim.npcs();
+    EntityId talkingTo = 0;           // the NPC this player is in a menu with
     std::unordered_map<uint64_t, std::unique_ptr<Character>> npcBodies;
-    std::vector<combat::HitEvent> combatHits;
-    float playerDeadFor = 0.0f;
     std::unique_ptr<WorldStreamer>    streamer;
     std::unique_ptr<FarTerrain>       farView;   // distant terrain
     float autosaveTimer = 0.0f;
@@ -406,6 +415,7 @@ int main() {
         gWorldSave.saveDirtyChunks(*world);
         if (structs) structs->save(gWorldSave.getWorldPath());
         if (wood) wood->save(gWorldSave.getWorldPath());
+        npcs.save(gWorldSave.getWorldPath() + "/npcs.dat");
         memory.save(gWorldSave.getWorldPath() + "/lowres.dat");
         { std::ofstream tf(gWorldSave.getWorldPath() + "/time.txt"); tf << gClock.time << "\n"; }
         gWorldSave.savePlayer([&](std::ostream& out) {
@@ -430,7 +440,7 @@ int main() {
         hands.wood = nullptr;
         wood.reset();
         dropWoodMeshes();
-        npcs.clear();
+        sim.detachWorld();
         npcBodies.clear();
         structs.reset();
         editor.reset();
@@ -582,6 +592,8 @@ int main() {
         hands.wood = wood.get();
         // bodies collide with fallen logs; raycasts hit them
         gPhysics->setLooseSolids([&](int x, int y, int z) { return wood && wood->solidAt(x, y, z); });
+        sim.attachWorld(gPhysics.get(), wood.get());
+        if (int n = npcs.load(gWorldSave.getWorldPath() + "/npcs.dat")) std::cout << n << " NPCs loaded\n";
         build.reset();
         dev.resetForNewWorld();
         dev.attach(editor.get());
@@ -775,7 +787,7 @@ int main() {
             in.frozen       = h.freeze != Human::Freeze::None;
             in.walkSpeed    = Human::WALK_SPEED;
             in.sprintSpeed  = Human::SPRINT_SPEED;
-            in.attack       = h.attack.kind;
+            in.attack       = h.attack.active() ? h.attack.d : nullptr;
             in.attackT      = h.attack.t;
             in.guard        = h.guarding;
             switch (h.move) {
@@ -804,8 +816,8 @@ int main() {
             in.swing = player.swing.t;
             in.carryAxe = player.holdingAxe() && !player.combatStance;
             // what the right hand shows (items.toml held_model)
-            playerBody->setHeldModel(player.combatStance ? (wielded ? heldModelFromKey(wielded->heldModel) : HeldModel::None)
-                                     : heldModelFromKey(player.activeInventory().heldDef().heldModel));
+            playerBody->setHeldModel(player.combatStance ? (wielded ? wielded->heldModel : std::string())
+                                     : player.activeInventory().heldDef().heldModel);
             playerBody->animate(in, frameDt);
 
             // Ragdoll: follows this pose (at the physics position);
@@ -827,13 +839,34 @@ int main() {
                 // one; the first solid voxel it passes is the hit
                 AxeSwing& sw = player.swing;
                 if (sw.active() && editor && structs) {
-                    auto bp = AxeGeometry::bladePoints(model);
+                    const ItemDef& tool = player.activeInventory().heldDef();
+                    const HeldModelDef* hm = gHeldModels.find(tool.heldModel);
+                    std::vector<glm::vec3> bp = hm ? hm->edgePoints(model) : std::vector<glm::vec3>();
+                    while (bp.size() < 3) bp.push_back(bp.empty() ? heldGrip(model) : bp.back());
                     std::array<glm::vec3, 3> now;
                     for (int k = 0; k < 3; k++) now[k] = glm::vec3(target[B_WRIST_R] * glm::vec4(bp[k], 1.0f));
                     if (sw.striking() && sw.traceValid && sw.lastStep > 0.0f) {
                         axeswing::BladeHit h = axeswing::trace(sw.lastBlade, now, sw.lastStep,
                             [&](glm::ivec3 v) { return gPhysics->solidAt(v.x, v.y, v.z); });   // world and logs
-                        if (h.hit) {
+                        // bodies: the first edge point inside someone
+                        EntityId who = 0; float whoS = 2.0f; glm::vec3 whoAt(0), whoDir(0);
+                        for (int k = 0; k < 3; k++) {
+                            glm::vec3 d = now[k] - sw.lastBlade[k];
+                            int steps = std::max(1, (int)std::ceil(glm::length(d) / 0.25f));
+                            for (int i = 0; i <= steps; i++) {
+                                float s = (float)i / steps;
+                                if (s >= whoS) break;
+                                glm::vec3 p = sw.lastBlade[k] + d * s;
+                                if (EntityId id = sim.bodyAt(p, player.uuid)) { who = id; whoS = s; whoAt = p; whoDir = d; break; }
+                            }
+                        }
+                        if (who && (!h.hit || whoS < h.s)) {
+                            float speed = glm::length(now[1] - sw.lastBlade[1]) / std::max(sw.lastStep, 1e-4f);
+                            float dmg = AxeSwing::damageFor(tool.toolPower, speed);
+                            sim.toolHit(player.uuid, who, dmg, tool.poiseDamage * dmg / std::max(tool.toolPower, 1e-3f), whoAt, whoDir);
+                            sw.hitDone = true;
+                            sw.stop = AxeSwing::HITSTOP;
+                        } else if (h.hit) {
                             sw.hitDone = true;
                             sw.stop = AxeSwing::HITSTOP;
                             hands.axeHit(player, *structs, *editor, h,
@@ -857,7 +890,10 @@ int main() {
                 auto& ch = npcBodies[n.uuid];
                 if (!ch) ch = std::make_unique<Character>();
                 ch->setAppearance(n.appearance, hairMesh());
-                ch->setHeldModel(HeldModel::Sword);
+                {
+                    uint16_t wid = gItems.find(n.weaponItem);
+                    ch->setHeldModel(wid ? gItems.get(wid).heldModel : std::string());
+                }
                 ch->animate(animFor(n, true, 0.0f), frameDt);
                 const CharacterModel& model = ch->getModel();
                 BoneMats target, drawn, out;
@@ -936,7 +972,6 @@ int main() {
             }
             props.end();
             // "+3 Log" when wood is picked up
-            if (wood->lastPickupAge == 0.0f) { hands.notice = wood->lastPickup; hands.noticeAge = 0.0f; }
         }
         if (rules.hasBody &&
             controller.usingThirdPerson(rules) &&
@@ -986,6 +1021,29 @@ int main() {
             if (!placed.empty())
                 charRenderer.drawEdges(placed, view, proj, 0, 0, fw, fh, fw, fh, edgeStyle());
         }
+
+        // Debug overlay (F3): lines now, labels to the HUD
+        hud.debugLabels.clear();
+        if (gDebug.on) {
+            if (player.swing.active()) {
+                if (!wasSwinging) axeTrail.clear();
+                if (player.swing.traceValid && axeTrail.size() < 120) axeTrail.push_back(player.swing.lastBlade);
+            }
+            wasSwinging = player.swing.active();
+            glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
+                                              Camera::NEAR_PLANE, Camera::FAR_PLANE);
+            glm::mat4 vp = proj * glr->getViewMatrix();
+            debugview::build(debugDraw, sim, wood.get(), player, axeTrail);
+            debugDraw.flush(vp);
+            float sw = (float)gRenderer->getScreenWidth(), shh = (float)gRenderer->getScreenHeight();
+            for (auto& l : debugDraw.takeLabels()) {
+                glm::vec4 c = vp * glm::vec4(l.at, 1.0f);
+                if (c.w < 0.1f || glm::length(l.at - camera.position) > 160.0f) continue;
+                float x = (c.x / c.w * 0.5f + 0.5f) * sw, y = (1.0f - (c.y / c.w * 0.5f + 0.5f)) * shh;
+                if (x < -200 || x > sw + 200 || y < -50 || y > shh + 50) continue;
+                hud.debugLabels.push_back({ x, y, l.text, l.color });
+            }
+        } else debugDraw.clear();
 
         // ── Outlines: target block, selection, paste ──────
         // Twelve thin boxes along the edges of [lo, hi).
@@ -1154,6 +1212,12 @@ int main() {
             if (gInput.isPressed(InputAction::GamemodeCycle))
                 changeMode(nextGameMode(player.mode));
 
+            // F3 — the debug overlay
+            if (gInput.isPressed(InputAction::ToggleDebug)) {
+                gDebug.on = !gDebug.on;
+                say(gDebug.on ? "debug overlay on (console: debug)" : "debug overlay off");
+            }
+
             // ` — open the console
             if (gInput.isPressed(InputAction::ToggleConsole)) {
                 console.toggle();
@@ -1175,6 +1239,11 @@ int main() {
             if (gInput.isPressed(InputAction::ReloadRegistry)) {
                 gRegistry.load("data/registry/blocks.toml");
                 gItems.load(gRegistry, "data/registry/items.toml");
+                gMovesets.load("data/registry/movesets.toml");
+                gHeldModels.loadDir("data/models/held");
+                gHeldModels.bump();
+                gFactions.load("data/registry/factions.toml");
+                gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
                 decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
                 gItems.addDecor(*decor::current());
                 gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current());
@@ -1331,98 +1400,109 @@ int main() {
                     PlayerInteraction::blocksToolbarKeys(dev);
                 controller.readInput(player, camera, dt);
 
-                // 2. Physics, in fixed 1/60 s ticks. A fast
-                //    frame may run none, a slow one several.
+                // 2. The simulation, in fixed 1/60 s ticks. A
+                //    fast frame may run none, a slow one several.
+                //    This player's intent goes in like any other
+                //    player's would over the network.
                 physicsTime = std::min(physicsTime + dt, 0.25f);
-                player.refreshMass();   // gear may have changed
-                player.refreshWeapon(); // the weapon in hand (game/Combat.h)
                 while (physicsTime >= PHYSICS_STEP) {
                     controller.beforeTick(player);
-                    gPhysics->moveHuman(
-                        player, controller.intent, PHYSICS_STEP);
-                    gPhysics->stepRagdoll(player, PHYSICS_STEP);
-                    // enemies, then every attack against every body
-                    npcs.tick(PHYSICS_STEP, *gPhysics, &player);
-                    {
-                        std::vector<Human*> bodies{ &player };
-                        for (auto& n : npcs.all()) bodies.push_back(n.get());
-                        combat::resolveHits(bodies, [&](glm::vec3 a, glm::vec3 b) {
-                            glm::vec3 d = b - a;
-                            int steps = (int)(glm::length(d) / 0.5f);
-                            for (int i = 1; i < steps; i++) {
-                                glm::vec3 p = a + d * ((float)i / steps);
-                                if (gPhysics->worldSolidAt((int)std::floor(p.x), (int)std::floor(p.y), (int)std::floor(p.z)))
-                                    return false;
-                            }
-                            return true;
-                        }, combatHits);
-                        combat::separate(bodies, [&](glm::vec3 p) {
-                            return gPhysics->capsuleIsClear(p, Human::RADIUS, Human::STAND_HEIGHT);
-                        });
-                        // Test Play: hits land, but you can't die
-                        if (!rules.tracksHealth) player.health = player.maxHealth;
-                        player.sinceHurt += PHYSICS_STEP;
-                    }
-                    if (wood)
-                        wood->tick(PHYSICS_STEP,
-                                   [&](int x, int y, int z) { return gPhysics->worldSolidAt(x, y, z); },
-                                   &player);
+                    sim.setIntent(player.uuid, controller.intent);
+                    sim.step(PHYSICS_STEP);
                     controller.afterTick(player);
                     physicsTime -= PHYSICS_STEP;
                 }
 
-                // 3. Fell off the edge of the world → back to
-                //    the nearest ground inside it
-                if (player.fellOutOfWorld) {
-                    float maxX = (float)(WORLD_SIZE_X * VOXEL_DIM) - 8.0f;
-                    float maxZ = (float)(WORLD_SIZE_Z * VOXEL_DIM) - 8.0f;
-                    float x = std::min(std::max(
-                        player.position.x, 8.0f), maxX);
-                    float z = std::min(std::max(
-                        player.position.z, 8.0f), maxZ);
-                    glm::vec3 spot;
-                    if (gPhysics->findStandingSpot(
-                            x, z, Human::RADIUS,
-                            Human::STAND_HEIGHT, spot) ||
-                        gPhysics->findStandingSpot(
-                            player.spawnPoint.x,
-                            player.spawnPoint.z,
-                            Human::RADIUS,
-                            Human::STAND_HEIGHT, spot)) {
-                        player.position = spot;
-                        player.resetMotion();
-                        controller.snap(player);
-                        std::cout << "Respawned\n";
+                // 3. What happened, as it concerns this player
+                for (const SimEvent& e : sim.takeEvents()) {
+                    char b[96];
+                    switch (e.kind) {
+                    case SimEvent::Kind::Killed:
+                        if (e.b == player.uuid) say("You died");
+                        else if (e.a == player.uuid) say("enemy killed");
+                        break;
+                    case SimEvent::Kind::Hit:
+                        if (e.a == player.uuid) {
+                            std::snprintf(b, sizeof(b), e.blocked ? "%s blocked (%.0f)" : "%s hit %.0f",
+                                          e.attack == AttackKind::None ? "tool" : combat::kindName(e.attack), e.amount);
+                            hands.notice = b; hands.noticeAge = 0.0f;
+                        }
+                        break;
+                    case SimEvent::Kind::Respawned:
+                        if (e.b == player.uuid) controller.snap(player);
+                        break;
+                    case SimEvent::Kind::EncounterStarted:
+                    case SimEvent::Kind::EncounterMerged:
+                        if (auto* en = sim.encounters().byId(e.encounter); en && en->has(en->players, player.uuid)) {
+                            // the opening bookend: who you're up against
+                            std::unordered_map<std::string, int> count;
+                            for (auto& n : en->enemyNames) count[n]++;
+                            std::string who;
+                            for (auto& [n, c] : count) who += (who.empty() ? "" : ", ") + n + (c > 1 ? " x" + std::to_string(c) : "");
+                            hud.encounterBanner = (e.kind == SimEvent::Kind::EncounterMerged ? "The fight grows: " : "Encounter: ") + who;
+                            hud.encounterBannerAge = 0.0f;
+                        }
+                        break;
+                    case SimEvent::Kind::EncounterEnded:
+                        if (auto* en = sim.encounters().byId(e.encounter); en && en->has(en->players, player.uuid)) {
+                            // the closing bookend: a review of the fight
+                            const encounter::PlayerTally& t = en->tally[player.uuid];
+                            hud.review.clear();
+                            hud.review.push_back(t.died ? "Defeated" : t.escaped ? "You got away" : "Victory");
+                            char b2[96];
+                            std::snprintf(b2, sizeof(b2), "%.0f s   enemies %zu   killed %d (yours %d)   fled %d",
+                                          en->ended - en->started, en->npcs.size(), en->killed, t.kills, en->fled);
+                            hud.review.push_back(b2);
+                            std::snprintf(b2, sizeof(b2), "damage dealt %.0f   taken %.0f", t.dealt, t.taken);
+                            hud.review.push_back(b2);
+                            std::snprintf(b2, sizeof(b2), "XP +%.0f%s", t.xp, en->players.size() > 1 ? "  (shared)" : "");
+                            hud.review.push_back(b2);
+                            hud.review.push_back(t.loot.empty() ? "loot: none yet (drop tables come later)" : "loot");
+                            hud.reviewAge = 0.0f;
+                        }
+                        break;
+                    case SimEvent::Kind::MenuClosed:
+                        if (e.a == talkingTo) {
+                            if (Npc* n = npcs.find(e.a)) say(n->name + " stopped talking");
+                            talkingTo = 0;
+                        }
+                        break;
+                    case SimEvent::Kind::Pickup:
+                        if (e.b == player.uuid) {
+                            std::snprintf(b, sizeof(b), "+%d %s", e.count, gItems.get(e.item).displayName.c_str());
+                            hands.notice = b; hands.noticeAge = 0.0f;
+                        }
+                        break;
                     }
                 }
 
-                // Died: the body lies there a moment, then back to
-                // the spawn point
-                for (const auto& h : combatHits) {
-                    char b[96];
-                    if (h.target == &player && h.killed) say("You died");
-                    else if (h.attacker == &player && h.killed) say("enemy killed");
-                    else if (h.attacker == &player) {
-                        std::snprintf(b, sizeof(b), h.blocked ? "%s blocked (%.0f)" : "%s hit %.0f",
-                                      combat::name(h.kind), h.damage);
-                        hands.notice = b; hands.noticeAge = 0.0f;
+                hud.frameDt = dt;
+
+                // Debug overlay text (F3)
+                hud.debugText.clear();
+                if (gDebug.on) {
+                    char b[160];
+                    auto line = [&](const char* fmt, auto... v) { std::snprintf(b, sizeof(b), fmt, v...); hud.debugText.push_back(b); };
+                    line("frame %.1f ms  (%.0f fps)  tick %.0f Hz", frameTime * 1000.0f, 1.0f / std::max(frameTime, 1e-4f), 1.0f / PHYSICS_STEP);
+                    line("pos %.1f %.1f %.1f   chunk %d %d", player.position.x, player.position.y, player.position.z,
+                         (int)std::floor(player.position.x / VOXEL_DIM), (int)std::floor(player.position.z / VOXEL_DIM));
+                    line("vel %.1f %.1f %.1f  %s  facing %.0f deg", player.velocity.x, player.velocity.y, player.velocity.z,
+                         player.grounded ? "grounded" : "air", glm::degrees(std::atan2(player.facing.x, -player.facing.z)));
+                    line("hp %.0f/%.0f  stamina %.0f/%.0f  mass %.0f kg  weapon %.0f", player.health, player.maxHealth,
+                         player.stamina, player.maxStamina, player.mass, player.weaponDamage);
+                    line("bodies %zu (npcs %zu)  logs %zu  drops %zu", sim.bodies().size(), npcs.all().size(),
+                         wood ? wood->allLogs().size() : (size_t)0, wood ? wood->itemDrops().size() : (size_t)0);
+                    glm::vec3 eye = camera.position;
+                    RaycastResult r = gPhysics->raycast(eye, camera.front, 60.0f);
+                    if (r.hit) {
+                        glm::vec3 lp = glm::vec3(r.blockPos) + 0.5f + r.normal;
+                        uint16_t L = streamer ? streamer->lightAt(lp.x, lp.y, lp.z) : 0;
+                        line("aim %d %d %d  %s  light sky %d rgb %d %d %d  canopy %.2f", r.blockPos.x, r.blockPos.y, r.blockPos.z,
+                             gRegistry.get((uint16_t)r.blockID).name.c_str(), light::skyOf(L), light::rOf(L), (L >> 8) & 15, (L >> 4) & 15,
+                             streamer ? streamer->canopyAt(lp.x, lp.y, lp.z) : 0.0f);
                     }
+                    line("layers: %s", gDebug.list().c_str());
                 }
-                combatHits.clear();
-                if (player.dead()) {
-                    playerDeadFor += dt;
-                    if (playerDeadFor > 3.0f) {
-                        glm::vec3 spot;
-                        if (gPhysics->findStandingSpot(player.spawnPoint.x, player.spawnPoint.z,
-                                                       Human::RADIUS, Human::STAND_HEIGHT, spot))
-                            player.position = spot;
-                        player.resetMotion();
-                        player.health = player.maxHealth;
-                        player.stamina = player.maxStamina;
-                        controller.snap(player);
-                        playerDeadFor = 0.0f;
-                    }
-                } else playerDeadFor = 0.0f;
 
                 // 4. Camera to the player's eyes — or behind
                 //    them in third person — blended between
@@ -1430,6 +1510,28 @@ int main() {
                 controller.updateCamera(player, camera,
                     physicsTime / PHYSICS_STEP, dt,
                     gPhysics.get());
+
+                // E: talk to the NPC in front of you (it waits in
+                // its 'unavailable' state until you leave)
+                if (gInput.isPressed(InputAction::Interact)) {
+                    if (talkingTo) { sim.closeMenu(talkingTo); }
+                    else {
+                        Npc* best = nullptr; float bestD = 10.0f;
+                        for (auto& n : npcs.all()) {
+                            glm::vec3 d = n->position + glm::vec3(0, 9, 0) - camera.position;
+                            float dist = glm::length(d);
+                            if (dist > 40.0f || glm::dot(d / std::max(dist, 1e-3f), camera.front) < 0.9f) continue;
+                            float flat = glm::length(glm::vec2(n->position.x - player.position.x, n->position.z - player.position.z));
+                            if (flat < bestD) { bestD = flat; best = n.get(); }
+                        }
+                        if (best) {
+                            if (sim.openMenu(best->uuid, player.uuid)) { talkingTo = best->uuid; say("talking to " + best->name + " (E to leave)"); }
+                            else say(best->name + " won't talk now");
+                        }
+                    }
+                }
+                hud.talkingTo.clear();
+                if (talkingTo) { if (Npc* n = npcs.find(talkingTo)) hud.talkingTo = n->name; else talkingTo = 0; }
 
                 // 5. Hands: what is under the crosshair, and
                 //    break / place / use the held tool
@@ -1474,7 +1576,7 @@ int main() {
                     player, dev, hands.target, structs.get(),
                     [&](GameMode m) { changeMode(m); },
                     [&]() { saveWorld(); },
-                    say, &npcs };
+                    say, &npcs, &sim };
                 commands.run(line, ctx);
             }
             gConsoleLines.clear();

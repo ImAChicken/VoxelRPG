@@ -1,110 +1,106 @@
 #pragma once
 #include "CharacterModel.h"
 #include <glm/glm.hpp>
-#include <array>
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <sstream>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // ══════════════════════════════════════════════════════════
-// HeldItemModel — things drawn in the right hand
+// HeldItemModel — things drawn in the right hand, from files
 // ══════════════════════════════════════════════════════════
-// Built out of voxels the way the hair is (CharacterModel::
-// meshVoxelShape: a role grid, meshed as voxels or shards per
-// the hair mesh setting), in the right wrist's frame, so the
-// renderer draws them with that bone's matrix.
+// Each model is a voxel file in data/models/held/<id>.vxm; an
+// item shows one with held_model = "<id>" (items.toml). A new
+// weapon or tool needs a file, not code.
 //
-// Which model an item shows comes from items.toml
-// (held_model = "axe" / "sword").
+// A model lives in its own frame, in inches:
+//   u (along)   out of the fist toward the business end
+//   v (edge)    the way the cutting edge faces
+//   w (across)  the flat side
+// 'along', 'edge' and 'across' say how that frame sits in the
+// right wrist's frame; the fist holds the model at u = v = w = 0
+// (heldGrip). It is meshed like the hair (CharacterModel::
+// meshVoxelShape: voxels or shards per the hair mesh setting)
+// and drawn with the wrist bone's matrix.
 //
-// The axe's geometry is also used for its hits: bladePoints()
-// gives points along the cutting edge, which the swing traces
-// through the world (game/AxeSwing.h).
-enum class HeldModel : uint8_t { None, Axe, Sword };
+// Named points ('point <name> u v w') mark places on it. Points
+// named edge* are the cutting edge, which a swing traces through
+// the world (game/AxeSwing.h).
+//
+// File format (one statement a line, '#' comments):
+//   vxm 1
+//   voxel <size>                 inches a voxel
+//   origin <u v w>               corner of voxel (0, 0, 0)
+//   along / edge / across <x y z>   the frame, in the wrist's
+//   color <index> <r g b>        palette, 1..255 (0 = empty)
+//   point <name> <u v w>
+//   v <i j k> <color>            a voxel at origin + (i+.5, j+.5, k+.5) · size
 
-inline HeldModel heldModelFromKey(const std::string& k) {
-    return k == "axe" ? HeldModel::Axe : k == "sword" ? HeldModel::Sword : HeldModel::None;
+// Where the fist holds things, in the wrist frame
+inline glm::vec3 heldGrip(const CharacterModel& m) {
+    float s = m.heightIn / 67.4f;
+    return glm::vec3(0.0f, -2.6f * s, 0.6f * s);
 }
 
-// ── The axe ───────────────────────────────────────────────
-// A Valheim-sized one-handed axe: a 24-inch haft held near its
-// end, a wrapped grip, and a forged head with a flared edge.
-// Inches; in the axe's own frame:
-//   u  along the haft, from the fist toward the head
-//   v  from the haft toward the cutting edge
-//   w  across (the head's thickness)
-struct AxeGeometry {
-    static constexpr float HAFT_BACK   = 2.5f;    // haft behind the fist
-    static constexpr float HAFT_LEN    = 21.5f;   // fist to the top of the haft
-    static constexpr float HAFT_R      = 0.75f;
-    static constexpr float GRIP_LEN    = 4.5f;    // leather wrap around the fist
-    static constexpr float HEAD_U      = 18.5f;   // centre of the head along the haft
-    static constexpr float HEAD_BACK   = 1.6f;    // the poll behind the haft
-    static constexpr float BLADE_REACH = 5.5f;    // haft to the cutting edge
-    static constexpr float CHEEK_H     = 2.2f;    // head height at the haft
-    static constexpr float EDGE_H      = 5.6f;    // head height at the edge (flared)
-    static constexpr float HEAD_T      = 1.3f;    // thickness at the haft
-    static constexpr float VOXEL       = 0.5f;    // model voxel size
+struct HeldModelDef {
+    std::string id;
+    float     voxel = 0.5f;
+    glm::vec3 origin{0.0f};
+    glm::vec3 along{0, 0, 1}, edge{0, -1, 0}, across{1, 0, 0};
+    std::vector<glm::vec3> palette = std::vector<glm::vec3>(1, glm::vec3(0));
+    struct Vox { glm::ivec3 p; uint8_t c; };
+    std::vector<Vox> voxels;
+    std::vector<std::pair<std::string, glm::vec3>> points;
 
-    // The axe's frame in the wrist's frame (inches): the fist
-    // holds it where the hand is, the haft points forward out
-    // of the fist (tilted down along the forearm), the edge
-    // faces the way the arm swings.
-    static glm::vec3 grip(const CharacterModel& m) {
-        float s = m.heightIn / 67.4f;
-        return glm::vec3(0.0f, -2.6f * s, 0.6f * s);
+    // Model frame (u, v, w) → wrist frame
+    glm::vec3 toWrist(const CharacterModel& m, glm::vec3 uvw) const {
+        return heldGrip(m) + along * uvw.x + edge * uvw.y + across * uvw.z;
     }
-    static glm::vec3 haftDir() { return glm::normalize(glm::vec3(0.0f, -0.5f, 1.0f)); }
-    static glm::vec3 edgeDir() { return glm::normalize(glm::vec3(0.0f, -1.0f, -0.5f)); }
-    static glm::vec3 acrossDir() { return glm::vec3(1.0f, 0.0f, 0.0f); }
-
-    // Axe frame (u, v, w) → wrist frame
-    static glm::vec3 toWrist(const CharacterModel& m, glm::vec3 uvw) {
-        return grip(m) + haftDir() * uvw.x + edgeDir() * uvw.y + acrossDir() * uvw.z;
+    bool hasPoint(const std::string& n) const {
+        for (auto& p : points) if (p.first == n) return true;
+        return false;
     }
-
-    // Points along the cutting edge (wrist frame, inches):
-    // the edge's two horns and its middle
-    static std::array<glm::vec3, 3> bladePoints(const CharacterModel& m) {
-        return {
-            toWrist(m, { HEAD_U - EDGE_H * 0.4f, BLADE_REACH - 0.3f, 0.0f }),
-            toWrist(m, { HEAD_U,                 BLADE_REACH,        0.0f }),
-            toWrist(m, { HEAD_U + EDGE_H * 0.4f, BLADE_REACH - 0.3f, 0.0f }),
-        };
+    glm::vec3 point(const CharacterModel& m, const std::string& n) const {
+        for (auto& p : points) if (p.first == n) return toWrist(m, p.second);
+        return heldGrip(m);
+    }
+    // The cutting edge: every point named edge*, in name order
+    std::vector<glm::vec3> edgePoints(const CharacterModel& m) const {
+        std::vector<std::pair<std::string, glm::vec3>> e;
+        for (auto& p : points) if (p.first.rfind("edge", 0) == 0) e.push_back(p);
+        std::sort(e.begin(), e.end(), [](auto& a, auto& b) { return a.first < b.first; });
+        std::vector<glm::vec3> out;
+        for (auto& p : e) out.push_back(toWrist(m, p.second));
+        return out;
+    }
+    float reach() const {   // farthest voxel from the fist along u (inches)
+        float r = 0.0f;
+        for (auto& v : voxels) r = std::max(r, origin.x + (v.p.x + 1) * voxel);
+        return r;
     }
 
-    // What fills each point of the axe (0 empty, 1 haft wood,
-    // 2 leather grip, 3 iron head, 4 bright edge)
-    static int role(glm::vec3 p) {
-        float u = p.x, v = p.y, w = p.z;
-        // head: a wedge from the poll to the flared edge
-        if (v >= -HEAD_BACK && v <= BLADE_REACH) {
-            float t = std::clamp((v - 0.0f) / BLADE_REACH, 0.0f, 1.0f);
-            float half = 0.5f * (CHEEK_H + (EDGE_H - CHEEK_H) * t * t);    // flares toward the edge
-            float thick = 0.5f * HEAD_T * (1.0f - 0.75f * t);              // thins toward the edge
-            if (v < 0.0f) { half = 0.5f * CHEEK_H * 0.85f; thick = 0.5f * HEAD_T; }
-            // a curved edge: the horns sweep back a little
-            float horn = (v > BLADE_REACH - 1.2f) ? std::fabs(u - HEAD_U) * 0.25f : 0.0f;
-            if (std::fabs(u - HEAD_U) <= half && std::fabs(w) <= std::max(thick, 0.3f) &&
-                v <= BLADE_REACH - horn)
-                return v > BLADE_REACH - 1.0f - horn ? 4 : 3;
-        }
-        // haft
-        if (u >= -HAFT_BACK && u <= HAFT_LEN && v * v + w * w <= HAFT_R * HAFT_R)
-            return (u >= -GRIP_LEN * 0.5f && u <= GRIP_LEN * 0.5f) ? 2 : 1;
-        return 0;
-    }
-
-    static std::vector<PartVertex> mesh(const CharacterModel& m, HairMesh mode) {
-        const glm::vec3 colours[5] = {
-            glm::vec3(0), glm::vec3(138, 92, 56), glm::vec3(78, 54, 40),
-            glm::vec3(118, 122, 130), glm::vec3(214, 220, 226),
-        };
+    std::vector<PartVertex> mesh(const CharacterModel& m, HairMesh mode) const {
         std::vector<PartVertex> out;
-        glm::vec3 lo(-HAFT_BACK - 0.5f, -HEAD_BACK - 0.5f, -HEAD_T), hi(HAFT_LEN + 0.5f, BLADE_REACH + 0.5f, HEAD_T);
-        CharacterModel::meshVoxelShape(lo, hi, VOXEL, role, colours, mode, out);
-        // axe frame → wrist frame; normals turn with it
-        const glm::mat3 B(haftDir(), edgeDir(), acrossDir());
+        if (voxels.empty()) return out;
+        glm::ivec3 hi(0);
+        std::unordered_map<int64_t, uint8_t> at;
+        auto key = [](glm::ivec3 p) { return ((int64_t)p.x * 4096 + p.y) * 4096 + p.z; };
+        for (auto& v : voxels) { at[key(v.p)] = v.c; hi = glm::max(hi, v.p); }
+        auto role = [&](glm::vec3 p) -> int {
+            glm::ivec3 i = glm::ivec3(glm::floor((p - origin) / voxel));
+            auto it = at.find(key(i));
+            return it == at.end() ? 0 : it->second;
+        };
+        CharacterModel::meshVoxelShape(origin, origin + glm::vec3(hi + 1) * voxel, voxel, role, palette.data(), mode, out);
+        const glm::mat3 B(along, edge, across);
         for (PartVertex& pv : out) {
             glm::vec3 p = toWrist(m, { pv.x, pv.y, pv.z });
             glm::vec3 n = B * glm::vec3(pv.nx, pv.ny, pv.nz);
@@ -116,98 +112,71 @@ struct AxeGeometry {
         }
         return out;
     }
-};
 
-// ── The sword ─────────────────────────────────────────────
-// A one-handed arming sword: a 30-inch blade with a fuller and
-// a point, a straight crossguard, a wrapped grip for one fist
-// and a round pommel. Same frame as the axe:
-//   u  along the blade, from the fist toward the point
-//   v  across the blade, edge to edge (the crossguard's way)
-//   w  the blade's flat (its thickness)
-struct SwordGeometry {
-    static constexpr float GRIP_LEN  = 5.0f;    // centred on the fist
-    static constexpr float POMMEL_U  = -3.4f;
-    static constexpr float POMMEL_R  = 1.0f;
-    static constexpr float GUARD_U   = 3.1f;    // the crossguard, just in front of the fist
-    static constexpr float GUARD_HALF= 3.6f;
-    static constexpr float BLADE_U0  = 3.6f;
-    static constexpr float BLADE_LEN = 30.0f;
-    static constexpr float BLADE_HALF= 0.85f;   // half its width at the guard
-    static constexpr float BLADE_T   = 0.25f;   // half its thickness
-    static constexpr float POINT_LEN = 4.0f;    // the taper to the point
-    static constexpr float VOXEL     = 0.5f;
-
-    static glm::vec3 grip(const CharacterModel& m) { return AxeGeometry::grip(m); }
-    // The blade points ahead out of the fist, its edges up and down
-    static glm::vec3 bladeDir() { return glm::normalize(glm::vec3(0.0f, -0.45f, 1.0f)); }
-    static glm::vec3 edgeDir()  { return glm::normalize(glm::cross(acrossDir(), bladeDir())) * -1.0f; }
-    static glm::vec3 acrossDir() { return glm::vec3(1.0f, 0.0f, 0.0f); }
-
-    static glm::vec3 toWrist(const CharacterModel& m, glm::vec3 uvw) {
-        return grip(m) + bladeDir() * uvw.x + edgeDir() * uvw.y + acrossDir() * uvw.z;
-    }
-    // Points along the blade (wrist frame): base, middle, point
-    static std::array<glm::vec3, 3> bladePoints(const CharacterModel& m) {
-        return { toWrist(m, { BLADE_U0 + 2.0f, 0, 0 }),
-                 toWrist(m, { BLADE_U0 + BLADE_LEN * 0.55f, 0, 0 }),
-                 toWrist(m, { BLADE_U0 + BLADE_LEN, 0, 0 }) };
-    }
-
-    // 0 empty, 1 grip, 2 guard and pommel, 3 blade, 4 fuller (darker), 5 edge
-    static int role(glm::vec3 p) {
-        float u = p.x, v = p.y, w = p.z;
-        float av = std::fabs(v), aw = std::fabs(w);
-        // blade
-        if (u >= BLADE_U0 && u <= BLADE_U0 + BLADE_LEN) {
-            float t = (u - BLADE_U0) / BLADE_LEN;
-            float half = BLADE_HALF * (1.0f - 0.25f * t);                 // narrows a little
-            float tipStart = BLADE_U0 + BLADE_LEN - POINT_LEN;
-            if (u > tipStart) half *= 1.0f - (u - tipStart) / POINT_LEN;
-            if (av <= std::max(half, 0.2f) && aw <= BLADE_T + 0.05f) {
-                if (av > half - 0.3f) return 5;
-                if (av < 0.3f && u < BLADE_U0 + BLADE_LEN * 0.7f) return 4;
-                return 3;
-            }
-            return 0;
+    // ── Reading a file ────────────────────────────────────
+    static std::unique_ptr<HeldModelDef> load(const std::string& path, std::string id) {
+        std::ifstream f(path);
+        if (!f) return nullptr;
+        auto d = std::make_unique<HeldModelDef>();
+        d->id = std::move(id);
+        std::string line;
+        int n = 0;
+        while (std::getline(f, line)) {
+            n++;
+            if (auto h = line.find('#'); h != std::string::npos) line.resize(h);
+            std::istringstream s(line);
+            std::string k;
+            if (!(s >> k)) continue;
+            auto v3 = [&](glm::vec3& o) { s >> o.x >> o.y >> o.z; };
+            if (k == "vxm") { int ver; s >> ver; }
+            else if (k == "voxel") s >> d->voxel;
+            else if (k == "origin") v3(d->origin);
+            else if (k == "along") v3(d->along);
+            else if (k == "edge") v3(d->edge);
+            else if (k == "across") v3(d->across);
+            else if (k == "color") {
+                int i; glm::vec3 c; s >> i; v3(c);
+                if (i >= 1 && i < 256) { if ((int)d->palette.size() <= i) d->palette.resize(i + 1, glm::vec3(200)); d->palette[i] = c; }
+            } else if (k == "point") {
+                std::string name; glm::vec3 p; s >> name; v3(p);
+                d->points.push_back({ name, p });
+            } else if (k == "v") {
+                glm::ivec3 p; int c; s >> p.x >> p.y >> p.z >> c;
+                if (c > 0 && c < 256) d->voxels.push_back({ p, (uint8_t)c });
+            } else std::cerr << path << ":" << n << ": unknown '" << k << "'\n";
         }
-        // crossguard
-        if (std::fabs(u - GUARD_U) <= 0.5f && av <= GUARD_HALF && aw <= 0.55f) return 2;
-        // grip
-        if (u >= -GRIP_LEN * 0.5f - 0.3f && u <= GUARD_U && av * av + aw * aw <= 0.6f * 0.6f) return 1;
-        // pommel
-        glm::vec3 d(u - POMMEL_U, v, w);
-        if (glm::dot(d, d) <= POMMEL_R * POMMEL_R) return 2;
-        return 0;
-    }
-
-    static std::vector<PartVertex> mesh(const CharacterModel& m, HairMesh mode) {
-        const glm::vec3 colours[6] = {
-            glm::vec3(0), glm::vec3(70, 48, 36), glm::vec3(150, 128, 82),
-            glm::vec3(176, 182, 192), glm::vec3(128, 134, 146), glm::vec3(226, 232, 238),
-        };
-        std::vector<PartVertex> out;
-        glm::vec3 lo(POMMEL_U - POMMEL_R - 0.5f, -GUARD_HALF - 0.5f, -POMMEL_R - 0.5f);
-        glm::vec3 hi(BLADE_U0 + BLADE_LEN + 0.5f, GUARD_HALF + 0.5f, POMMEL_R + 0.5f);
-        CharacterModel::meshVoxelShape(lo, hi, VOXEL, role, colours, mode, out);
-        const glm::mat3 B(bladeDir(), edgeDir(), acrossDir());
-        for (PartVertex& pv : out) {
-            glm::vec3 p = toWrist(m, { pv.x, pv.y, pv.z });
-            glm::vec3 n = B * glm::vec3(pv.nx, pv.ny, pv.nz);
-            pv.x = p.x; pv.y = p.y; pv.z = p.z;
-            pv.nx = (int8_t)std::lround(std::clamp(n.x, -127.0f, 127.0f));
-            pv.ny = (int8_t)std::lround(std::clamp(n.y, -127.0f, 127.0f));
-            pv.nz = (int8_t)std::lround(std::clamp(n.z, -127.0f, 127.0f));
-            pv.a = 3;
-        }
-        return out;
+        d->along = glm::normalize(d->along);
+        d->edge = glm::normalize(d->edge);
+        d->across = glm::normalize(d->across);
+        for (auto& v : d->voxels) if (v.c >= d->palette.size()) d->palette.resize(v.c + 1, glm::vec3(200));
+        return d;
     }
 };
 
-inline std::vector<PartVertex> heldItemMesh(HeldModel which, const CharacterModel& m, HairMesh mode) {
-    switch (which) {
-    case HeldModel::Axe:   return AxeGeometry::mesh(m, mode);
-    case HeldModel::Sword: return SwordGeometry::mesh(m, mode);
-    default:             return {};
+// Every held model, by id (the file name)
+class HeldModelRegistry {
+public:
+    void loadDir(const std::string& dir) {
+        std::unordered_map<std::string, std::unique_ptr<HeldModelDef>> fresh;
+        std::error_code ec;
+        for (auto& e : std::filesystem::directory_iterator(dir, ec)) {
+            if (e.path().extension() != ".vxm") continue;
+            std::string id = e.path().stem().string();
+            if (auto d = HeldModelDef::load(e.path().string(), id)) fresh[id] = std::move(d);
+        }
+        for (auto& [k, v] : models) retired.push_back(std::move(v));
+        models = std::move(fresh);
+        std::cout << "Held models: " << models.size() << " from " << dir << "\n";
     }
-}
+    const HeldModelDef* find(const std::string& id) const {
+        auto it = models.find(id);
+        return it == models.end() ? nullptr : it->second.get();
+    }
+    uint32_t generation() const { return gen; }
+    void bump() { gen++; }
+private:
+    std::unordered_map<std::string, std::unique_ptr<HeldModelDef>> models;
+    std::vector<std::unique_ptr<HeldModelDef>> retired;
+    uint32_t gen = 0;
+};
+inline HeldModelRegistry gHeldModels;

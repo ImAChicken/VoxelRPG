@@ -108,8 +108,10 @@ name = "iron_axe"
 weight = 2.5              # kg
 categories = ["tool"]
 tool = "axe"
-tool_power = 6.0          # damage of a full-speed chop (an oak has 40)
-held_model = "axe"        # drawn in the hand, built from voxels (character/HeldItemModel.h)
+tool_power = 6.0          # damage of a full-speed chop (an oak has 40); also what it does to a body
+poise_damage = 20         # poise damage of a full-speed chop on a body
+damage_type = "slash"
+held_model = "axe"        # drawn in the hand: data/models/held/axe.vxm
 color = [0.75, 0.70, 0.65]
 
 # ── Weapons ───────────────────────────────────────────────
@@ -118,6 +120,10 @@ color = [0.75, 0.70, 0.65]
 # in the toolbar (any mode with a body, e.g. Test Play). Either
 # way the camera goes to third person and the mouse fights
 # instead of building (game/Combat.h):
+# Fields: moveset (movesets.toml: timing, reach, poise damage…),
+# damage (a light hit), damage_type (slash / pierce / blunt),
+# weight (heavier than the moveset's ref_weight: slower, dearer,
+# harder on poise), held_model (data/models/held/<name>.vxm).
 #   left click     light attack (press again in time: the combo)
 #   right click    heavy attack (slow, knocks down)
 #   in the air     light: lurch forward / heavy: plunge and slam
@@ -132,8 +138,10 @@ name = "iron_sword"
 weight = 1.5              # kg
 categories = ["weapon"]
 weapon_class = "sword"
-damage = 12.0
-held_model = "sword"      # drawn in the hand, built from voxels (character/HeldItemModel.h)
+moveset = "sword"         # how it fights (movesets.toml)
+damage = 12.0             # a light hit; the moveset's attacks multiply it
+damage_type = "slash"
+held_model = "sword"      # drawn in the hand: data/models/held/sword.vxm
 color = [0.85, 0.85, 0.90]
 
 [[item]]

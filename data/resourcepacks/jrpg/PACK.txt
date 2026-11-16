@@ -1,0 +1,18 @@
+jrpg
+The main pack: an anime JRPG face set on the Dark Medieval world
+textures and UI (copied from darktest, so this pack stands alone).
+
+Faces replace the whole face card, not just the eyes, with the
+same sheet sizes and FaceComposer order as the default pack.
+Iris and brows are grey maps: the game tints the iris by eye
+colour and the brows by hair colour. Smug (mouth column 4, both
+rows) has one small fang on the raised corner.
+
+Active when data/resourcepacks/active_pack.txt says: jrpg
+
+Sheets, 80 px cells:
+characters/face_eyes.png    8 cols x 19 styles. col = state*2+side. state 0 open, 1 shut, 2 blink, 3 wink. side 0 picture-left, 1 picture-right.
+characters/face_iris.png    same grid. grey, tinted by eye colour. shine is a transparent hole.
+characters/face_brows.png   3 cols x 19 styles. col 0 rest, 1 angry, 2 sad. grey, tinted by hair.
+characters/face_mouths.png  5 cols x 2 rows. cols: line, grin, small, round, smug. row 0 classic (eye styles 0-3), row 1 modern (eye styles 4-18).
+characters/face_extras.png  3 cols. col 0 nose, col 1 diagonal blush, col 2 soft blush plus nose. modern styles draw col 1 then col 0. classic draws col 2.
