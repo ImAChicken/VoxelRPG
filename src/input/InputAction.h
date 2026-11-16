@@ -43,6 +43,7 @@ enum class InputAction {
     ToolbarSlot9,
     ToolbarSlot10,
     SwapWeapon,     // Weapon 1 <-> Weapon 2
+    LockOn,         // hold the camera on an enemy (game/LockOn.h)
 
     // ── Camera ───────────────────────────────────────────
     CameraToggle,   // first/third person toggle F5

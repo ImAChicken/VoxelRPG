@@ -107,7 +107,7 @@ endif()
 # ── Tests ─────────────────────────────────────────────────
 # Headless test programs (no window, no OpenGL). Off by default:
 #   cmake -B build -DVOXELRPG_TESTS=ON
-#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test
+#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test
 #   build/bin/Release/ragdoll_test      (build/bin/ragdoll_test elsewhere)
 #   build/bin/Release/woodcut_test      (from the repo root: it reads data/)
 #   build/bin/Release/combat_test
@@ -116,6 +116,11 @@ endif()
 #   build/bin/Release/anim_test         (from the repo root)
 #   build/bin/Release/inventory_test    (from the repo root)
 #   build/bin/Release/hit_test          (from the repo root)
+#   build/bin/Release/flat_test         (from the repo root)
+#   build/bin/Release/spawner_test      (from the repo root)
+#   build/bin/Release/chest_test        (from the repo root)
+#   build/bin/Release/icon_test         (from the repo root)
+#   build/bin/Release/build_test        (from the repo root)
 option(VOXELRPG_TESTS "Build the headless test programs in tests/" OFF)
 if(VOXELRPG_TESTS)
     add_executable(ragdoll_test tests/ragdoll_test.cpp)
@@ -127,10 +132,16 @@ if(VOXELRPG_TESTS)
     add_executable(anim_test tests/anim_test.cpp)
     add_executable(inventory_test tests/inventory_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
     add_executable(hit_test tests/hit_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
-    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test)
+    add_executable(flat_test tests/flat_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
+    add_executable(spawner_test tests/spawner_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
+    add_executable(chest_test tests/chest_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
+    add_executable(icon_test tests/icon_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
+    add_executable(build_test tests/build_test.cpp src/voxel/VoxelRegistry.cpp src/game/ItemRegistry.cpp)
+    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test)
         target_include_directories(${t} PRIVATE src)
-        # the animator plays clips (character/AnimClips.cpp, ozz)
-        target_sources(${t} PRIVATE src/character/AnimClips.cpp)
+        # the animator plays clips (character/AnimClips.cpp, ozz);
+        # the simulation's spawners read the structure registry
+        target_sources(${t} PRIVATE src/character/AnimClips.cpp src/game/StructureRegistry.cpp)
         target_link_libraries(${t} PRIVATE glm::glm tomlplusplus::tomlplusplus ozz_animation ozz_base)
         if(MSVC)
             target_compile_options(${t} PRIVATE /utf-8)

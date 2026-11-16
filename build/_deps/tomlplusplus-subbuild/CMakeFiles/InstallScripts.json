@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"C:/Dev/VoxelRPG/build/_deps/tomlplusplus-subbuild/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

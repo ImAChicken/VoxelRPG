@@ -1,6 +1,7 @@
 #pragma once
 #include "CharacterModel.h"
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
 #include <climits>
@@ -70,6 +71,24 @@ struct HeldModelDef {
     // much they are grown by for hits
     std::vector<std::pair<glm::vec3, glm::vec3>> hitBoxes;
     float hitMargin = 0.75f;
+    // 'thrust <x y z>': where it points (wrist frame) at the height
+    // of a thrust (movesets.toml grip = "thrust"), e.g. along the
+    // forearm for a spear; carried, it points 'along'. 0: no turn
+    glm::vec3 thrust{0.0f};
+
+    // The item's turn about the fist, w = 0 (as carried) .. 1
+    // (pointing 'thrust'). Drawing and hits both apply it after
+    // the wrist: wrist × turn.
+    glm::mat4 turn(const CharacterModel& m, float w) const {
+        if (w <= 1e-3f || glm::length(thrust) < 1e-4f) return glm::mat4(1.0f);
+        glm::vec3 a = glm::normalize(along), b = glm::normalize(thrust);
+        glm::vec3 ax = glm::cross(a, b);
+        float s = glm::length(ax), c = glm::dot(a, b);
+        if (s < 1e-5f) return glm::mat4(1.0f);
+        float ang = std::atan2(s, c) * std::min(w, 1.0f);
+        glm::vec3 g = heldGrip(m);
+        return glm::translate(glm::mat4(1.0f), g) * glm::rotate(glm::mat4(1.0f), ang, ax / s) * glm::translate(glm::mat4(1.0f), -g);
+    }
 
     // Merge the voxels into boxes: from each voxel not yet used,
     // grow a box along u as far as the voxels go, then along v
@@ -137,6 +156,24 @@ struct HeldModelDef {
         return r;
     }
 
+    // Meshed in its own frame (u along, v edge, w across, inches):
+    // for item icons (render/IconRaster.h)
+    std::vector<PartVertex> meshLocal(HairMesh mode) const {
+        std::vector<PartVertex> out;
+        if (voxels.empty()) return out;
+        glm::ivec3 hi(0);
+        std::unordered_map<int64_t, uint8_t> at;
+        auto key = [](glm::ivec3 p) { return ((int64_t)p.x * 4096 + p.y) * 4096 + p.z; };
+        for (auto& v : voxels) { at[key(v.p)] = v.c; hi = glm::max(hi, v.p); }
+        auto role = [&](glm::vec3 p) -> int {
+            glm::ivec3 i = glm::ivec3(glm::floor((p - origin) / voxel));
+            auto it = at.find(key(i));
+            return it == at.end() ? 0 : it->second;
+        };
+        CharacterModel::meshVoxelShape(origin, origin + glm::vec3(hi + 1) * voxel, voxel, role, palette.data(), mode, out);
+        return out;
+    }
+
     std::vector<PartVertex> mesh(const CharacterModel& m, HairMesh mode) const {
         std::vector<PartVertex> out;
         if (voxels.empty()) return out;
@@ -181,6 +218,7 @@ struct HeldModelDef {
             if (k == "vxm") { int ver; s >> ver; }
             else if (k == "voxel") s >> d->voxel;
             else if (k == "hit_margin") s >> d->hitMargin;
+            else if (k == "thrust") v3(d->thrust);
             else if (k == "origin") v3(d->origin);
             else if (k == "along") v3(d->along);
             else if (k == "edge") v3(d->edge);

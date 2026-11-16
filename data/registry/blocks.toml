@@ -1134,3 +1134,34 @@ opacity = "full"
 flags = ["solid", "destructible"]
 on_destroy = 0
 color = [0.62, 0.60, 0.54]
+
+# ── Chest parts (structures.toml: chest) ──────────────────
+[[block]]
+id = 105
+name = "chest_wood"
+material = "wood"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.48, 0.29, 0.15]
+
+[[block]]
+id = 106
+name = "chest_iron"
+material = "metal"
+hardness = 6
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.23, 0.23, 0.26]
+
+[[block]]
+id = 107
+name = "chest_lock"
+material = "metal"
+hardness = 6
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.79, 0.63, 0.23]

@@ -165,6 +165,84 @@ public:
         return 0;
     }
 
+    // ── Foundations line up ───────────────────────────────
+    // A foundation may go anywhere on its own, but one within
+    // FOUNDATION_NEAR (4 ft) of another must sit on that one's
+    // grid: side by side or stacked, edges flush, its own size
+    // apart. The hammer snaps to the grid of the nearest
+    // foundation within FOUNDATION_SNAP (8 ft), so following the
+    // crosshair lines them up by itself.
+    static constexpr int FOUNDATION_NEAR = 12;
+    static constexpr int FOUNDATION_SNAP = 24;
+
+    // Empty voxels between two boxes along their farthest-apart
+    // axis (-1 or less: they overlap on every axis)
+    static int gapBetween(glm::ivec3 alo, glm::ivec3 ahi, glm::ivec3 blo, glm::ivec3 bhi) {
+        int g = -1 << 30;
+        for (int a = 0; a < 3; a++) g = std::max(g, std::max(blo[a] - ahi[a], alo[a] - bhi[a]) - 1);
+        return g;
+    }
+    // The foundations within 'range' of the box [lo, hi]
+    std::vector<const StructureInstance*> foundationsNear(glm::ivec3 lo, glm::ivec3 hi, int range) const {
+        std::vector<const StructureInstance*> out;
+        for (const auto& [id, s] : instances) {
+            const StructureType* t = typeOf(s);
+            if (!t || !t->foundation) continue;
+            glm::ivec3 flo, fhi;
+            bounds(s, flo, fhi);
+            if (gapBetween(lo, hi, flo, fhi) < range) out.push_back(&s);
+        }
+        return out;
+    }
+    // "" if a foundation of shape v at corner o lines up with every
+    // foundation near it
+    std::string foundationFit(const VoxelVolume& v, glm::ivec3 o) const {
+        for (const StructureInstance* f : foundationsNear(o, o + v.size - 1, FOUNDATION_NEAR)) {
+            glm::ivec3 flo, fhi;
+            bounds(*f, flo, fhi);
+            glm::ivec3 step = fhi - flo + 1, d = o - flo;
+            if (d.x % step.x || d.z % step.z || d.y % step.y)
+                return "must line up with the foundation next to it";
+        }
+        return "";
+    }
+    // Where a foundation should go for a crosshair spot (the
+    // origin it would be placed at): onto the grid of the nearest
+    // foundation within FOUNDATION_SNAP. Aiming at a foundation's
+    // face picks the slot on that side (the top: stacked).
+    // Returns false (spot unchanged) with none in range.
+    bool alignFoundation(uint16_t type, int rot, glm::ivec3 aimed, glm::ivec3 normal, glm::ivec3& spot) const {
+        const StructureType* t = gStructures.get(type);
+        if (!t || !t->foundation) return false;
+        const VoxelVolume& v = t->shape(0, rot);
+        if (const StructureInstance* hit = instanceAt(aimed); hit && typeOf(*hit) && typeOf(*hit)->foundation) {
+            glm::ivec3 flo, fhi;
+            bounds(*hit, flo, fhi);
+            glm::ivec3 step = fhi - flo + 1;
+            spot = flo + normal * step + v.anchor;
+            return true;
+        }
+        glm::ivec3 o = spot - v.anchor;
+        glm::vec3 c = glm::vec3(o) + glm::vec3(v.size) * 0.5f;
+        const StructureInstance* best = nullptr; float bestD = 1e9f;
+        for (const StructureInstance* f : foundationsNear(o, o + v.size - 1, FOUNDATION_SNAP)) {
+            glm::ivec3 flo, fhi;
+            bounds(*f, flo, fhi);
+            glm::vec3 fc = glm::vec3(flo + fhi + 1) * 0.5f;
+            float d = glm::length(glm::vec2(c.x - fc.x, c.z - fc.z));
+            if (d < bestD) { bestD = d; best = f; }
+        }
+        if (!best) return false;
+        glm::ivec3 flo, fhi;
+        bounds(*best, flo, fhi);
+        glm::ivec3 step = fhi - flo + 1;
+        glm::vec3 fc = glm::vec3(flo) + glm::vec3(step) * 0.5f;
+        glm::ivec3 k((int)std::lround((c.x - fc.x) / step.x), (int)std::lround((float)(o.y - flo.y) / step.y),
+                     (int)std::lround((c.z - fc.z) / step.z));
+        spot = flo + k * step + v.anchor;
+        return true;
+    }
+
     // ── Placing ───────────────────────────────────────────
     // Why a placement would fail, or "" if it is fine.
     //   strictSupport — Survival: pieces that need support
@@ -178,7 +256,8 @@ public:
         if (o.y < 0 || o.y + v.size.y > WORLD_HEIGHT) return "out of the world's height";
 
         // Trees grow into air only; everything else needs
-        // every one of its voxels to be free
+        // every one of its voxels to be free (plants and leaves
+        // are cleared out of the way)
         if (t->kind != StructureKind::Tree) {
             for (int y = 0; y < v.size.y; y++)
             for (int z = 0; z < v.size.z; z++)
@@ -187,10 +266,16 @@ public:
                 glm::ivec3 p = o + glm::ivec3(x, y, z);
                 uint16_t here = world.typeAtVoxel(p.x, p.y, p.z);
                 if (here == BLOCK_AIR || here == BLOCK_LEAVES) continue;
+                if (gRegistry.get(here).sprite) continue;     // grass and flowers make way
                 // Foundations sink into the ground
                 if (t->foundation && foundationCanReplace(p, here)) continue;
                 return "blocked";
             }
+        }
+        // A foundation near another must line up with it
+        if (t->foundation) {
+            std::string why = foundationFit(v, o);
+            if (!why.empty()) return why;
         }
         uint32_t sup = 0;
         if (!t->foundation && t->kind != StructureKind::Tree)
@@ -210,7 +295,9 @@ public:
         s.type = type; s.origin = origin; s.rot = rot & 3;
         s.health = t->health; s.support = support;
         editor.submit(writeShape(s, 0, src, t->displayName));
-        return &add(s);
+        StructureInstance* made = &add(s);
+        if (onPlaced) onPlaced(*made, src);
+        return made;
     }
 
     // ── Removing ──────────────────────────────────────────
@@ -307,6 +394,18 @@ public:
         unindex(s);
         instances.erase(id);
     }
+
+    // Called for every instance that goes (removed, broken,
+    // collapsed), after its voxels are cleared: main.cpp spills
+    // a chest's contents here
+    std::function<void(const StructureInstance&)> onRemoved;
+    // Called for every instance placed, with who placed it:
+    // main.cpp makes a chest built by a player start empty
+    std::function<void(const StructureInstance&, EditSource)> onPlaced;
+
+    // Every placed instance (spawners: main.cpp keeps the
+    // simulation's list in step with these)
+    template <class F> void forEachInstance(F f) const { for (const auto& [id, s] : instances) f(s); }
 
     // ── Save / load ───────────────────────────────────────
     bool save(const std::string& worldFolder) const {
@@ -497,6 +596,7 @@ private:
         unindex(s);
         instances.erase(it);
         gone.push_back(s);
+        if (onRemoved) onRemoved(s);
 
         // Anything it was holding up: find other support, or fall
         std::vector<uint32_t> resting;

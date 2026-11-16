@@ -7,6 +7,7 @@
 #include "TestWorld.h"
 #include "character/AnimClips.h"
 #include "render/OutlineFx.h"
+#include "game/LockOn.h"
 #include <cstdio>
 
 using namespace testworld;
@@ -14,13 +15,13 @@ using namespace testworld;
 // One swing at a dummy standing at 'offset' from the player (who
 // faces -Z). Returns whether the swing hit, and where.
 struct Swing { bool hit = false; int bone = -1; glm::vec3 point{0}; glm::vec3 dummyAt{0}; };
-static Swing swingAt(glm::vec3 offset, bool heavy = false, bool wallBetween = false) {
+static Swing swingAt(glm::vec3 offset, bool heavy = false, bool wallBetween = false, const char* weapon = "iron_sword") {
     World w;
     glm::vec3 at(64.5f, (float)GROUND, 64.5f);
     if (wallBetween) w.wall(60, 69, 62, 62, 20);
     Player& p = w.player(at);
     p.facing = glm::vec3(0, 0, -1);
-    p.inventory.setSlot(Inventory::FIRST_MAIN, gItems.find("iron_sword"), 1);
+    p.inventory.setSlot(Inventory::FIRST_MAIN, gItems.find(weapon), 1);
     p.inventory.select(Inventory::FIRST_MAIN);
     Npc& d = *w.sim.npcs().spawn("dummy", at + offset, glm::vec3(0, 0, 1));
     w.run(0.4f);
@@ -79,7 +80,7 @@ int main() {
             const AttackDef* a = gMovesets.attack(id);
             if (!a) continue;
             uint16_t item = 0;
-            for (const char* w : { "iron_sword", "iron_axe" }) {
+            for (const char* w : { "iron_sword", "iron_axe", "wooden_club", "spear", "quarterstaff" }) {
                 uint16_t i = gItems.find(w);
                 if (i && gMovesets.find(gItems.get(i).moveset) && id.rfind(gItems.get(i).moveset + "_", 0) == 0) item = i;
             }
@@ -99,7 +100,7 @@ int main() {
                 std::array<glm::mat4, BONE_COUNT> M;
                 worldBoneMatrices(model, p, glm::vec3(0.0f), M);
                 std::vector<hitshape::OBB> wb;
-                hitshape::weaponBoxes(*hm, model, M[B_WRIST_R], wb);
+                hitshape::weaponBoxes(*hm, model, M[B_WRIST_R] * hm->turn(model, p.heldTurn), wb);
                 glm::vec3 tip(0.0f); float far = -1.0f;
                 for (auto& o : wb) {
                     glm::vec3 c[8]; hitshape::corners(o, c);
@@ -160,6 +161,56 @@ int main() {
                     gMovesets.attack("sword_light1") ? gMovesets.attack("sword_light1")->reach : 0.0f);
         check(far >= 6.0f && gap, "the reach ends where the blade ends");
         check(swingAt({ 0, 0, -(far + 1.5f) }).hit == false, "a step past it is a miss");
+    }
+
+    std::printf("club, spear and quarterstaff\n");
+    {
+        auto reachOf = [](const char* weapon, bool heavy) {
+            float far = 0.0f;
+            for (float z = 3.0f; z <= 34.0f; z += 1.0f) if (swingAt({ 0, 0, -z }, heavy, false, weapon).hit) far = z;
+            return far;
+        };
+        for (const char* wpn : { "wooden_club", "spear", "quarterstaff" }) {
+            const ItemDef& d = gItems.get(gItems.find(wpn));
+            check(d.canFight() && gMovesets.find(d.moveset) != nullptr, std::string(wpn) + ": fights with the " + d.moveset + " moveset");
+            check(swingAt({ 0, 0, -6 }, false, false, wpn).hit, std::string(wpn) + ": a light attack hits 6 ahead");
+            check(swingAt({ 0, 0, -6 }, true, false, wpn).hit, std::string(wpn) + ": a heavy attack hits 6 ahead");
+        }
+        float sword = reachOf("iron_sword", false), spear = reachOf("spear", false), staff = reachOf("quarterstaff", false), club = reachOf("wooden_club", false);
+        std::printf("  ..  light reach: sword %.0f, club %.0f, staff %.0f, spear %.0f voxels\n", sword, club, staff, spear);
+        check(spear >= sword + 5.0f, "the spear's thrust reaches well past the sword (it turns to point along the thrust)");
+        check(staff > sword, "the quarterstaff reaches past the sword");
+        check(!swingAt({ 9, 0, -4 }, false, false, "spear").hit, "a thrust is narrow: a dummy off to the side is missed");
+        check(swingAt({ 0, 0, -5 }, true, false, "wooden_club").hit && swingAt({ 0, 0, -10 }, true, false, "wooden_club").hit,
+              "the club's overhead lands from 5 to 10 ahead");
+        const AttackDef* th = gMovesets.attack("spear_thrust");
+        check(th && th->thrust && gAnimMap.attackClip("spear_thrust") >= 0, "spear thrusts turn the spear and play Punch_Cross");
+    }
+
+    std::printf("lock-on (game/LockOn.h)\n");
+    {
+        World w;
+        glm::vec3 eye(64.5f, (float)GROUND + 15.0f, 64.5f), front(0, 0, -1);   // looking along -Z
+        auto& npcs = w.sim.npcs();
+        Npc* ahead = npcs.spawn("dummy", { 64.5f, (float)GROUND, 34.5f }, { 0, 0, 1 });
+        Npc* right = npcs.spawn("dummy", { 84.5f, (float)GROUND, 40.5f }, { 0, 0, 1 });   // +X is to the right looking along -Z
+        Npc* left  = npcs.spawn("bandit", { 44.5f, (float)GROUND, 40.5f }, { 0, 0, 1 });
+        npcs.spawn("dummy", { 64.5f, (float)GROUND, 94.5f }, { 0, 0, 1 });               // behind
+        npcs.spawn("dummy", { 64.5f, (float)GROUND, -60.0f }, { 0, 0, 1 });              // too far
+        Npc* t = LockOn::pick(npcs.all(), eye, front, nullptr);
+        check(t == ahead, "TAB picks the body nearest the middle of the view");
+        Npc* h = LockOn::pick(npcs.all(), eye, front, [&](const Npc& n) { return n.typeId == "bandit"; });
+        check(h == left, "a hostile one is picked before others");
+        Npc* r = LockOn::pick(npcs.all(), eye, front, nullptr, ahead->uuid, +1, ahead->position);
+        Npc* l = LockOn::pick(npcs.all(), eye, front, nullptr, ahead->uuid, -1, ahead->position);
+        check(r == right && l == left, "a flick right / left switches to the next body that way");
+        LockOn lk;
+        int f0 = lk.flicked(40.0f, 0.02f), f1 = lk.flicked(60.0f, 0.02f), f2 = lk.flicked(200.0f, 0.02f);
+        check(f0 == 0 && f1 == 1 && f2 == 0, "a quick sideways flick switches once (then rests)");
+        float yaw = LockOn::yawTo(eye, ahead->position);
+        float y = 170.0f;
+        for (int i = 0; i < 120; i++) y = LockOn::turnToward(y, yaw, 1.0f / 60.0f);
+        check(std::fabs(std::fmod(y - yaw + 540.0f, 360.0f) - 180.0f) < 1.0f, "the camera swings onto the target (the short way round)");
     }
 
     std::printf("outline effects (render/OutlineFx.h)\n");

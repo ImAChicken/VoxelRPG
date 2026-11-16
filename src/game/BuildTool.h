@@ -36,9 +36,12 @@ struct BuildTool {
         out << "build.rot=" << rot << "\n";
     }
     bool read(const std::string& key, const std::string& value) {
-        if (key == "build.type") { selected = gStructures.find(value); return true; }
+        if (key == "build.type") {       // the old 4 ft foundation → the new one
+            selected = gStructures.find(value == "foundation" ? std::string("stone_foundation") : value);
+            return true;
+        }
         if (key == "build.rot")  { rot = std::atoi(value.c_str()) & 3;  return true; }
         return false;
     }
-    void reset() { selected = gStructures.find("foundation"); rot = 0; locked = false; }
+    void reset() { selected = gStructures.find("stone_foundation"); rot = 0; locked = false; }
 };

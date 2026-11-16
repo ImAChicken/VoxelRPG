@@ -19,6 +19,11 @@
 #              and weight in the hand slows that arm's recovery.
 # worn:        head | torso | hands | legs | feet | back
 #              gear worn on that part of the body (console: wear <item>)
+# gear:        how worn gear shows on the body, built to fit it:
+#              { shape, color = "#rrggbb", trim = "#rrggbb" }. Shapes:
+#              head cap / helmet (hide the hair), torso jerkin / mail /
+#              cuirass, hands gauntlets, legs greaves, feet boots,
+#              back pack (character/GearLook.h)
 # accessory:   ring | amulet   goes in the Ring / Amulet equipment slots
 #              (none exist yet)
 # No recompile needed after editing — F6 reloads blocks and items.
@@ -27,6 +32,7 @@
 [[item]]
 id = 1000
 name = "wooden_pickaxe"
+held_model = "wooden_pickaxe"
 weight = 1.5              # kg
 categories = ["tool"]
 tool = "pickaxe"
@@ -37,6 +43,7 @@ color = [0.60, 0.45, 0.25]
 [[item]]
 id = 1001
 name = "stone_pickaxe"
+held_model = "stone_pickaxe"
 weight = 2.5              # kg
 categories = ["tool"]
 tool = "pickaxe"
@@ -47,6 +54,7 @@ color = [0.55, 0.55, 0.55]
 [[item]]
 id = 1002
 name = "iron_pickaxe"
+held_model = "iron_pickaxe"
 weight = 3.0              # kg
 categories = ["tool"]
 tool = "pickaxe"
@@ -57,6 +65,7 @@ color = [0.80, 0.80, 0.85]
 [[item]]
 id = 1010
 name = "wooden_shovel"
+held_model = "wooden_shovel"
 weight = 1.5              # kg
 categories = ["tool"]
 tool = "shovel"
@@ -66,6 +75,7 @@ color = [0.60, 0.45, 0.25]
 [[item]]
 id = 1011
 name = "iron_shovel"
+held_model = "iron_shovel"
 weight = 2.5              # kg
 categories = ["tool"]
 tool = "shovel"
@@ -75,6 +85,7 @@ color = [0.80, 0.80, 0.85]
 [[item]]
 id = 1020
 name = "hoe"
+held_model = "hoe"
 weight = 1.5              # kg
 categories = ["tool"]
 tool = "hoe"
@@ -85,6 +96,7 @@ color = [0.50, 0.40, 0.30]
 [[item]]
 id = 1040
 name = "builders_hammer"
+held_model = "builders_hammer"
 weight = 2.0              # kg
 display = "Builder's Hammer"
 categories = ["tool"]
@@ -153,25 +165,44 @@ color = [0.85, 0.85, 0.90]
 [[item]]
 id = 1101
 name = "wooden_club"
+held_model = "club"
 weight = 2.0              # kg
 categories = ["weapon"]
 weapon_class = "club"
+moveset = "club"
 damage = 8.0
+damage_type = "blunt"
 color = [0.55, 0.40, 0.25]
 
 [[item]]
 id = 1102
 name = "spear"
+held_model = "spear"
 weight = 2.5              # kg
 categories = ["weapon"]
 weapon_class = "spear"
+moveset = "spear"
 damage = 10.0
+damage_type = "pierce"
 color = [0.70, 0.60, 0.45]
+
+[[item]]
+id = 1103
+name = "quarterstaff"
+held_model = "staff"
+weight = 1.8              # kg
+categories = ["weapon"]
+weapon_class = "staff"
+moveset = "staff"
+damage = 7.0
+damage_type = "blunt"
+color = [0.60, 0.45, 0.30]
 
 # ── Dev tools (Test Play only) ────────────────────────────
 [[item]]
 id = 1200
 name = "dev_wand"
+held_model = "dev_wand"
 display = "Selection Wand"
 categories = ["dev"]
 dev_tool = "wand"
@@ -180,6 +211,7 @@ color = [0.95, 0.80, 0.20]
 [[item]]
 id = 1201
 name = "dev_fill"
+held_model = "dev_fill"
 display = "Fill Tool"
 categories = ["dev"]
 dev_tool = "fill"
@@ -188,6 +220,7 @@ color = [0.30, 0.70, 0.95]
 [[item]]
 id = 1202
 name = "dev_replace"
+held_model = "dev_replace"
 display = "Replace Tool"
 categories = ["dev"]
 dev_tool = "replace"
@@ -196,6 +229,7 @@ color = [0.55, 0.40, 0.90]
 [[item]]
 id = 1203
 name = "dev_brush"
+held_model = "dev_brush"
 display = "Sphere Brush"
 categories = ["dev"]
 dev_tool = "brush"
@@ -204,6 +238,7 @@ color = [0.30, 0.85, 0.45]
 [[item]]
 id = 1204
 name = "dev_copy"
+held_model = "dev_copy"
 display = "Copy Tool"
 categories = ["dev"]
 dev_tool = "copy"
@@ -212,6 +247,7 @@ color = [0.90, 0.90, 0.90]
 [[item]]
 id = 1205
 name = "dev_paste"
+held_model = "dev_paste"
 display = "Paste Tool"
 categories = ["dev"]
 dev_tool = "paste"
@@ -220,6 +256,7 @@ color = [0.85, 0.55, 0.85]
 [[item]]
 id = 1206
 name = "dev_explode"
+held_model = "dev_explode"
 display = "Explosion Tester"
 categories = ["dev"]
 dev_tool = "explode"
@@ -230,6 +267,7 @@ color = [0.95, 0.35, 0.20]
 [[item]]
 id = 1207
 name = "dev_breaker"
+held_model = "dev_breaker"
 display = "Dev Pickaxe"
 categories = ["dev"]
 dev_tool = "breaker"
@@ -240,6 +278,7 @@ color = [0.95, 0.95, 0.40]
 [[item]]
 id = 1208
 name = "dev_cube"
+held_model = "dev_cube"
 display = "Cube Tool"
 categories = ["dev"]
 dev_tool = "cube"
@@ -251,6 +290,7 @@ color = [0.40, 0.80, 0.95]
 [[item]]
 id = 1300
 name = "leather_cap"
+gear = { shape = "cap", color = "#6b4a32", trim = "#4a3226" }
 weight = 0.5
 worn = "head"
 color = [0.55, 0.40, 0.28]
@@ -258,6 +298,7 @@ color = [0.55, 0.40, 0.28]
 [[item]]
 id = 1301
 name = "iron_helmet"
+gear = { shape = "helmet", color = "#8d939c", trim = "#5d6169" }
 weight = 2.5
 worn = "head"
 color = [0.75, 0.75, 0.80]
@@ -265,6 +306,7 @@ color = [0.75, 0.75, 0.80]
 [[item]]
 id = 1302
 name = "leather_jerkin"
+gear = { shape = "jerkin", color = "#6e4d34", trim = "#3e2a1e" }
 weight = 3.0
 worn = "torso"
 color = [0.50, 0.36, 0.25]
@@ -272,6 +314,7 @@ color = [0.50, 0.36, 0.25]
 [[item]]
 id = 1303
 name = "chainmail"
+gear = { shape = "mail", color = "#8a8e96", trim = "#4a3a2c" }
 weight = 11.0
 worn = "torso"
 color = [0.65, 0.66, 0.70]
@@ -279,6 +322,7 @@ color = [0.65, 0.66, 0.70]
 [[item]]
 id = 1304
 name = "plate_cuirass"
+gear = { shape = "cuirass", color = "#b4bac3", trim = "#6f747c" }
 weight = 14.0
 worn = "torso"
 color = [0.80, 0.80, 0.85]
@@ -286,6 +330,7 @@ color = [0.80, 0.80, 0.85]
 [[item]]
 id = 1305
 name = "iron_gauntlets"
+gear = { shape = "gauntlets", color = "#9aa0a8", trim = "#5d6169" }
 weight = 1.8
 worn = "hands"
 color = [0.72, 0.72, 0.78]
@@ -293,6 +338,7 @@ color = [0.72, 0.72, 0.78]
 [[item]]
 id = 1306
 name = "iron_greaves"
+gear = { shape = "greaves", color = "#9aa0a8", trim = "#6f747c" }
 weight = 4.0
 worn = "legs"
 color = [0.72, 0.72, 0.78]
@@ -300,6 +346,7 @@ color = [0.72, 0.72, 0.78]
 [[item]]
 id = 1307
 name = "leather_boots"
+gear = { shape = "boots", color = "#5a3e2b", trim = "#2e2019" }
 weight = 1.4
 worn = "feet"
 color = [0.40, 0.28, 0.20]
@@ -307,6 +354,7 @@ color = [0.40, 0.28, 0.20]
 [[item]]
 id = 1308
 name = "travel_pack"
+gear = { shape = "pack", color = "#7a6a4a", trim = "#4d3b28" }
 weight = 9.0
 worn = "back"
 color = [0.45, 0.42, 0.30]

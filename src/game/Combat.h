@@ -72,6 +72,7 @@ struct AttackDef {
                                          //    presses are taken (buffered) from activeStart on
     float cancelFrom = 0.4f;             // s: a dodge cancels it from here
     float armorFrom = -1.0f;             // s: hyper armour from here to activeEnd (< 0: none)
+    bool  thrust = false;                // grip = "thrust": the held item turns to point along the thrust
 };
 
 struct Moveset {
@@ -106,6 +107,11 @@ constexpr float GUARD_SPEED     = 0.5f;    // walking speed while guarding
 constexpr float GUARD_KEEP      = 0.1f;    // damage that gets through a guard
 constexpr float GUARD_COST      = 2.5f;    // stamina per point of damage blocked
 constexpr float HITSTOP         = 0.06f;   // s the attacker's swing pauses on a hit
+// parry: a hit that lands within PARRY_WINDOW of raising the guard
+constexpr float PARRY_WINDOW    = 0.18f;   // s after the guard goes up
+constexpr float PARRY_KNOCK     = 20.0f;   // vox/s the parried attacker is thrown back
+constexpr float EXPOSED_TIME    = 1.1f;    // s the parried attacker is open (no attacks, no guard)
+constexpr float RIPOSTE_DAMAGE  = 2.5f;    // × damage of a hit on an exposed body (and it falls)
 // poise
 constexpr float POISE_BASE      = 30.0f;   // a body's poise with nothing worn
 constexpr float POISE_PER_KG    = 1.5f;    // … plus this per kg of worn gear
@@ -183,6 +189,7 @@ public:
                     d->comboFrom = (float)v["combo_from"].value_or(-1.0);
                     d->cancelFrom = (float)v["cancel_from"].value_or((double)d->duration);
                     d->armorFrom = (float)v["armor_from"].value_or(-1.0);
+                    d->thrust = v["grip"].value_or(std::string()) == "thrust";
                     if (d->id.empty()) { std::cerr << path << ": an attack without an id\n"; continue; }
                     atk[d->id] = std::move(d);
                 }

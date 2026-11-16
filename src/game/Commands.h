@@ -2,6 +2,8 @@
 #include "DevTools.h"
 #include "StructureRegistry.h"
 #include "../world/StructureManager.h"
+#include "../world/Chests.h"
+#include "DevKit.h"
 #include "GameMode.h"
 #include "ItemRegistry.h"
 #include "../entity/Player.h"
@@ -48,6 +50,7 @@ struct CommandContext {
     std::function<void(const std::string&)> log;
     NpcManager*          npcs = nullptr;  // nullptr outside a world
     Simulation*          sim = nullptr;
+    ChestStore*          chests = nullptr;  // structures' containers (nullptr outside a world)
 };
 
 class CommandRegistry {
@@ -433,6 +436,96 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             push(c, speed, a.size() > 1 ? a[1] : "front", 0.35f);
         });
     // ── Combat (game/Combat.h, game/Npcs.h) ───────────────
+    reg.add("loot", "loot [roll <table> [times] | <table> | none]",
+        "loot tables: list, roll one, or set the storage you aim at to roll from one when next opened",
+        [](C& c, const Args& a) {
+            auto show = [&](const LootTables::Items& items) {
+                if (items.empty()) { c.log("  nothing"); return; }
+                std::string line = " ";
+                for (auto& [item, n] : items) {
+                    std::string part = " " + gItems.get(item).displayName + " x" + std::to_string(n);
+                    if (line.size() + part.size() > 70) { c.log(line); line = " "; }
+                    line += part;
+                }
+                c.log(line);
+            };
+            if (a.empty()) {
+                std::string all;
+                for (auto& n : gLoot.names()) all += (all.empty() ? "" : "  ") + n;
+                c.log("loot tables: " + (all.empty() ? std::string("none") : all));
+                return;
+            }
+            if (a[0] == "roll") {
+                if (a.size() < 2 || !gLoot.get(a[1])) { c.log("loot roll <table> [times]  (loot lists them)"); return; }
+                int times = a.size() > 2 ? std::clamp(std::atoi(a[2].c_str()), 1, 10) : 1;
+                static uint32_t salt = 1;
+                for (int i = 0; i < times; i++) { c.log(a[1] + " roll " + std::to_string(i + 1) + ":"); show(gLoot.roll(a[1], salt++ * 2654435761u)); }
+                return;
+            }
+            std::string table = a[0] == "none" ? "" : a[0];
+            if (!table.empty() && !gLoot.get(table)) { c.log("no loot table " + table + "  (loot lists them)"); return; }
+            const StructureInstance* si = (c.structs && c.target.hit) ? c.structs->instanceAt(c.target.blockPos) : nullptr;
+            const StructureType* t = si ? gStructures.get(si->type) : nullptr;
+            if (!ChestStore::holds(t) || !c.chests) { c.log("aim at a chest (anything with storage)"); return; }
+            static uint32_t salt2 = 7;
+            c.chests->get(si->id, *t).reset(table, c.chests->seedFor(si->id) ^ (salt2++ * 0x9E3779B9u));
+            c.log(t->displayName + (table.empty() ? ": emptied" : ": rolls " + table + " when next opened (what was in it is gone)"));
+        });
+
+    reg.add("chest", "chest [kit | fill <kind|item>... | clear | name [text] | showcase [on|off] | loot <table|none>]",
+        "set up the chest you aim at (kinds: weapons armour tools blocks decor dev all); kit: a row of showcase chests",
+        [](C& c, const Args& a) {
+            if (!c.structs || !c.chests) { c.log("not in a world"); return; }
+            if (!a.empty() && a[0] == "kit") {
+                int n = devkit::placeKit(*c.structs, *c.chests, c.player.position, c.player.facing, c.log);
+                c.log(n ? "placed " + std::to_string(n) + " showcase chests (take a copy; del removes)" : "no room for the kit here");
+                return;
+            }
+            const StructureInstance* si = c.target.hit ? c.structs->instanceAt(c.target.blockPos) : nullptr;
+            const StructureType* t = si ? gStructures.get(si->type) : nullptr;
+            if (!ChestStore::holds(t)) { c.log("aim at a chest (or: chest kit)"); return; }
+            Container& box = c.chests->get(si->id, *t);
+            std::string name = box.label.empty() ? t->displayName : box.label;
+            std::string what = a.empty() ? "" : a[0];
+            if (what.empty()) {
+                int stacks = 0;
+                if (box.peek()) for (auto& st : box.peek()->slots) stacks += !st.empty();
+                c.log(name + ": " + std::to_string(box.capacity) + " slots, " +
+                      (box.opened() ? std::to_string(stacks) + " stacks" : "unopened") +
+                      (box.loot.empty() ? "" : ", loot " + box.loot) + (box.showcase ? ", showcase" : ""));
+            } else if (what == "fill") {
+                if (a.size() < 2) { c.log("chest fill <weapons|armour|tools|blocks|decor|dev|all|item>..."); return; }
+                Inventory& inv = box.read();
+                int n = 0;
+                for (size_t i = 1; i < a.size(); i++) {
+                    if (uint32_t cat = devkit::categoryFromName(a[i])) { n += devkit::fill(inv, cat); continue; }
+                    uint16_t id = gItems.find(a[i]);
+                    if (!id) { c.log("no item or kind " + a[i]); continue; }
+                    if (inv.add(id, devkit::showCount(id)) == 0) n++;
+                }
+                c.log(name + ": " + std::to_string(n) + " stacks in" + (inv.freeSlot() < 0 ? " (full)" : ""));
+            } else if (what == "clear") {
+                for (auto& st : box.read().slots) st.clear();
+                c.log(name + ": emptied");
+            } else if (what == "name") {
+                std::string text;
+                for (size_t i = 1; i < a.size(); i++) text += (i > 1 ? " " : "") + a[i];
+                box.label = text;
+                c.log(text.empty() ? t->displayName + ": name cleared" : "named " + text);
+            } else if (what == "showcase") {
+                bool on = a.size() > 1 ? (a[1] == "on" || a[1] == "1") : !box.showcase;
+                box.read();
+                box.setShowcase(on);
+                c.log(name + (on ? ": showcase - taking gives a copy" : ": an ordinary chest again"));
+            } else if (what == "loot") {
+                std::string table = a.size() > 1 && a[1] != "none" ? a[1] : "";
+                if (!table.empty() && !gLoot.get(table)) { c.log("no loot table " + table + "  (loot lists them)"); return; }
+                static uint32_t salt = 11;
+                box.reset(table, c.chests->seedFor(si->id) ^ (salt++ * 0x9E3779B9u));
+                c.log(name + (table.empty() ? ": emptied" : ": rolls " + table + " when next opened"));
+            } else c.log("chest [kit | fill ... | clear | name [text] | showcase [on|off] | loot <table|none>]");
+        });
+
     reg.add("spawn", "spawn <type> [count] [distance]",
         "spawn NPCs of a type (npcs.toml) in front of you; no type: list them",
         [](C& c, const Args& a) {
@@ -503,6 +596,22 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             // (charge normally comes from an attack's wind-up; here it plays as a flash)
             gOutlineFx.start(who, a[0]);
             c.log("outline " + a[0]);
+        });
+    reg.add("spawners", "spawners", "list spawner types (structures.toml) and the spawners placed in this world",
+        [](C& c, const Args&) {
+            std::string types;
+            for (uint16_t id : gStructures.all())
+                if (gStructures.get(id)->kind == StructureKind::Spawner) types += (types.empty() ? "" : ", ") + gStructures.get(id)->name;
+            c.log("spawner types: " + (types.empty() ? std::string("none") : types) + "   (place <name>)");
+            if (!c.sim) return;
+            if (c.sim->spawners().all().empty()) { c.log("none placed"); return; }
+            for (const SpawnerState& s : c.sim->spawners().all()) {
+                const StructureType* t = gStructures.get(s.type);
+                char b[160];
+                std::snprintf(b, sizeof(b), "%s at %.0f %.0f %.0f: %d/%d alive, %s, %d made", t ? t->name.c_str() : "?",
+                              s.at.x, s.at.y, s.at.z, s.alive, t ? t->spawn.maxAlive : 0, s.active ? "awake" : "asleep", s.spawned);
+                c.log(b);
+            }
         });
     reg.add("despawn", "despawn", "remove every NPC",
         [](C& c, const Args&) {

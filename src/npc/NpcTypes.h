@@ -59,6 +59,9 @@ struct NpcType {
     float healsAfter = 0.0f;           // > 0: back to full health after this long unhurt
     bool  tracks = false;              // follows a trail of breadcrumbs past where it lost you
     float xp = -1.0f;                  // XP for killing it (< 0: health / 4)
+    int   pack = 0;                    // slots it carries (0: none; game/Container.h)
+    std::string loot;                  // loot table its pack is rolled from when first searched
+    std::vector<std::string> wear;     // worn items shown on it (items.toml: gear)
 
     bool has(const std::string& state) const {
         return state == "dead" || std::find(states.begin(), states.end(), state) != states.end();
@@ -131,6 +134,10 @@ public:
                     d->faction = t["faction"].value_or(std::string());
                     d->look = t["look"].value_or(std::string());
                     d->weapon = t["weapon"].value_or(std::string());
+                    d->loot = t["loot"].value_or(std::string());
+                    if (auto* w = t["wear"].as_array())
+                        for (auto& x : *w) if (auto v = x.value<std::string>()) d->wear.push_back(*v);
+                    d->pack = std::clamp((int)t["pack"].value_or((int64_t)(d->loot.empty() ? 0 : 20)), 0, 50);
                     d->health = (float)t["health"].value_or(100.0);
                     d->poise = (float)t["poise"].value_or(35.0);
                     if (auto s = t["states"].as_array())

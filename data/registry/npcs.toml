@@ -42,6 +42,12 @@
 #                   by the players in the encounter
 #   on_menu_attack  "interrupt" (drops the menu and reacts) or
 #                   "protected" (ignores attacks while in a menu)
+#   pack            slots it carries (default: 20 with a loot
+#                   table, else none). E on its body searches it
+#   wear            worn items it shows (items.toml, ones with gear)
+#   loot            a loot table (loot.toml) its pack is rolled
+#                   from the first time it's searched. A body that
+#                   may hold something stays 5 minutes (else 20 s)
 
 [[npc]]
 id = "bandit"
@@ -49,6 +55,8 @@ name = "Bandit"
 faction = "bandits"
 look = "bandit"
 weapon = "iron_sword"
+loot = "bandit"
+wear = ["leather_jerkin"]
 health = 100
 poise = 35
 states = ["idle", "patrol", "alert", "combat", "search", "return", "dead"]
@@ -69,6 +77,8 @@ name = "Swordsman"
 faction = "bandits"
 look = "bandit"
 weapon = "iron_sword"
+loot = "bandit"
+wear = ["plate_cuirass", "iron_gauntlets"]
 health = 100
 poise = 35
 states = ["idle", "alert", "combat", "search", "return", "dead"]
@@ -86,6 +96,8 @@ name = "Guard"
 faction = "guards"
 look = "guard"
 weapon = "iron_sword"
+loot = "guard"
+wear = ["iron_helmet", "chainmail", "iron_greaves", "leather_boots"]
 health = 140
 poise = 50
 states = ["idle", "unavailable", "patrol", "alert", "combat", "search", "return", "dead"]
@@ -103,6 +115,7 @@ on_menu_attack = "interrupt"
 [[npc]]
 id = "villager"
 name = "Villager"
+loot = "villager"
 faction = "villagers"
 look = "villager"
 health = 60
@@ -121,6 +134,7 @@ name = "Restless Dead"
 faction = "undead"
 look = "undead"
 weapon = "iron_sword"
+loot = "undead"
 health = 80
 poise = 25
 states = ["idle", "alert", "combat", "search", "dead"]

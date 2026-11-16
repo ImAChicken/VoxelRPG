@@ -14,6 +14,8 @@ enum class ScreenResult {
     OpenControls,   // pause menu → key bindings
     OpenSettings,   // pause menu → settings
     OpenCharacter,  // pause menu → character creator
+    SaveGame,       // pause menu → save, and stay
+    QuitNoSave,     // pause menu → leave without saving (dev worlds)
 };
 
 class UIScreen {
@@ -32,9 +34,10 @@ protected:
                     const std::string& label,
                     float x, float y,
                     bool hovered,
-                    int scale = 2) {
+                    int scale = 2,
+                    float width = 0.0f) {          // 0: the theme's button width
         const auto& theme = gResourcePacks.getTheme();
-        float w = (float)theme.buttonW;
+        float w = width > 0.0f ? width : (float)theme.buttonW;
         float h = (float)theme.buttonH;
 
         const float* bg = hovered

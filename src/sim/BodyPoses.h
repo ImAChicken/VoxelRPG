@@ -32,6 +32,7 @@ struct BodyPose {
     const HeldModelDef* held = nullptr;
     std::string       heldId;
     uint32_t          heldGen = 0;
+    float             turnNow = 0.0f, turnPrev = 0.0f;   // the held item's thrust turn (Pose::heldTurn)
 };
 
 class BodyPoses {
@@ -59,6 +60,8 @@ public:
         const Pose& pose = p.anim.update(*p.model, animInputFor(h, combat, 0.0f), dt);
         p.prev = p.now;
         p.hasPrev = p.hasNow;
+        p.turnPrev = p.turnNow;
+        p.turnNow = pose.heldTurn;
         worldBoneMatrices(*p.model, pose, h.position, p.now);
         BoneMats rag;
         if (h.ragdoll.renderBones(1.0f, p.now, rag)) p.now = rag;     // knocked down: where it lies
@@ -86,6 +89,8 @@ public:
         out.body = &p->boxes;
         out.model = p->model.get();
         out.held = p->held;
+        out.turnNow = p->turnNow;
+        out.turnPrev = p->hasPrev ? p->turnPrev : p->turnNow;
         return true;
     }
 

@@ -45,11 +45,14 @@ public:
     // Rebuild the body (main thread, GL context current).
     // Does nothing if neither the look nor the hair mesh mode
     // has changed.
-    void setAppearance(const Appearance& a, HairMesh mode = HairMesh::Shards, bool force = false) {
-        if (!force && built && a == look && mode == hairMode) return;
+    // gear: what it wears (GearLook.h), built onto the body
+    void setAppearance(const Appearance& a, HairMesh mode = HairMesh::Shards, bool force = false,
+                       const std::vector<GearLook>& gear = {}) {
+        if (!force && built && a == look && mode == hairMode && gear == wearing) return;
         look = a;
         hairMode = mode;
-        model = CharacterModel::build(a, mode);
+        wearing = gear;
+        model = CharacterModel::build(a, mode, &wearing);
         upload();
         built = true;
     }
@@ -78,6 +81,11 @@ public:
     }
     GLuint  heldVao = 0, heldVbo = 0;
     GLsizei heldCount = 0;
+    // The held item's thrust turn for the current pose
+    glm::mat4 heldTurn() const {
+        const HeldModelDef* d = heldKind.empty() ? nullptr : gHeldModels.find(heldKind);
+        return d ? d->turn(model, animator.current().heldTurn) : glm::mat4(1.0f);
+    }
 
     // What the left hand holds (the active off-hand slot): the
     // same models, mirrored onto the left wrist
@@ -113,6 +121,7 @@ public:
 
 private:
     Appearance        look;
+    std::vector<GearLook> wearing;
     HairMesh          hairMode = HairMesh::Shards;
     CharacterModel    model;
     CharacterAnimator animator;
@@ -401,7 +410,8 @@ void main() {
         }
         if (ch.heldCount) {                       // the tool in the right hand
             glBindVertexArray(ch.heldVao);
-            glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[B_WRIST_R]));
+            glm::mat4 hm = mats[B_WRIST_R] * ch.heldTurn();                 // a thrust turns the item
+            glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(hm));
             glDrawArrays(GL_TRIANGLES, 0, ch.heldCount);
             glBindVertexArray(ch.vao);
         }
@@ -475,7 +485,8 @@ void main() {
             }
             if (p.ch->heldCount) {
                 glBindVertexArray(p.ch->heldVao);
-                glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[B_WRIST_R]));
+                glm::mat4 hm = mats[B_WRIST_R] * p.ch->heldTurn();
+                glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(hm));
                 glDrawArrays(GL_TRIANGLES, 0, p.ch->heldCount);
             }
             if (p.ch->offCount) {

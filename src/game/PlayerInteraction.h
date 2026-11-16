@@ -8,6 +8,7 @@
 #include "../world/WorldEditor.h"
 #include "../world/StructureManager.h"
 #include "../world/Woodcutting.h"
+#include "../world/Chests.h"
 #include "AxeSwing.h"
 #include "BuildTool.h"
 #include <glm/glm.hpp>
@@ -95,6 +96,10 @@ public:
     // Felled trees, logs and drops (set by the main loop when a
     // world is open)
     Woodcutting* wood = nullptr;
+    ChestStore*  chests = nullptr;     // for a chest's label in the aim text
+    // A chest E was pressed on (structure instance id; main.cpp
+    // opens it in the inventory screen and sets this back to 0)
+    uint32_t openChest = 0;
 
     // Look for the block under the crosshair. Call every
     // frame a body exists, before update().
@@ -141,6 +146,7 @@ public:
                     [&](glm::ivec3 p) { return overlapsBody(player, p); });
                 if (!why.empty()) say(why);
             }
+            if (t && t->slots > 0) openChest = aimed->id;            // a chest, or anything with storage
         }
 
         // ── Middle click: pick block ──────────────────────
@@ -268,6 +274,10 @@ public:
         }
         StructureInstance* s = id == BLOCK_LEAVES ? nullptr : structs.instanceOrNaturalTree(hit.voxel);
         const StructureType* t = s ? structs.typeOf(*s) : nullptr;
+        if (t && t->kind == StructureKind::Chest) {
+            hitChest(structs, *s, *t, survival ? dmg : s->health + 1.0f, hit.point, -hit.dir, id, src);
+            return;
+        }
         if (t && t->kind == StructureKind::Tree) {
             if (!survival) dmg = s->health + 1.0f;
             s->health -= dmg;
@@ -282,6 +292,24 @@ public:
         }
         // anything else: the blade stops, nothing is harmed
         if (wood) wood->chips(hit.point, id, 4, -hit.dir);
+    }
+
+    // A chest takes a hit like a tree: at 0 it breaks, its
+    // contents spill (StructureManager::onRemoved, main.cpp) and
+    // it drops what its entry says
+    void hitChest(StructureManager& structs, StructureInstance& s, const StructureType& t, float dmg,
+                  glm::vec3 point, glm::vec3 away, uint16_t block, EditSource src) {
+        s.health -= dmg;
+        treeName = t.displayName; treeMax = t.health; treeAge = 0.0f;
+        treeHealth = std::max(0.0f, s.health);
+        if (wood) wood->chips(point, block, 6, away);
+        if (s.health > 0.0f) return;
+        glm::vec3 at = glm::vec3(s.origin) + glm::vec3(0.5f, 2.0f, 0.5f);
+        say(t.displayName + " broken");
+        structs.remove(s.id, src);                    // s is gone after this
+        if (t.dropItem && t.dropCount > 0) {
+            if (wood) wood->drop(t.dropItem, t.dropCount, at, away);
+        }
     }
 
     // Take a dead tree out of the world and let it fall (away
@@ -503,6 +531,14 @@ private:
                                       : structs.instanceOrNaturalTree(target.blockPos);
         const StructureType* t = s ? structs.typeOf(*s) : nullptr;
 
+        if (t && t->kind == StructureKind::Chest) {
+            // ── A chest: like a tree, 1 a hit (the axe swings
+            // for more); Test Play breaks it at once ───────────
+            glm::vec3 p = glm::vec3(target.blockPos) + glm::vec3(0.5f);
+            hitChest(structs, *s, *t, survival ? 1.0f : s->health + 1.0f, p, glm::normalize(p - player.position),
+                     (uint16_t)target.blockID, src);
+            return;
+        }
         if (t && t->kind == StructureKind::Tree) {
             // ── Chop ─────────────────────────────────────
             // Hands and other tools do 1 (the axe is swung
@@ -709,6 +745,16 @@ private:
         if (!t) return;
         if (t->kind == StructureKind::Door)
             aimLabel = t->displayName + (s->state ? "   E: close" : "   E: open");
+        else if (t->kind == StructureKind::Chest) {
+            char b[112];
+            std::string name = t->displayName;
+            if (Container* c = chests ? chests->find(s->id) : nullptr) {
+                if (!c->label.empty()) name = c->label;
+                if (c->showcase) name += " - showcase";
+            }
+            std::snprintf(b, sizeof(b), "%s  %.0f / %.0f   E: open", name.c_str(), s->health, t->health);
+            aimLabel = b;
+        }
         else if (t->kind == StructureKind::Tree) {
             char b[96];
             std::snprintf(b, sizeof(b), "%s  %.0f / %.0f", t->displayName.c_str(),
@@ -744,11 +790,22 @@ private:
         previewHas = build.locked || target.hit;
         if (!build.locked && target.hit) {
             glm::ivec3 spot = target.blockPos + glm::ivec3(target.normal);
-            if (t->snap > 0) {
-                glm::ivec3 o = spot - shape.anchor;
+            if (t->foundation && structs.alignFoundation(build.selected, build.rot, target.blockPos,
+                                                         glm::ivec3(target.normal), spot)) {
+                // lined up with the foundation beside it (StructureManager::alignFoundation)
+            } else if (t->snap > 0) {
+                // on the grid of the foundation it's aimed at (floors
+                // line up with it), else the world's
+                glm::ivec3 g0(0);
+                if (const StructureInstance* f = structs.instanceAt(target.blockPos);
+                    f && structs.typeOf(*f) && structs.typeOf(*f)->foundation) {
+                    glm::ivec3 hi;
+                    structs.bounds(*f, g0, hi);
+                }
+                glm::ivec3 o = spot - shape.anchor - g0;
                 o.x = floorDiv(o.x, t->snap) * t->snap;
                 o.z = floorDiv(o.z, t->snap) * t->snap;
-                spot = o + shape.anchor;
+                spot = o + g0 + shape.anchor;
             }
             build.spot = spot;
         }

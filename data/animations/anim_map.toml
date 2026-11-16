@@ -58,3 +58,12 @@ sword_heavy     = { clip = "Sword_Regular_C", strike = [0.30, 0.38] }   # overhe
 sword_air_light = { clip = "Sword_Dash",      strike = [0.16, 0.26] }
 axe_light       = { clip = "Sword_Regular_A", strike = [0.45, 0.65] }
 axe_heavy       = { clip = "Sword_Regular_C", strike = [0.30, 0.38] }
+club_light1     = { clip = "Sword_Regular_A", strike = [0.45, 0.65] }
+club_light2     = { clip = "Sword_Regular_B", strike = [0.36, 0.57] }
+club_heavy      = { clip = "Sword_Regular_C", strike = [0.30, 0.38] }
+spear_thrust    = { clip = "Punch_Cross",     strike = [0.17, 0.30] }   # the right fist drives straight out
+spear_lunge     = { clip = "Punch_Cross",     strike = [0.17, 0.30] }
+staff_light1    = { clip = "Sword_Regular_A", strike = [0.45, 0.65] }
+staff_light2    = { clip = "Sword_Regular_B", strike = [0.36, 0.57] }
+staff_light3    = { clip = "Sword_Regular_C", strike = [0.30, 0.38] }
+staff_sweep     = { clip = "Sword_Regular_A", strike = [0.45, 0.65] }   # low and wide (band 0-8)

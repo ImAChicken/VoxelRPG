@@ -46,6 +46,7 @@ inline bool beginAttack(Human& h, AttackKind k, int chain = 0) {
 // heavy. Air: lurch / plunge, once per jump.
 inline void startAttack(Human& h, const HumanIntent& in) {
     if (!(in.attackLight || in.attackHeavy) || !h.moveset || h.weaponDamage <= 0.0f || h.dead()) return;
+    if (h.exposed > 0.0f) return;                   // parried: reeling, can't attack yet
     if (h.move == Human::Move::Roll || h.move == Human::Move::Backstep) return;
     if (h.flying) return;
     AttackState& a = h.attack;
@@ -87,6 +88,7 @@ inline void advanceAttack(Human& h, float dt) {
 
 // Poise refills after a few seconds without hits
 inline void regainPoise(Human& h, float dt) {
+    h.exposed = std::max(0.0f, h.exposed - dt);     // a parried body recovers
     h.sincePoiseHit += dt;
     if (h.sincePoiseHit > POISE_DELAY) h.poise = std::min(h.maxPoise, h.poise + POISE_REFILL * dt);
 }

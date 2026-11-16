@@ -155,6 +155,8 @@ public:
     float       staminaWait = 0.0f;
     bool        infiniteStamina = false;   // Test Play
     bool        guarding = false;          // set by physics from the intent
+    float       guardTime = 0.0f;          // s the guard has been up (a hit early on is parried)
+    float       exposed = 0.0f;            // s left open to a riposte, after being parried
     bool        hasAirAttack = true;       // one per jump, back on landing
     AttackState attack;
     float       sinceHurt = 99.0f;         // s since last damaged (HUD)
@@ -226,5 +228,7 @@ public:
         ragdoll.reset();
         attack = AttackState();
         guarding = false;
+        guardTime = 0.0f;
+        exposed = 0.0f;
     }
 };

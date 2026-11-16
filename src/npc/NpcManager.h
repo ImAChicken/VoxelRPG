@@ -24,6 +24,7 @@
 class NpcManager {
 public:
     static constexpr float REMOVE_DEAD_AFTER = 20.0f;
+    static constexpr float KEEP_LOOT_BODY    = 300.0f;   // a body that may still hold items stays this long
     static constexpr float ALLY_DEATH_RANGE  = 60.0f;
 
     // A new NPC of a type at a spot; nullptr if the type is unknown
@@ -40,6 +41,7 @@ public:
         n->facing = n->homeFacing = glm::vec3(f.x, 0, f.y);
         n->lookSeed = seed ? seed : 0x9e3779b9u ^ (uint32_t)(n->uuid * 2654435761u);   // the seed keeps its look across saves
         n->rng = n->lookSeed ^ 0x5bd1e995u;
+        n->pack = Container(t->pack, t->loot, n->lookSeed ^ 0x27d4eb2fu);   // unread until searched
         if (const LookPreset* p = gNpcTypes.look(t->look)) { n->appearance = p->make(n->lookSeed); n->textureSet = p->textureSet; }
         else n->appearance = Appearance::random(n->lookSeed);
         n->name = t->name;
@@ -124,7 +126,8 @@ public:
             n.intent.clearOneShots();
         }
         for (size_t i = 0; i < list.size();)
-            if (list[i]->deadFor > REMOVE_DEAD_AFTER || list[i]->fellOutOfWorld) list.erase(list.begin() + i);
+            if (list[i]->deadFor > (list[i]->pack.mayHoldItems() ? KEEP_LOOT_BODY : REMOVE_DEAD_AFTER) ||
+                list[i]->fellOutOfWorld) list.erase(list.begin() + i);   // what it held (if unsearched: never rolled) goes with it
             else i++;
     }
 
@@ -143,7 +146,10 @@ public:
     // ── Saving (the world's npcs.dat) ─────────────────────
     // One line each: type, position, home, facing, health, patrol
     // points. They come back in their type's start state; what
-    // they were doing and knew is not kept.
+    // they were doing and knew is not kept. A pack that's been
+    // read follows its line as "p.…" lines (Container::write);
+    // an unread one is only its type's loot table, so nothing.
+    // The dead aren't saved (nor what's on them).
     void save(const std::string& path) const {
         std::ofstream f(path);
         f << "npcs 1\n";
@@ -153,7 +159,9 @@ public:
               << n->home.x << " " << n->home.y << " " << n->home.z << " " << n->homeFacing.x << " " << n->homeFacing.z << " "
               << n->health << " " << n->lookSeed << " " << n->patrol.size();
             for (const auto& p : n->patrol) f << " " << p.x << " " << p.y << " " << p.z;
+            if (n->spawner) f << " sp " << n->spawner;     // which spawner it belongs to
             f << "\n";
+            if (n->pack.opened() || n->pack.loot != (n->type ? n->type->loot : "")) n->pack.write(f, "p");   // its pack, once read
         }
     }
     int load(const std::string& path) {
@@ -161,7 +169,15 @@ public:
         std::string line;
         if (!std::getline(f, line) || line.rfind("npcs 1", 0) != 0) return 0;
         int count = 0;
+        Npc* last = nullptr;
         while (std::getline(f, line)) {
+            while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+            if (line.rfind("p.", 0) == 0) {                 // the pack of the NPC above
+                size_t eq = line.find('=');
+                if (last && eq != std::string::npos) last->pack.readLine(line.substr(0, eq), line.substr(eq + 1), "p");
+                continue;
+            }
+            last = nullptr;
             std::istringstream s(line);
             std::string type; glm::vec3 pos, home; glm::vec2 face; float health; uint32_t rng; size_t np;
             if (!(s >> type >> pos.x >> pos.y >> pos.z >> home.x >> home.y >> home.z >> face.x >> face.y >> health >> rng >> np)) continue;
@@ -171,8 +187,12 @@ public:
             n->health = n->healthSeen = std::min(health, n->maxHealth);
             n->patrol.clear();
             for (size_t i = 0; i < np; i++) { glm::vec3 p; if (s >> p.x >> p.y >> p.z) n->patrol.push_back(p); }
+            std::string tag;
+            if (s >> tag && tag == "sp") s >> n->spawner;
+            last = n;
             count++;
         }
+        for (auto& n : list) n->pack.finishLoad();
         return count;
     }
 

@@ -48,6 +48,30 @@ blinks = 3
 priority = 4
 
 [[effect]]
+id = "parry"         # a guard raised just in time: a gold flash on the one who parried
+color = [1.0, 0.82, 0.30]
+time = 0.4
+strength = 1.0
+blinks = 1
+priority = 5
+
+[[effect]]
+id = "exposed"       # parried: open to a riposte while it lasts (Combat.h EXPOSED_TIME)
+color = [1.0, 0.55, 0.10]
+time = 1.1
+strength = 0.9
+blinks = 4
+priority = 4
+
+[[effect]]
+id = "riposte"       # a critical hit on an exposed body
+color = [1.0, 0.95, 0.75]
+time = 0.5
+strength = 1.0
+blinks = 2
+priority = 5
+
+[[effect]]
 id = "charge"
 color = [1.0, 0.85, 0.15]
 time = 0.15          # the fade once the hit window opens

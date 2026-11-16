@@ -33,6 +33,9 @@
 #include "game/DevTools.h"
 #include "game/Commands.h"
 #include "game/PlayerInteraction.h"
+#include "game/DevKit.h"
+#include "game/LockOn.h"
+#include "ui/ItemIcon.h"
 
 // ── Game systems ──────────────────────────────────────────
 #include "render/Camera.h"
@@ -62,6 +65,7 @@
 #include "ui/BuildMenuScreen.h"
 #include "ui/InventoryScreen.h"
 #include "world/StructureManager.h"
+#include "world/Chests.h"
 #include "world/Woodcutting.h"
 #include "sim/Simulation.h"
 #include "game/DebugView.h"
@@ -225,6 +229,7 @@ int main() {
     gMovesets.load("data/registry/movesets.toml");
     gHeldModels.loadDir("data/models/held");
     gFactions.load("data/registry/factions.toml");
+    gLoot.load("data/registry/loot.toml");
     gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
     gAnims.load("data/animations", "data/animations/retarget.toml");
     gAnimMap.load("data/animations/anim_map.toml");
@@ -234,6 +239,7 @@ int main() {
 
     // Multi-block structures: building pieces, doors, trees
     gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current());
+    buildItemIcons();   // tools, weapons and gear drawn from their models (ui/ItemIcon.h)
 
     if (!gResourcePacks.load("data/resourcepacks")) {
         std::cerr << "Resource pack load failed\n";
@@ -397,6 +403,7 @@ int main() {
     std::unique_ptr<ChunkManager>     world;
     std::unique_ptr<WorldEditor>      editor;    // all world edits
     std::unique_ptr<StructureManager> structs;   // doors, trees, buildings
+    ChestStore chests;                           // what each chest holds (world/Chests.h)
     std::unique_ptr<Woodcutting>      wood;      // felled trees, logs, wood on the ground
     // Meshes for woodcutting's logs (by log id), drawn like the
     // world (render/PropRenderer.h)
@@ -407,7 +414,9 @@ int main() {
     };
     // Enemies live in the simulation; their bodies to draw (by id)
     NpcManager& npcs = sim.npcs();
-    EntityId talkingTo = 0;           // the NPC this player is in a menu with
+    EntityId talkingTo = 0;
+    bool pendingKit = false;
+    LockOn lockOn;                    // the camera held on an enemy (TAB: game/LockOn.h)          // a new dev world: lay out the showcase chests (game/DevKit.h)           // the NPC this player is in a menu with
     std::unordered_map<uint64_t, std::unique_ptr<Character>> npcBodies;
     std::unique_ptr<WorldStreamer>    streamer;
     std::unique_ptr<FarTerrain>       farView;   // distant terrain
@@ -423,6 +432,7 @@ int main() {
         if (editor) editor->flush();     // finish queued edits first
         gWorldSave.saveDirtyChunks(*world);
         if (structs) structs->save(gWorldSave.getWorldPath());
+        chests.save(gWorldSave.getWorldPath());
         if (wood) wood->save(gWorldSave.getWorldPath());
         npcs.save(gWorldSave.getWorldPath() + "/npcs.dat");
         memory.save(gWorldSave.getWorldPath() + "/lowres.dat");
@@ -438,11 +448,14 @@ int main() {
         say("world saved");
     };
 
-    // Leave the world: save, then tear everything down.
+    // Leave the world: save (unless told not to: a dev world
+    // left without saving), then tear everything down.
     // Streamer first: it stops the worker threads and frees
     // the GPU meshes before the world goes away.
-    auto leaveWorld = [&]() {
-        saveWorld();
+    auto leaveWorld = [&](bool save) {
+        pendingKit = false;
+        lockOn.clear();
+        if (save) saveWorld();
         streamer.reset();
         farView.reset();
         dev.attach(nullptr);
@@ -452,6 +465,7 @@ int main() {
         sim.detachWorld();
         npcBodies.clear();
         structs.reset();
+        chests.clear();
         editor.reset();
         gPhysics.reset();
         world.reset();
@@ -482,7 +496,9 @@ int main() {
                           int size,
                           int biome = -1,
                           TerrainStyle terrain = TerrainStyle::GuidedRivers,
-                          const WorldGenParams& genParams = WorldGenParams()) {
+                          const WorldGenParams& genParams = WorldGenParams(),
+                          const FlatOptions& flat = FlatOptions(),
+                          bool devWorld = false) {     // in devworlds/
         streamer.reset();
         farView.reset();
         gPhysics.reset();
@@ -490,14 +506,16 @@ int main() {
         if (isNew) {
             std::cout << "Creating world: " << name
                       << " seed=" << seed << "\n";
-            gWorldSave.createWorld(name, seed, mode, type, size, biome, terrain, genParams);
+            gWorldSave.createWorld(name, seed, mode, type, size, biome, terrain, genParams, flat, devWorld);
         } else {
-            std::cout << "Loading world: " << name << "\n";
-            gWorldSave.loadWorld(name);
+            std::cout << "Loading world: " << name << (devWorld ? " (dev world)" : "") << "\n";
+            gWorldSave.loadWorld(name, devWorld);
             seed = gWorldSave.getSeed();
             mode = gWorldSave.getDefaultMode();
             type = gWorldSave.getWorldType();
         }
+
+        hud.devWorld = gWorldSave.isDevWorld();
 
         // World size first: the chunk grid and streamer are
         // built for it
@@ -511,7 +529,7 @@ int main() {
         // folder), so it's built on a worker thread while a
         // progress screen keeps the window alive
         {
-            const bool baking = type != WorldType::Classic && gWorldSave.getTerrainStyle() != TerrainStyle::NoErosion;
+            const bool baking = worldTypeShaped(type) && gWorldSave.getTerrainStyle() != TerrainStyle::NoErosion;
             std::string cache = gWorldSave.getWorldPath() + "/terrain.bake";
             int biomeArg = gWorldSave.getWorldBiome();
             TerrainStyle style = gWorldSave.getTerrainStyle();
@@ -520,7 +538,7 @@ int main() {
             std::unique_ptr<TerrainGenerator> made;
             std::atomic<bool> done{ false };
             std::thread worker([&] {
-                made = makeGenerator(type, seed, size, biomeArg, style, cache, gparams);
+                made = makeGenerator(type, seed, size, biomeArg, style, cache, gparams, gWorldSave.getFlatOptions());
                 done = true;
             });
             while (baking && !done) {
@@ -595,10 +613,30 @@ int main() {
         structs = std::make_unique<StructureManager>(*world, *editor, *gen);
         structs->log = say;
         structs->load(gWorldSave.getWorldPath());
+        chests.worldSeed = (uint32_t)gWorldSave.getSeed();
+        chests.load(gWorldSave.getWorldPath());
         dropWoodMeshes();
         wood = std::make_unique<Woodcutting>();
         wood->load(gWorldSave.getWorldPath());
+        // a chest (anything with storage) that goes (broken,
+        // removed, collapsed) spills what it held as pickups —
+        // its loot rolled now if it was never opened
+        structs->onRemoved = [&](const StructureInstance& si) {
+            const StructureType* t = gStructures.get(si.type);
+            glm::vec3 at = glm::vec3(si.origin) + glm::vec3(0.5f, 2.0f, 0.5f);
+            for (auto& [item, n] : chests.take(si.id, t)) {
+                if (wood) wood->drop(item, n, at, glm::vec3(0.0f));
+                else      player.inventory.add(item, n);
+            }
+        };
+        // one a player builds starts empty (no loot from building
+        // chests); a command or the world rolls its loot table
+        structs->onPlaced = [&](const StructureInstance& si, EditSource src) {
+            const StructureType* t = gStructures.get(si.type);
+            if (ChestStore::holds(t) && (src == EditSource::Player || src == EditSource::Dev)) chests.makeEmpty(si.id, *t);
+        };
         hands.wood = wood.get();
+        hands.chests = &chests;
         // bodies collide with fallen logs; raycasts hit them
         gPhysics->setLooseSolids([&](int x, int y, int z) { return wood && wood->solidAt(x, y, z); });
         sim.attachWorld(gPhysics.get(), wood.get());
@@ -787,7 +825,7 @@ int main() {
         // the simulation's poses: character/HumanAnim.h)
         auto animFor = [](const Human& h, bool combat, float pitch) { return animInputFor(h, combat, pitch); };
         if (rules.hasBody) {
-            playerBody->setAppearance(player.appearance, hairMesh());
+            playerBody->setAppearance(player.appearance, hairMesh(), false, gearLooksOf(player.activeInventory()));
             const ItemDef* wielded = player.wielded();
             AnimInput in = animFor(player, player.combatStance || wielded, camera.pitch);
             // the axe swing (game/AxeSwing.h): stops if the axe is
@@ -876,7 +914,12 @@ int main() {
                 alive[n.uuid] = true;
                 auto& ch = npcBodies[n.uuid];
                 if (!ch) ch = std::make_unique<Character>();
-                ch->setAppearance(n.appearance, hairMesh());
+                {
+                    std::vector<GearLook> gear;
+                    if (n.type) for (const std::string& w : n.type->wear)
+                        if (uint16_t id = gItems.find(w); id && !gItems.get(id).gear.shape.empty()) gear.push_back(gItems.get(id).gear);
+                    ch->setAppearance(n.appearance, hairMesh(), false, gear);
+                }
                 {
                     uint16_t wid = gItems.find(n.weaponItem);
                     ch->setHeldModel(wid ? gItems.get(wid).heldModel : std::string());
@@ -977,6 +1020,7 @@ int main() {
 
         // Enemies
         hud.enemyBars.clear();
+        hud.lockMarker.on = false;
         if (!npcs.all().empty()) {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
@@ -1002,6 +1046,12 @@ int main() {
                         float a = std::clamp(1.0f - (dist - 80.0f) / 40.0f, 0.0f, 1.0f);
                         hud.enemyBars.push_back({ sx, sy, np->health / np->maxHealth, a, np->sinceHurt < 0.3f });
                     }
+                }
+                if (np->uuid == lockOn.target && !np->dead()) {     // the lock-on marker, on its chest
+                    glm::vec4 c = proj * view * glm::vec4(at + np->ragdoll.headOffset(alpha) + glm::vec3(0.0f, Human::STAND_HEIGHT * 0.6f, 0.0f), 1.0f);
+                    if (c.w > 0.1f)
+                        hud.lockMarker = { true, (c.x / c.w * 0.5f + 0.5f) * gRenderer->getScreenWidth(),
+                                           (1.0f - (c.y / c.w * 0.5f + 0.5f)) * gRenderer->getScreenHeight() };
                 }
             }
             int fw = gRenderer->getScreenWidth(), fh = gRenderer->getScreenHeight();
@@ -1254,6 +1304,7 @@ int main() {
                 gHeldModels.loadDir("data/models/held");
                 gHeldModels.bump();
                 gFactions.load("data/registry/factions.toml");
+                gLoot.load("data/registry/loot.toml");
                 gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
                 gAnims.load("data/animations", "data/animations/retarget.toml");
                 gAnimMap.load("data/animations/anim_map.toml");
@@ -1261,6 +1312,7 @@ int main() {
                 decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
                 gItems.addDecor(*decor::current());
                 gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current());
+                buildItemIcons();   // tools, weapons and gear drawn from their models (ui/ItemIcon.h)
                 blockTable = BlockRenderTable::build(
                     gRegistry, gResourcePacks);
                 if (streamer)
@@ -1288,7 +1340,7 @@ int main() {
                 dropWoodMeshes();
                 // Faces and swatches may have changed too
                 loadCharacterArt();
-                playerBody->setAppearance(player.appearance, hairMesh(), true);
+                playerBody->setAppearance(player.appearance, hairMesh(), true, gearLooksOf(player.activeInventory()));
                 std::cout << "Pack reloaded\n";
             }
         }
@@ -1322,9 +1374,13 @@ int main() {
             // milliseconds of them per frame
             if (editor) editor->update(4.0f);
 
-            // Autosave every few minutes
+            // Autosave every few minutes (Settings → Auto save);
+            // dev worlds only save when asked
             autosaveTimer += frameTime;
-            if (autosaveTimer >= AUTOSAVE_SECONDS) saveWorld();
+            if (autosaveTimer >= AUTOSAVE_SECONDS) {
+                if (gSettings.autosave && !gWorldSave.isDevWorld()) saveWorld();
+                else autosaveTimer = 0.0f;
+            }
         }
 
         gRenderer->beginFrame();
@@ -1337,7 +1393,18 @@ int main() {
             UIRenderer* ui = gRenderer->getUIRenderer();
             ScreenResult r = mainMenu.update(*ui, dt);
 
-            if (r == ScreenResult::NewWorld) {
+            if (r == ScreenResult::NewWorld && !mainMenu.getNewWorldCopyOf().empty()) {
+                // a copy of a dev world, under the new name (in the
+                // folder chosen), opened like a saved world
+                bool dev = mainMenu.getNewWorldDev();
+                std::string name = WorldSaveManager::uniqueName(dev, mainMenu.getNewWorldName());
+                std::string why;
+                if (WorldSaveManager::copyWorld(true, mainMenu.getNewWorldCopyOf(), dev, name, why))
+                    enterWorld(false, name, 0, GameMode::Survival, WorldType::Classic, 0,
+                               -1, TerrainStyle::GuidedRivers, WorldGenParams(), FlatOptions(), dev);
+                else
+                    std::cerr << "Copying dev world failed: " << why << "\n";
+            } else if (r == ScreenResult::NewWorld) {
                 enterWorld(true,
                            mainMenu.getNewWorldName(),
                            mainMenu.getNewWorldSeed(),
@@ -1346,13 +1413,18 @@ int main() {
                            mainMenu.getNewWorldSize(),
                            mainMenu.getNewWorldBiome(),
                            mainMenu.getNewWorldTerrain(),
-                           mainMenu.getNewWorldParams());
+                           mainMenu.getNewWorldParams(),
+                           mainMenu.getNewWorldFlat(),
+                           mainMenu.getNewWorldDev());
+                pendingKit = mainMenu.getNewWorldKit();   // laid out once the ground under you is there
             } else if (r == ScreenResult::LoadWorld) {
                 // Seed and mode come from the save file
                 enterWorld(false,
                            mainMenu.getLoadWorldName(), 0,
                            GameMode::Survival,
-                           WorldType::Classic, 0);
+                           WorldType::Classic, 0,
+                           -1, TerrainStyle::GuidedRivers, WorldGenParams(), FlatOptions(),
+                           mainMenu.getLoadWorldDev());
             } else if (r == ScreenResult::Quit) {
                 glfwSetWindowShouldClose(window, true);
             }
@@ -1404,8 +1476,42 @@ int main() {
             } else {
                 // ── A body in the world (Test Play,
                 //    Survival, and Survival's combat stance) ─
-                camera.processMouse(
-                    mouseDelta.x, mouseDelta.y);
+                // TAB: lock onto the enemy nearest the middle of
+                // the view, or let go (game/LockOn.h)
+                auto hostileToMe = [&](const Npc& n) { return sim.hostile(n, player); };
+                if (gInput.isPressed(InputAction::LockOn)) {
+                    if (lockOn) { lockOn.clear(); }
+                    else if (Npc* t = LockOn::pick(npcs.all(), camera.position, camera.front, hostileToMe)) {
+                        lockOn.target = t->uuid;
+                        lockOn.lostFor = 0.0f;
+                    }
+                }
+                Npc* locked = lockOn ? npcs.find(lockOn.target) : nullptr;
+                if (lockOn && (!locked || locked->dead() || player.dead() ||
+                               glm::length(locked->position - player.position) > LockOn::BREAK_RANGE)) {
+                    lockOn.clear(); locked = nullptr;
+                }
+                if (locked) {
+                    // out of sight too long: let go
+                    glm::vec3 aim = LockOn::aimPoint(*locked);
+                    bool seen = sim.clearLine(player.position + glm::vec3(0.0f, player.eyeHeight, 0.0f), aim);
+                    lockOn.lostFor = seen ? 0.0f : lockOn.lostFor + dt;
+                    if (lockOn.lostFor > LockOn::LOST_TIME) { lockOn.clear(); locked = nullptr; }
+                }
+                if (locked) {
+                    // sideways mouse switches targets; the camera turns onto it
+                    int side = lockOn.flicked(mouseDelta.x, dt);
+                    if (side) {
+                        if (Npc* n = LockOn::pick(npcs.all(), camera.position, camera.front, hostileToMe,
+                                                  locked->uuid, side, locked->position)) { lockOn.target = n->uuid; locked = n; }
+                    }
+                    camera.processMouse(0.0f, mouseDelta.y);
+                    float want = LockOn::yawTo(player.position, locked->position);
+                    camera.setLook(LockOn::turnToward(camera.yaw, want, dt), camera.pitch);
+                } else {
+                    camera.processMouse(
+                        mouseDelta.x, mouseDelta.y);
+                }
 
                 // 1. Keyboard → what the player wants to do.
                 //    Which buttons do what depends on the
@@ -1419,6 +1525,18 @@ int main() {
                 //    This player's intent goes in like any other
                 //    player's would over the network.
                 physicsTime = std::min(physicsTime + dt, 0.25f);
+                // the spawner structures placed in the world, for the
+                // simulation to run (sim/Spawners.h)
+                if (structs) {
+                    static std::vector<Spawners::Placed> placedSpawners;
+                    placedSpawners.clear();
+                    structs->forEachInstance([](const StructureInstance& si) {
+                        const StructureType* t = gStructures.get(si.type);
+                        if (t && t->kind == StructureKind::Spawner)
+                            placedSpawners.push_back({ si.id, si.type, glm::vec3(si.origin) + glm::vec3(0.5f, 0.0f, 0.5f) });
+                    });
+                    sim.syncSpawners(placedSpawners);
+                }
                 while (physicsTime >= PHYSICS_STEP) {
                     controller.beforeTick(player);
                     sim.setIntent(player.uuid, controller.intent);
@@ -1431,6 +1549,9 @@ int main() {
                 gOutlineFx.update(frameDt);
                 for (const SimEvent& e : sim.takeEvents()) {
                     gOutlineFx.onEvent(e);       // flashing outlines (hurt, blocked …)
+                    if (e.kind == SimEvent::Kind::Hit && e.parried && e.b == player.uuid) say("parried - strike now for a riposte");
+                    if (e.kind == SimEvent::Kind::Hit && e.parried && e.a == player.uuid) say("you were parried");
+                    if (e.kind == SimEvent::Kind::Hit && e.riposte && e.a == player.uuid) say("riposte");
                     char b[96];
                     switch (e.kind) {
                     case SimEvent::Kind::Killed:
@@ -1473,7 +1594,7 @@ int main() {
                             hud.review.push_back(b2);
                             std::snprintf(b2, sizeof(b2), "XP +%.0f%s", t.xp, en->players.size() > 1 ? "  (shared)" : "");
                             hud.review.push_back(b2);
-                            hud.review.push_back(t.loot.empty() ? "loot: none yet (drop tables come later)" : "loot");
+                            hud.review.push_back("loot: E on a body searches it");
                             hud.reviewAge = 0.0f;
                         }
                         break;
@@ -1527,13 +1648,45 @@ int main() {
                     physicsTime / PHYSICS_STEP, dt,
                     gPhysics.get());
 
-                // E: talk to the NPC in front of you (it waits in
-                // its 'unavailable' state until you leave)
+                // A new dev world's showcase chests, once you stand on
+                // its ground (the chunks have to be there first)
+                if (pendingKit && player.grounded && structs) {
+                    pendingKit = false;
+                    int n = devkit::placeKit(*structs, chests, player.position, player.facing, say);
+                    if (n) say("showcase chests: take a copy of anything (E opens; chest kit makes more)");
+                }
+
+                // A body in front of you that may be searched (its pack:
+                // game/Container.h): the nearest within reach
+                auto bodyInView = [&]() -> Npc* {
+                    Npc* best = nullptr; float bestD = 24.0f;   // 8 ft
+                    for (auto& n : npcs.all()) {
+                        if (!n->dead() || !n->pack.exists()) continue;
+                        glm::vec3 mid = n->ragdoll.simulating() ? n->ragdoll.point(RP_PELVIS) : n->position + glm::vec3(0, 3, 0);
+                        glm::vec3 d = mid - camera.position;
+                        float dist = glm::length(d);
+                        if (dist > 40.0f || glm::dot(d / std::max(dist, 1e-3f), camera.front) < 0.85f) continue;
+                        float flat = glm::length(glm::vec2(mid.x - player.position.x, mid.z - player.position.z));
+                        if (flat < bestD) { bestD = flat; best = n.get(); }
+                    }
+                    return best;
+                };
+
+                // E: search the body in front of you, or talk to the
+                // NPC in front of you (it waits in its 'unavailable'
+                // state until you leave)
                 if (gInput.isPressed(InputAction::Interact)) {
                     if (talkingTo) { sim.closeMenu(talkingTo); }
-                    else {
+                    else if (Npc* body = (hands.target.hit && structs->instanceAt(hands.target.blockPos)) ? nullptr : bodyInView()) {
+                        inventoryScreen.setContext(&player, &body->pack.read(), body->name + " - pack");
+                        inventoryScreen.onEnter();
+                        inventoryOpenedFrame = true;
+                        gState = GameState::Inventory;
+                        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                    } else {
                         Npc* best = nullptr; float bestD = 10.0f;
                         for (auto& n : npcs.all()) {
+                            if (n->dead()) continue;
                             glm::vec3 d = n->position + glm::vec3(0, 9, 0) - camera.position;
                             float dist = glm::length(d);
                             if (dist > 40.0f || glm::dot(d / std::max(dist, 1e-3f), camera.front) < 0.9f) continue;
@@ -1557,6 +1710,25 @@ int main() {
                     hands.aim(camera, eyes, *gPhysics,
                               player.mode == GameMode::Dev);
                     hands.update(player, *editor, dev, *structs, build, dt);
+                    if (hands.aimLabel.empty() && !talkingTo)
+                        if (Npc* body = bodyInView()) hands.aimLabel = body->name + (body->pack.mayHoldItems() ? "   E: search" : "   searched - empty");
+
+                    // E on a chest → the inventory, the chest beside it
+                    if (hands.openChest) {
+                        uint32_t cid = hands.openChest;
+                        hands.openChest = 0;
+                        StructureInstance* ci = nullptr;
+                        structs->forEachInstance([&](const StructureInstance& si) { if (si.id == cid) ci = const_cast<StructureInstance*>(&si); });
+                        const StructureType* ct = ci ? gStructures.get(ci->type) : nullptr;
+                        if (ct) {
+                            Container& cc = chests.get(cid, *ct);
+                            inventoryScreen.setContext(&player, &cc.read(), cc.label.empty() ? ct->displayName : cc.label);
+                            inventoryScreen.onEnter();
+                            inventoryOpenedFrame = true;
+                            gState = GameState::Inventory;
+                            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                        }
+                    }
 
                     // Hammer right click → build menu
                     if (hands.wantBuildMenu) {
@@ -1592,7 +1764,7 @@ int main() {
                     player, dev, hands.target, structs.get(),
                     [&](GameMode m) { changeMode(m); },
                     [&]() { saveWorld(); },
-                    say, &npcs, &sim };
+                    say, &npcs, &sim, &chests };
                 commands.run(line, ctx);
             }
             gConsoleLines.clear();
@@ -1632,6 +1804,7 @@ int main() {
             inventoryOpenedFrame = false;
             if (!justOpened && (r == ScreenResult::CloseMenu ||
                 gInput.isPressed(InputAction::Inventory) ||
+                gInput.isPressed(InputAction::Interact) ||        // E closes a chest it opened
                 gInput.isPressed(InputAction::Pause))) {
                 gState = GameState::Playing;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -1731,6 +1904,7 @@ int main() {
 
             UIRenderer* ui = gRenderer->getUIRenderer();
             pauseMenu.setDevMenuAllowed(player.mode != GameMode::Survival);
+            pauseMenu.setDevWorld(gWorldSave.isDevWorld());
             ScreenResult r = pauseMenu.update(*ui, dt);
 
             if (r == ScreenResult::OpenDevMenu) {
@@ -1758,8 +1932,12 @@ int main() {
                 camera.firstMouse = true;
                 gInput.resetMouseDelta(window);
 
-            } else if (r == ScreenResult::SaveAndQuit) {
-                leaveWorld();
+            } else if (r == ScreenResult::SaveGame) {
+                saveWorld();
+                pauseMenu.notice("world saved");
+
+            } else if (r == ScreenResult::SaveAndQuit || r == ScreenResult::QuitNoSave) {
+                leaveWorld(r == ScreenResult::SaveAndQuit);
                 gState = GameState::MainMenu;
                 glfwSetInputMode(window, GLFW_CURSOR,
                                  GLFW_CURSOR_NORMAL);
@@ -1821,8 +1999,9 @@ int main() {
 
     // ── Shutdown ──────────────────────────────────────────
     // Closing the window while in a world still saves it
+    // (a dev world only saves when asked, so not that)
     if (gState != GameState::MainMenu && world)
-        leaveWorld();
+        leaveWorld(!gWorldSave.isDevWorld());
 
     // Everything that owns OpenGL objects goes before
     // glfwTerminate() destroys the context

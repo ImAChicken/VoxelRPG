@@ -37,6 +37,7 @@ public:
         addChoice("Character edges", &gSettings.charEdges, { "Off", "Lines", "Lines + echo" });
         addChoice("Edge line colour", &gSettings.charLineColor, { "Black", "Tinted" });
         addChoice("Hair mesh", &gSettings.charHairMesh, { "Voxels", "Shards", "Soft shards" });
+        addChoice("Auto save", &gSettings.autosave, { "Off", "On" });
     }
 
     void onEnter() override {

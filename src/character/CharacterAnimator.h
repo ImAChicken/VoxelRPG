@@ -55,6 +55,7 @@ struct Pose {
     glm::vec3 rootOffset = {0, 0, 0};          // inches, added to the root joint
     float bodyYaw   = 0.0f;                    // world yaw the body faces
     float spinPitch = 0.0f;                    // whole-body somersault (rolls)
+    float heldTurn  = 0.0f;                    // 0..1: the held item turned for a thrust (HeldModelDef::turn)
 };
 
 // Where the model sits in the world: feet at 'feet' (voxels),
@@ -288,6 +289,16 @@ public:
             put(B_ELBOW_L,    {-100, 0, 0});
             put(B_SPINE,      {10, 0, 0});
         }
+        // a thrust turns the held item to point along it: in over
+        // the wind-up, held through the hit window, out in recovery
+        shown.heldTurn = 0.0f;
+        if (in.attack && in.attack->thrust) {
+            float t = in.attackT, a0 = in.attack->activeStart, a1 = in.attack->activeEnd, d = in.attack->duration;
+            float up = std::clamp(t / std::max(a0 * 0.8f, 1e-3f), 0.0f, 1.0f);
+            float down = 1.0f - std::clamp((t - a1) / std::max((d - a1) * 0.7f, 1e-3f), 0.0f, 1.0f);
+            float w = std::min(up, down);
+            shown.heldTurn = w * w * (3 - 2 * w);
+        }
         int atkClip = in.attack ? gAnimMap.attackClip(in.attack->id) : -1;
         if (in.attack && atkClip >= 0) {
             // the clip over the attack's duration, its marked strike
@@ -302,6 +313,7 @@ public:
             for (int b = 0; b < BONE_COUNT; b++) if (gAnims.drives(b)) shown.rot[b] = blendRot(shown.rot[b], a[b], w);
         } else if (in.attack) {
             float drop = 0.0f;
+            shown.heldTurn = 0.0f;
             combatanim::apply(in.attack->pose, in.attack->duration, in.attackT, shown.rot, drop);
             if (!in.grounded) shown.rootOffset.y -= drop;
         }

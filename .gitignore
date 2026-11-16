@@ -1,2 +1,8 @@
 # CMake build output — regenerate with: cmake -B build
 build/
+
+# Worlds you play; created by the game
+saves/
+# Dev worlds: share one on purpose with  git add -f devworlds/<name>
+devworlds/*/
+!devworlds/README.md

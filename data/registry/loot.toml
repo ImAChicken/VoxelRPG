@@ -1,0 +1,103 @@
+# VoxelRPG Loot Tables (game/LootTables.h)
+# What a container holds before anyone looks. A container (a
+# chest, an NPC's pack: game/Container.h) can name one of these
+# instead of holding items; nothing is made until it's first
+# READ (opened, a body searched, a chest broken). Then the table
+# is rolled once and it's ordinary items from there on.
+# F6 reloads this file (containers already read keep their items).
+#
+# [[table]]
+#   id       the name structures.toml / npcs.toml use ('loot = ')
+#   rolls    [min, max] picks from 'pick' (or one number)
+#   pick     weighted entries: one chosen per roll
+#   always   entries rolled once each, on their own 'chance'
+# An entry:
+#   item     an item (items.toml) or a block name
+#   table    or another table to roll (up to 4 deep)
+#   count    [min, max] or one number (default 1)
+#   weight   for 'pick' (default 1). An entry with no item and
+#            no table is "nothing"
+#   chance   0..1 (default 1)
+#
+# Try one: loot roll <table> [times]
+
+# ── Pieces other tables use ───────────────────────────────
+[[table]]
+id = "materials"
+rolls = 1
+pick = [
+  { item = "planks", count = [2, 8], weight = 4 },
+  { item = "stone", count = [4, 16], weight = 3 },
+  { item = "cobblestone", count = [2, 10], weight = 2 },
+]
+
+[[table]]
+id = "leather_gear"
+rolls = 1
+pick = [
+  { item = "leather_cap", weight = 2 },
+  { item = "leather_jerkin", weight = 1 },
+  { item = "leather_boots", weight = 2 },
+]
+
+[[table]]
+id = "iron_gear"
+rolls = 1
+pick = [
+  { item = "iron_helmet", weight = 3 },
+  { item = "iron_gauntlets", weight = 3 },
+  { item = "iron_greaves", weight = 2 },
+  { item = "chainmail", weight = 1 },
+]
+
+# ── NPC packs (npcs.toml: pack / loot) ────────────────────
+[[table]]
+id = "bandit"
+rolls = [1, 2]
+always = [ { item = "iron_sword", chance = 0.35 } ]
+pick = [
+  { table = "materials", weight = 3 },
+  { table = "leather_gear", weight = 2 },
+  { weight = 2 },                               # nothing
+]
+
+[[table]]
+id = "guard"
+rolls = 1
+always = [ { item = "iron_sword", chance = 0.5 } ]
+pick = [
+  { table = "iron_gear", weight = 2 },
+  { table = "leather_gear", weight = 1 },
+  { weight = 2 },
+]
+
+[[table]]
+id = "villager"
+rolls = [0, 2]
+pick = [
+  { table = "materials", weight = 3 },
+  { item = "hoe", weight = 1 },
+  { item = "wooden_shovel", weight = 1 },
+]
+
+[[table]]
+id = "undead"
+rolls = [0, 1]
+pick = [
+  { item = "dirt", count = [1, 4], weight = 3 },
+  { table = "leather_gear", weight = 1 },
+  { item = "iron_sword", weight = 1 },
+]
+
+# ── Chests ────────────────────────────────────────────────
+[[table]]
+id = "bandit_stash"
+rolls = [3, 6]
+always = [ { table = "iron_gear", chance = 0.4 } ]
+pick = [
+  { table = "materials", weight = 5 },
+  { table = "leather_gear", weight = 2 },
+  { item = "iron_sword", weight = 1 },
+  { item = "spear", weight = 1 },
+  { item = "iron_axe", weight = 1 },
+]

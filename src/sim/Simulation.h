@@ -5,6 +5,7 @@
 #include "../npc/Encounters.h"
 #include "../game/CombatHits.h"
 #include "BodyPoses.h"
+#include "Spawners.h"
 #include "../physics/IPhysics.h"
 #include "../world/Woodcutting.h"
 #include "../chunk/ChunkManager.h"
@@ -57,6 +58,7 @@ struct SimEvent {
     AttackKind attack = AttackKind::None;
     float      amount = 0.0f;
     bool       blocked = false, guardBroken = false, poiseBroken = false, knockedDown = false;
+    bool       parried = false, riposte = false;   // Hit: b parried a (a is exposed) / a hit an exposed b
     uint16_t   item = 0;
     int        count = 0;
 };
@@ -86,6 +88,7 @@ public:
         physics = nullptr;
         wood = nullptr;
         npcList.clear();
+        spawnerList.clear();
         intents.clear();
         noises.clear();
         fights.clear();
@@ -157,6 +160,7 @@ public:
         std::vector<glm::vec3> where;
         for (auto& p : playerList) if (p->rules().hasBody) where.push_back(p->position);
         npcList.tick(dt, *physics, *this, heard, where);
+        spawnerList.tick(dt, *physics, npcList, where);       // spawner structures keep NPCs coming
         for (EntityId id : npcList.takeClosedMenus()) {
             SimEvent e; e.kind = SimEvent::Kind::MenuClosed; e.a = id;
             events.push_back(e);
@@ -191,6 +195,7 @@ public:
             e.a = h.attacker; e.b = h.target;
             e.attack = h.kind; e.amount = h.damage;
             e.blocked = h.blocked; e.guardBroken = h.guardBroken;
+            e.parried = h.parried; e.riposte = h.riposte;
             e.poiseBroken = h.poiseBroken; e.knockedDown = h.knockedDown;
             events.push_back(e);
             if (h.killed) {
@@ -249,6 +254,11 @@ public:
             } else p.deadFor = 0.0f;
         }
     }
+
+    // Spawner structures (sim/Spawners.h): main hands over the
+    // placed ones; the overlay and console read their state
+    void syncSpawners(const std::vector<Spawners::Placed>& placed) { spawnerList.sync(placed, npcList); }
+    const Spawners& spawners() const { return spawnerList; }
 
     // The skeletons the hits use (debug overlay, tests)
     const BodyPoses& bodyPoses() const { return poses; }
@@ -460,6 +470,7 @@ public:
 
 private:
     BodyPoses poses;
+    Spawners  spawnerList;
 
     // Pose players with a body and Full-tier NPCs; the rest are
     // too far for their limbs to matter (they keep the capsule)

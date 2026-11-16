@@ -33,6 +33,14 @@
 //
 // A body hit:
 //   rolling or dodging (i-frames)   nothing
+//   guard raised within PARRY_WINDOW, facing the attacker:
+//                                   PARRIED. No damage; the
+//                                   attacker's swing is knocked
+//                                   aside and it's EXPOSED for
+//                                   EXPOSED_TIME (can't attack or
+//                                   guard). Not the plunge's slam
+//   exposed (was parried)           a RIPOSTE: RIPOSTE_DAMAGE ×,
+//                                   knocked down, no guard
 //   guarding, facing the attacker   GUARD_KEEP of the damage,
 //                                   stamina pays for the rest;
 //                                   out of stamina = guard broken
@@ -50,6 +58,8 @@ struct HitEvent {
     float      damage   = 0.0f;   // what got through
     bool       blocked  = false;
     bool       guardBroken = false;
+    bool       parried  = false;       // the target parried: the ATTACKER is exposed, nothing landed
+    bool       riposte  = false;       // the target was exposed: a critical hit
     bool       poiseBroken = false;    // staggered (or knocked down)
     bool       knockedDown = false;
     bool       killed   = false;
@@ -138,8 +148,8 @@ inline void limbBoxes(const Human& b, const hitshape::Posed* pb,
 inline bool bladeContact(const hitshape::Posed& pa, float s0, float s1,
                          const std::vector<std::pair<int, hitshape::OBB>>& limbs, Contact& c) {
     if (!pa.now || !pa.held || !pa.model || limbs.empty()) return false;
-    const glm::mat4& Wn = (*pa.now)[B_WRIST_R];
-    const glm::mat4& Wp = pa.prev ? (*pa.prev)[B_WRIST_R] : Wn;
+    const glm::mat4 Wn = (*pa.now)[B_WRIST_R] * pa.held->turn(*pa.model, pa.turnNow);
+    const glm::mat4 Wp = pa.prev ? (*pa.prev)[B_WRIST_R] * pa.held->turn(*pa.model, pa.turnPrev) : Wn;
     // the limbs' bounding sphere, for a quick reject
     glm::vec3 bc(0.0f);
     for (auto& l : limbs) bc += l.second.c;
@@ -231,7 +241,29 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
     glm::vec2 bf(b.facing.x, b.facing.z);
     bool facing = glm::length(bf) > 1e-3f && glm::dot(glm::normalize(bf), -glm::vec2(away.x, away.z)) > 0.35f;
     float knock;
-    if (b.guarding && facing) {
+    if (b.guarding && facing && b.guardTime <= PARRY_WINDOW && a.attack.kind != AttackKind::AirHeavy) {
+        // parried: the swing is knocked aside, the attacker reels
+        ev.parried = ev.blocked = true;
+        ev.damage = 0.0f;
+        b.lastHitBy = a.uuid;
+        a.attack = AttackState();
+        a.exposed = EXPOSED_TIME;
+        glm::vec3 back = -away;
+        knockBody(a, a.bodyPoint(0.7f), back, 0.1f, PARRY_KNOCK);
+        b.guardTime = PARRY_WINDOW + 1.0f;           // one parry per raise
+        return ev;
+    }
+    if (b.exposed > 0.0f) {
+        // a riposte on a parried body: critical, and it goes down
+        ev.riposte = true;
+        b.exposed = 0.0f;
+        b.health = std::max(0.0f, b.health - dmg * RIPOSTE_DAMAGE);
+        ev.poiseBroken = ev.knockedDown = true;
+        b.poise = b.maxPoise;
+        b.attack = AttackState();
+        knock = std::max(d.knock, KNOCKDOWN_KNOCK);
+        dmg *= RIPOSTE_DAMAGE;
+    } else if (b.guarding && facing) {
         ev.blocked = true;
         float cost = dmg * (1.0f - GUARD_KEEP) * GUARD_COST;
         if (!b.infiniteStamina) { b.stamina -= cost; b.staminaWait = STAMINA_DELAY; }
@@ -302,6 +334,7 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
                 if (clear && !clear(a->bodyPoint(0.6f), c.point)) continue;   // no hits through walls
                 st.hitIds.push_back(b->uuid);
                 out.push_back(land(*a, *b, &c));
+                if (!a->attack.active()) break;         // parried: the swing is over
                 continue;
             }
             if (!sweeps(*a, *b, t0, t1)) continue;
@@ -309,6 +342,7 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
             if (clear && !clear(a->bodyPoint(0.6f), b->bodyPoint(0.6f))) continue;
             st.hitIds.push_back(b->uuid);
             out.push_back(land(*a, *b));
+            if (!a->attack.active()) break;             // parried: the swing is over
         }
     }
 }

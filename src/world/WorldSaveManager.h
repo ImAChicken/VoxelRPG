@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <string>
 #include <filesystem>
 #include <fstream>
@@ -12,8 +13,61 @@
 #include <functional>
 #include <ostream>
 
+// Worlds live in one of two folders:
+//   saves/       ordinary worlds; saved every few minutes
+//                (Settings → Auto save) and on leaving
+//   devworlds/   dev worlds: stages for showcases and tests
+//                (enemies, items, spawners). Never saved by
+//                themselves: Esc → Save keeps what's there,
+//                Quit without saving throws the visit away.
+//                They can be copied into new worlds (New World
+//                → Start: Copy a dev world).
 class WorldSaveManager {
 public:
+    static const char* rootFor(bool dev) { return dev ? "devworlds" : "saves"; }
+
+    // The worlds in a folder (folders holding a world.vxrp), sorted
+    static std::vector<std::string> list(bool dev) {
+        std::vector<std::string> out;
+        std::error_code ec;
+        if (!std::filesystem::exists(rootFor(dev), ec)) return out;
+        for (auto& e : std::filesystem::directory_iterator(rootFor(dev), ec))
+            if (e.is_directory() && std::filesystem::exists(e.path() / "world.vxrp"))
+                out.push_back(e.path().filename().string());
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+    // 'name', or 'name 2', 'name 3' … if that's taken in the folder
+    static std::string uniqueName(bool dev, const std::string& name) {
+        std::string n = name;
+        for (int i = 2; std::filesystem::exists(std::string(rootFor(dev)) + "/" + n); i++)
+            n = name + " " + std::to_string(i);
+        return n;
+    }
+    // A whole world copied to a new one (another folder or name):
+    // its chunks, structures, NPCs, player and all. Returns false
+    // with a reason if it can't.
+    static bool copyWorld(bool srcDev, const std::string& src, bool dstDev, const std::string& dst, std::string& why) {
+        std::filesystem::path from = std::string(rootFor(srcDev)) + "/" + src;
+        std::filesystem::path to   = std::string(rootFor(dstDev)) + "/" + dst;
+        std::error_code ec;
+        if (!std::filesystem::exists(from / "world.vxrp")) { why = "no world '" + src + "'"; return false; }
+        if (std::filesystem::exists(to)) { why = "'" + dst + "' already exists"; return false; }
+        std::filesystem::create_directories(to.parent_path(), ec);
+        std::filesystem::copy(from, to, std::filesystem::copy_options::recursive, ec);
+        if (ec) { why = ec.message(); return false; }
+        // its own name in its descriptor
+        std::ifstream in(to / "world.vxrp");
+        std::vector<std::string> lines;
+        for (std::string l; std::getline(in, l);) lines.push_back(l.rfind("name=", 0) == 0 ? "name=" + dst : l);
+        in.close();
+        std::ofstream out(to / "world.vxrp");
+        for (auto& l : lines) out << l << "\n";
+        return true;
+    }
+
+    bool isDevWorld() const { return worldDev; }
+
     // Start a brand new world. If a save with this name
     // already exists its chunk files are removed — they
     // belong to the old world and would otherwise be loaded
@@ -24,8 +78,11 @@ public:
     bool createWorld(const std::string& name, uint64_t seed,
                      GameMode mode, WorldType type, int size, int biome = -1,
                      TerrainStyle terrain = TerrainStyle::GuidedRivers,
-                     const WorldGenParams& params = WorldGenParams()) {
+                     const WorldGenParams& params = WorldGenParams(),
+                     const FlatOptions& flat = FlatOptions(), bool dev = false) {
         worldParams = params;
+        worldFlat   = flat;
+        worldDev    = dev;
         worldName   = name;
         worldBiome  = biome;
         worldTerrain = terrain;
@@ -33,7 +90,7 @@ public:
         defaultMode = mode;
         worldType   = type;
         worldSize   = worldSizeFor(type, size);
-        worldPath = "saves/" + name;
+        worldPath = std::string(rootFor(dev)) + "/" + name;
         std::error_code ec;
         std::filesystem::path chunkDir = worldPath + "/chunks";
         std::filesystem::create_directories(chunkDir, ec);
@@ -54,8 +111,9 @@ public:
         return saveDescriptor();
     }
 
-    bool loadWorld(const std::string& name) {
-        worldPath = "saves/" + name;
+    bool loadWorld(const std::string& name, bool dev = false) {
+        worldDev  = dev;
+        worldPath = std::string(rootFor(dev)) + "/" + name;
         worldName = name;
         // Saves made before worlds had a mode have no
         // "mode=" line and open in Survival
@@ -67,6 +125,7 @@ public:
         // worlds from before erosion keep their old ground
         worldTerrain = TerrainStyle::NoErosion;
         worldParams.reset();
+        worldFlat = FlatOptions();
         return loadDescriptor();
     }
 
@@ -132,7 +191,7 @@ public:
         return true;
     }
 
-    // Folder of the open world, e.g. "saves/myworld"
+    // Folder of the open world, e.g. "saves/myworld" or "devworlds/arena"
     const std::string& getWorldPath() const { return worldPath; }
 
     // Where a chunk's save file lives. Static and takes the
@@ -150,6 +209,7 @@ public:
     int         getWorldBiome() const { return worldBiome; }
     TerrainStyle getTerrainStyle() const { return worldTerrain; }
     const WorldGenParams& getGenParams() const { return worldParams; }
+    const FlatOptions& getFlatOptions() const { return worldFlat; }
     int         getWorldSize() const { return worldSize; }
     std::string getName()  const { return worldName; }
     bool        isLoaded() const { return !worldPath.empty(); }
@@ -164,6 +224,8 @@ private:
     int         worldBiome  = -1;     // single-biome worlds
     TerrainStyle worldTerrain = TerrainStyle::GuidedRivers;
     WorldGenParams worldParams;
+    FlatOptions    worldFlat;          // flat worlds
+    bool           worldDev = false;   // in devworlds/
 
     bool saveDescriptor() {
         std::ofstream f(worldPath + "/world.vxrp");
@@ -174,7 +236,8 @@ private:
         f << "type="    << worldTypeKey(worldType) << "\n";
         f << "size="    << worldSize << "\n";
         if (worldBiome >= 0) f << "biome=" << island::biomeInfo(worldBiome).name << "\n";
-        if (worldType != WorldType::Classic) {
+        if (worldType == WorldType::Flat) worldFlat.write(f);
+        if (worldTypeShaped(worldType)) {
             f << "terrain=" << terrainStyleKey(worldTerrain) << "\n";
             worldParams.write(f, [](int b) { return island::biomeInfo(b).name; }, island::BIOME_COUNT);
         }
@@ -199,6 +262,7 @@ private:
                 worldSize = std::atoi(line.substr(5).c_str());
             {
                 size_t eq = line.find('=');
+                if (eq != std::string::npos && worldFlat.read(line.substr(0, eq), line.substr(eq + 1))) continue;
                 if (eq != std::string::npos)
                     worldParams.read(line.substr(0, eq), line.substr(eq + 1),
                                      [](int b) { return island::biomeInfo(b).name; }, island::BIOME_COUNT);

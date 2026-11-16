@@ -1,5 +1,6 @@
 #pragma once
 #include "Appearance.h"
+#include "GearLook.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <array>
@@ -68,6 +69,17 @@ struct CharacterModel {
     glm::vec3 faceCenter = {0, 4, 4.7f};
     float     faceSize   = 8.0f;
 
+    // The body's measurements (inches), kept so worn gear can be
+    // built to fit it (gearParts)
+    struct Fit {
+        float s = 1, torsoH = 15.5f, bellyTop = 6.5f, waistW = 10, shoulderW = 13.5f, torsoD = 7.2f, chestR = 0;
+        float pelvH = 5, hipW = 12, pelvD = 7.2f, neckH = 2.2f;
+        float hw = 9.4f, hh = 12.3f, hd = 10;
+        float uArmL = 11, uArmT = 3.3f, fArmL = 10, fArmT = 2.9f, handL = 5;
+        float thighL = 15, thighT = 5.2f, shinL = 15.5f, shinT = 3.9f, footH = 2.5f, fl = 8.4f, fw = 3.6f;
+    };
+    Fit fit;
+
     size_t triangleCount() const {
         size_t n = 0;
         for (auto& p : parts) n += p.size() / 3;
@@ -75,7 +87,9 @@ struct CharacterModel {
     }
 
     // ══════════════════════════════════════════════════════
-    static CharacterModel build(const Appearance& c, HairMesh hairMode = HairMesh::Shards) {
+    // gear: worn pieces built around the body (GearLook.h)
+    static CharacterModel build(const Appearance& c, HairMesh hairMode = HairMesh::Shards,
+                                const std::vector<GearLook>* gear = nullptr) {
         CharacterModel m;
         using V3 = glm::vec3;
         const float H = c.heightVoxels * 4.0f;
@@ -108,6 +122,14 @@ struct CharacterModel {
         m.shinLen    = shinL;
         m.faceSize   = hw * 0.92f;
         m.faceCenter = { 0.0f, hh * 0.38f, hd * 0.47f + 0.08f };
+        {
+            Fit& f = m.fit;
+            f.s = s; f.torsoH = torsoH; f.bellyTop = torsoH * 0.42f; f.waistW = waistW; f.shoulderW = shoulderW;
+            f.torsoD = torsoD; f.chestR = chestR; f.pelvH = pelvH; f.hipW = hipW; f.pelvD = pelvD; f.neckH = neckH;
+            f.hw = hw; f.hh = hh; f.hd = hd; f.uArmL = uArmL; f.uArmT = uArmT; f.fArmL = fArmL; f.fArmT = fArmT;
+            f.handL = handL; f.thighL = thighL; f.thighT = thighT; f.shinL = shinL; f.shinT = shinT; f.footH = footH;
+            f.fl = (c.shoes == 2 ? 9.2f : 8.4f) * s; f.fw = (c.shoes == 2 ? 4.0f : 3.6f) * s;
+        }
 
         // ── Colours (0..255) ──────────────────────────────
         const V3 skin(c.skin), top(c.topColor), bot(c.bottomColor), hairC(c.hair);
@@ -211,7 +233,14 @@ struct CharacterModel {
             loft(head, {{hh * 0.42f, 0.7f * s, 1.1f * s, sx * hw * 0.5f}, {hh * 0.6f, 0.5f * s, 0.9f * s, sx * hw * 0.52f}}, 5, shade(skin, 0.96f));
 
         // hair and extras: two separate voxel grids and meshes
-        buildHair(c, hw, hh, hd, hairMode, head);
+        {
+            // a cap or helmet hides the hair and any hat, ears or horns
+            bool hide = false;
+            if (gear) for (const GearLook& g : *gear) hide = hide || g.hidesHair();
+            Appearance hc = c;
+            if (hide) { hc.hairStyle = 18; hc.extra = 0; }
+            buildHair(hc, hw, hh, hd, hairMode, head);
+        }
 
         // arms
         for (int sx : { -1, 1 }) {
@@ -270,7 +299,133 @@ struct CharacterModel {
             box(root, {hipW * 0.78f, ah, 0.3f * s}, {0, (apronTop + apronBot) / 2, (zTop + zBot) / 2}, LINEN,
                 -std::atan2(zBot - zTop, ah));
         }
+        if (gear && !gear->empty()) {
+            auto g = gearParts(m.fit, *gear);
+            for (int b = 0; b < BONE_COUNT; b++) m.parts[b].insert(m.parts[b].end(), g[b].begin(), g[b].end());
+        }
         return m;
+    }
+
+    // Worn gear built to fit a body: one mesh per bone, in each
+    // bone's frame like the body's parts (GearLook.h for shapes)
+    static std::array<std::vector<PartVertex>, BONE_COUNT> gearParts(const Fit& f, const std::vector<GearLook>& gear) {
+        std::array<std::vector<PartVertex>, BONE_COUNT> P;
+        const float s = f.s;
+        for (const GearLook& g : gear) {
+            const V3 C = g.color, T = g.trim, D = shade(g.color, 0.8f);
+            const std::string& k = g.shape;
+            // the torso's shape, grown by 'k' (as the body's bust)
+            auto shell = [&](float grow, float bottom) {
+                return std::vector<Ring>{
+                    {bottom, f.waistW * 0.55f * grow, f.torsoD * 0.52f * grow},
+                    {f.bellyTop, f.waistW * 0.55f * grow, f.torsoD * 0.52f * grow},
+                    {f.torsoH * 0.6f, (f.waistW * 0.52f + (f.shoulderW * 0.46f - f.waistW * 0.52f) * 0.6f + f.chestR * 0.15f) * grow,
+                     (f.torsoD * 0.5f + f.chestR * 0.35f) * grow, 0, 0.2f * s + f.chestR * 0.35f},
+                    {f.torsoH * 0.78f, (f.shoulderW * 0.47f + f.chestR * 0.1f) * grow, (f.torsoD * 0.52f + f.chestR * 0.45f) * grow, 0, 0.25f * s + f.chestR * 0.45f},
+                    {f.torsoH * 0.98f, f.shoulderW * 0.42f * grow, f.torsoD * 0.44f * grow},
+                    {f.torsoH + 0.3f * s, 2.3f * s, 2.2f * s},
+                };
+            };
+            if (k == "cap" || k == "helmet") {
+                auto& H = P[B_HEAD];
+                const float hw = f.hw, hh = f.hh, hd = f.hd;
+                bool helm = k == "helmet";
+                float base = helm ? 0.5f : 0.62f;          // above the brows at the front
+                loft(H, {{hh * base, hw * 0.58f, hd * 0.57f, 0, -0.02f * hd}, {hh * 0.82f, hw * 0.58f, hd * 0.57f, 0, -0.02f * hd},
+                         {hh * 1.02f, hw * 0.44f, hd * 0.45f}, {hh * 1.12f, hw * 0.16f, hd * 0.17f}}, 10, C);
+                loft(H, {{hh * base - 0.5f * s, hw * 0.61f, hd * 0.6f, 0, -0.02f * hd}, {hh * base + 0.6f * s, hw * 0.61f, hd * 0.6f, 0, -0.02f * hd}},
+                     10, T);                                // the band
+                if (helm) {
+                    box(H, {1.0f * s, hh * 0.22f, 0.5f * s}, {0, hh * 0.47f, hd * 0.6f}, T);   // nasal
+                    for (int sx : { -1, 1 })                                                   // cheek guards
+                        box(H, {0.5f * s, hh * 0.32f, hd * 0.34f}, {sx * hw * 0.58f, hh * 0.36f, hd * 0.08f}, D);
+                    loft(H, {{hh * 0.25f, hw * 0.56f, hd * 0.3f, 0, -hd * 0.35f}, {hh * base, hw * 0.6f, hd * 0.34f, 0, -hd * 0.3f}}, 8, D);   // neck guard
+                    box(H, {0.6f * s, 0.6f * s, hd * 0.9f}, {0, hh * 1.1f, -0.02f * hd}, T);   // crest ridge
+                } else {
+                    box(H, {hw * 0.7f, 0.35f * s, hd * 0.25f}, {0, hh * base - 0.2f * s, hd * 0.66f}, T, 0.25f);   // short brim
+                }
+            } else if (k == "jerkin" || k == "mail" || k == "cuirass") {
+                auto& S = P[B_SPINE];
+                auto& R = P[B_ROOT];
+                bool plate = k == "cuirass", mail = k == "mail";
+                float grow = plate ? 1.16f : mail ? 1.09f : 1.1f;
+                loft(S, shell(grow, -0.4f * s), 10, C);
+                // belt
+                loft(S, {{-0.6f * s, f.waistW * 0.58f * grow, f.torsoD * 0.55f * grow}, {0.9f * s, f.waistW * 0.58f * grow, f.torsoD * 0.55f * grow}}, 10, T);
+                // skirt (mail to mid thigh; leather and plate shorter)
+                float hem = mail ? -f.thighL * 0.5f : plate ? -f.thighL * 0.22f : -f.thighL * 0.3f;
+                loft(R, {{f.pelvH + 0.3f, f.waistW * 0.58f * grow, f.torsoD * 0.56f * grow}, {hem, f.hipW * 0.66f, f.pelvD * 0.74f}},
+                     plate ? 8 : 12, plate ? D : C, mail ? 0.06f : plate ? 0.0f : 0.04f);
+                for (int sx : { -1, 1 }) {
+                    bool L = sx > 0;
+                    auto& sh = P[L ? B_SHOULDER_L : B_SHOULDER_R];
+                    if (plate) {   // pauldrons: a dome over the shoulder
+                        loft(sh, {{-f.uArmL * 0.42f, f.uArmT * 0.78f, f.uArmT * 0.82f}, {-f.uArmL * 0.1f, f.uArmT * 1.0f, f.uArmT * 1.0f},
+                                  {f.uArmT * 0.55f, f.uArmT * 0.85f, f.uArmT * 0.88f}, {f.uArmT * 0.95f, f.uArmT * 0.3f, f.uArmT * 0.35f}}, 8, C);
+                        loft(sh, {{-f.uArmL * 0.45f, f.uArmT * 0.82f, f.uArmT * 0.86f}, {-f.uArmL * 0.36f, f.uArmT * 0.82f, f.uArmT * 0.86f}}, 8, T);
+                    } else {       // sleeves: short (leather) or to the elbow (mail)
+                        float end = mail ? -f.uArmL * 0.85f : -f.uArmL * 0.3f;
+                        loft(sh, {{0.8f * s, f.uArmT * 0.8f, f.uArmT * 0.8f}, {end, f.uArmT * 0.72f, f.uArmT * 0.72f}}, 8, C, mail ? 0.05f : 0.0f);
+                    }
+                }
+                if (plate)   // a ridge down the breastplate
+                    box(S, {0.5f * s, f.torsoH * 0.62f, 0.5f * s}, {0, f.torsoH * 0.5f, (f.torsoD * 0.52f + f.chestR * 0.45f) * grow + 0.15f * s}, T);
+                if (k == "jerkin")   // laces at the neck
+                    for (int i = 0; i < 3; i++)
+                        box(S, {1.6f * s, 0.25f * s, 0.3f * s}, {0, f.torsoH * (0.72f + i * 0.08f), (f.torsoD * 0.5f + f.chestR * 0.4f) * grow + 0.1f * s}, T);
+            } else if (k == "gauntlets") {
+                for (int sx : { -1, 1 }) {
+                    bool L = sx > 0;
+                    auto& el = P[L ? B_ELBOW_L : B_ELBOW_R];
+                    auto& wr = P[L ? B_WRIST_L : B_WRIST_R];
+                    loft(el, {{-f.fArmL * 0.42f, f.fArmT * 0.66f, f.fArmT * 0.66f}, {-f.fArmL + 0.2f, f.fArmT * 0.76f, f.fArmT * 0.76f},
+                              {-f.fArmL - 0.6f * s, f.fArmT * 0.9f, f.fArmT * 0.9f}}, 8, C);
+                    loft(el, {{-f.fArmL * 0.46f, f.fArmT * 0.7f, f.fArmT * 0.7f}, {-f.fArmL * 0.36f, f.fArmT * 0.7f, f.fArmT * 0.7f}}, 8, T);
+                    loft(wr, {{0.2f, 1.45f * s, 0.88f * s}, {-f.handL * 0.7f, 1.6f * s, 0.82f * s}, {-f.handL - 0.2f, 1.0f * s, 0.6f * s}}, 6, C);
+                    loft(wr, {{-0.6f * s, 0.5f * s, 0.5f * s, sx * -0.5f * s, 0.9f * s}, {-2.5f * s, 0.4f * s, 0.4f * s, sx * -0.4f * s, 1.4f * s}}, 5, C);
+                }
+            } else if (k == "greaves") {
+                for (int sx : { -1, 1 }) {
+                    bool L = sx > 0;
+                    auto& hp = P[L ? B_HIP_L : B_HIP_R];
+                    auto& kn = P[L ? B_KNEE_L : B_KNEE_R];
+                    loft(kn, {{-f.shinL * 0.08f, f.shinT * 0.7f, f.shinT * 0.74f}, {-f.shinL * 0.55f, f.shinT * 0.68f, f.shinT * 0.78f, 0, -0.2f * s},
+                              {-f.shinL * 0.9f, f.shinT * 0.52f, f.shinT * 0.56f}}, 8, C);
+                    // knee cop: a dome on the front of the knee
+                    loft(kn, {{-f.shinL * 0.14f, f.shinT * 0.62f, f.shinT * 0.3f, 0, f.shinT * 0.42f},
+                              {f.shinL * 0.06f, f.shinT * 0.62f, f.shinT * 0.34f, 0, f.shinT * 0.45f},
+                              {f.shinL * 0.16f, f.shinT * 0.3f, f.shinT * 0.2f, 0, f.shinT * 0.42f}}, 8, T);
+                    // thigh plate on the front
+                    loft(hp, {{-f.thighL * 0.35f, f.thighT * 0.56f, f.thighT * 0.3f, 0, f.thighT * 0.32f},
+                              {-f.thighL * 0.92f, f.shinT * 0.62f, f.shinT * 0.3f, 0, f.shinT * 0.38f}}, 8, D);
+                }
+            } else if (k == "boots") {
+                for (int sx : { -1, 1 }) {
+                    bool L = sx > 0;
+                    auto& kn = P[L ? B_KNEE_L : B_KNEE_R];
+                    auto& an = P[L ? B_ANKLE_L : B_ANKLE_R];
+                    loft(kn, {{-f.shinL * 0.5f, f.shinT * 0.72f, f.shinT * 0.76f}, {-f.shinL * 0.55f, f.shinT * 0.7f, f.shinT * 0.74f},
+                              {-f.shinL - 0.3f, f.shinT * 0.6f, f.shinT * 0.66f}}, 8, C);
+                    loft(kn, {{-f.shinL * 0.56f, f.shinT * 0.78f, f.shinT * 0.82f}, {-f.shinL * 0.48f, f.shinT * 0.78f, f.shinT * 0.82f}}, 8, T);   // turned top
+                    box(an, {f.fw * 1.18f, f.footH * 0.5f, f.fl * 1.1f}, {0, -f.footH + f.footH * 0.24f, f.fl * 0.3f}, T);   // sole
+                    loft(an, {{-f.footH * 0.5f, f.fw * 0.58f, f.fl * 0.55f, 0, f.fl * 0.3f}, {f.footH * 0.55f, f.fw * 0.5f, f.fl * 0.36f, 0, f.fl * 0.1f}}, 8, C);
+                }
+            } else if (k == "pack") {
+                auto& S = P[B_SPINE];
+                float back = -(f.torsoD * 0.5f + f.chestR * 0.05f) - 0.2f * s;
+                float pw = f.shoulderW * 0.62f, ph = f.torsoH * 0.62f, pd = 4.2f * s;
+                box(S, {pw, ph, pd}, {0, f.torsoH * 0.5f, back - pd * 0.5f}, C);                         // the pack
+                box(S, {pw * 0.92f, ph * 0.32f, 0.6f * s}, {0, f.torsoH * 0.6f, back - pd - 0.25f * s}, D);  // flap
+                box(S, {pw * 1.15f, 2.6f * s, 2.6f * s}, {0, f.torsoH * 0.5f + ph * 0.5f + 1.3f * s, back - pd * 0.5f}, T);   // bedroll
+                for (int sx : { -1, 1 }) {   // straps over the shoulders and down the front
+                    float x = sx * f.shoulderW * 0.2f;
+                    box(S, {1.0f * s, 0.5f * s, f.torsoD * 1.05f}, {x, f.torsoH * 0.97f, 0}, T);
+                    box(S, {1.0f * s, f.torsoH * 0.45f, 0.4f * s}, {x, f.torsoH * 0.72f, f.torsoD * 0.5f + f.chestR * 0.5f + 0.15f * s}, T);
+                }
+            }
+        }
+        for (auto& part : P) for (PartVertex& v : part) v.a = 4;   // its own part, so edge lines outline it
+        return P;
     }
 
     // A voxel grid filled from a shape and meshed the way the hair

@@ -30,16 +30,24 @@
 //   click a hotbar    select it (off-hand: in hand / out)
 //   1..0 over a slot  swap it with that hotbar slot
 // I or Esc closes; X swaps weapons.
+//
+// With a chest open (E on one: world/Chests.h), or a body being
+// searched (its pack: game/Container.h), its slots fill the
+// left window. Drag between it and your slots; shift click sends
+// a stack across (instead of equipping).
 class InventoryScreen : public UIScreen {
 public:
     explicit InventoryScreen(GLFWwindow* win) : window(win) {}
 
-    void setContext(Player* p) { player = p; }
+    // chest: the open chest's contents (null: none), and its name
+    void setContext(Player* p, Inventory* chestInv = nullptr, const std::string& chestTitle = "") {
+        player = p; chest = chestInv; chestName = chestTitle;
+    }
 
     void onEnter() override {
         mouseDown = mousePrev = true;      // ignore the opening click
         rightDown = rightPrev = true;
-        drag = -1; dragEquip = -1;
+        drag = -1; dragEquip = -1; dragChest = false;
     }
 
     ScreenResult update(UIRenderer& ui, float dt) override {
@@ -71,12 +79,34 @@ public:
         float x0 = std::max(10.0f, (sw - total) * 0.5f), py = std::max(10.0f, (sh - ph) * 0.5f);
         float lx = x0, mxp = lx + sideW + between, rx = mxp + midW + between;
 
-        hoverSlot = -1; hoverEquip = -1;
+        hoverSlot = -1; hoverEquip = -1; hoverChest = -1;
 
-        // ── Left: placeholder ─────────────────────────────
+        // ── Left: an open chest, or room for another menu ─
         drawPanel(ui, lx, py, sideW, ph);
-        ui.drawText("Placeholder", lx + pad, py + 14, theme.title, 2);
-        ui.drawText("room for another menu", lx + pad, py + 44, theme.textDim, 1);
+        bool takeAll = false, storeAll = false;
+        if (chest) {
+            ui.drawText(chestName, lx + pad, py + 14, theme.title, 2);
+            if (chest->showcase) ui.drawText("take: a copy   del: remove", lx + pad, py + 34, theme.accent, 1);   // a showcase
+            const int cols = 5;
+            float cs = std::min(slot, (sideW - 2 * pad - (cols - 1) * gap) / cols);
+            int rows = (Inventory::SLOTS + cols - 1) / cols;
+            cs = std::min(cs, (ph - 60.0f - 40.0f - (rows - 1) * gap) / rows);   // room for the buttons below
+            // Take all / Store all (your pack: not the hotbar or what's equipped)
+            float bw = (sideW - 2 * pad - gap) * 0.5f, bh = 26.0f, by = py + ph - pad - bh;
+            bool pressed = mouseDown && !mousePrev;
+            const char* names[2] = { "Take all", "Store all" };
+            for (int i = 0; i < 2; i++) {
+                float bx = lx + pad + i * (bw + gap);
+                bool hov = mx >= bx && mx < bx + bw && my >= by && my < by + bh;
+                drawButton(ui, names[i], bx, by, hov, 1, bw);
+                if (hov && pressed) (i == 0 ? takeAll : storeAll) = true;
+            }
+            for (int i = 0; i < std::min(chest->capacity, (int)Inventory::SLOTS); i++)   // a pack may be smaller
+                drawSlot(ui, *chest, i, lx + pad + (i % cols) * (cs + gap), py + 46 + (i / cols) * (cs + gap), true, cs);
+        } else {
+            ui.drawText("Placeholder", lx + pad, py + 14, theme.title, 2);
+            ui.drawText("room for another menu", lx + pad, py + 44, theme.textDim, 1);
+        }
 
         // ── Middle: the slots ─────────────────────────────
         drawPanel(ui, mxp, py, midW, ph);
@@ -112,6 +142,7 @@ public:
         int hsEquip = -1;
         if (hoverSlot >= 0 && !inv.slots[hoverSlot].empty()) { hs = &inv.slots[hoverSlot]; hsEquip = inv.equippedAs(hoverSlot); }
         if (hoverEquip >= 0 && !inv.equipped((EquipSlot)hoverEquip).empty()) { hs = &inv.equipped((EquipSlot)hoverEquip); hsEquip = hoverEquip; }
+        if (hoverChest >= 0 && !chest->slots[hoverChest].empty()) hs = &chest->slots[hoverChest];
         if (hs && drag < 0 && dragEquip < 0) {
             const ItemDef& d = gItems.get(hs->itemID);
             std::string t = d.displayName;
@@ -121,19 +152,33 @@ public:
             if (hsEquip >= 0) s2 += "   equipped: " + std::string(equipSlotName((EquipSlot)hsEquip));
             ui.drawText(s2, gx, infoY + 22, theme.textDim, 1);
         } else {
-            ui.drawText("drag to move   shift click: equip   right drag: half", gx, infoY + 6, theme.textDim, 1);
+            ui.drawText(chest ? "drag to move   shift click: send across   right drag: half"
+                              : "drag to move   shift click: equip   right drag: half", gx, infoY + 6, theme.textDim, 1);
             char w[64];
             std::snprintf(w, sizeof(w), "carrying %.1f kg", carried(inv));
             ui.drawText(w, gx, infoY + 22, theme.textDim, 1);
         }
 
+        if (chest && takeAll)
+            for (int i = 0; i < chest->capacity; i++) if (!chest->slots[i].empty()) Inventory::sendAcross(*chest, i, inv);
+        if (chest && storeAll)
+            for (int i = Inventory::HOTBAR; i < Inventory::SLOTS; i++)
+                if (!inv.slots[i].empty() && !inv.isEquipped(i)) Inventory::sendAcross(inv, i, *chest);
+        // Delete over a showcase slot: off the shelf
+        bool del = glfwGetKey(window, GLFW_KEY_DELETE) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_BACKSPACE) == GLFW_PRESS;
+        if (del && !delPrev && chest && chest->showcase && hoverChest >= 0) chest->slots[hoverChest].clear();
+        delPrev = del;
+
         // ── Mouse ─────────────────────────────────────────
         bool press = mouseDown && !mousePrev, rpress = rightDown && !rightPrev;
         bool release = !mouseDown && mousePrev, rrelease = !rightDown && rightPrev;
         if ((press || rpress) && drag < 0 && dragEquip < 0) {
-            if (hoverSlot >= 0 && !inv.slots[hoverSlot].empty()) {
-                if (shift && press) inv.toggleEquip(hoverSlot);
-                else { drag = hoverSlot; dragHalf = rpress; dragX = mx; dragY = my; }
+            if (hoverChest >= 0 && !chest->slots[hoverChest].empty()) {
+                if (shift && press) Inventory::sendAcross(*chest, hoverChest, inv);
+                else { drag = hoverChest; dragChest = true; dragHalf = rpress; dragX = mx; dragY = my; }
+            } else if (hoverSlot >= 0 && !inv.slots[hoverSlot].empty()) {
+                if (shift && press) { if (chest) Inventory::sendAcross(inv, hoverSlot, *chest); else inv.toggleEquip(hoverSlot); }
+                else { drag = hoverSlot; dragChest = false; dragHalf = rpress; dragX = mx; dragY = my; }
             } else if (hoverEquip >= 0 && !inv.equipped((EquipSlot)hoverEquip).empty()) {
                 if (shift && press) inv.unequip((EquipSlot)hoverEquip);
                 else { dragEquip = hoverEquip; dragX = mx; dragY = my; }
@@ -143,10 +188,12 @@ public:
         }
         if (drag >= 0 && ((dragHalf && rrelease) || (!dragHalf && release))) {
             bool moved = std::abs(mx - dragX) + std::abs(my - dragY) > 4.0;
-            if (hoverSlot >= 0 && hoverSlot != drag) inv.move(drag, hoverSlot, dragHalf);
-            else if (hoverEquip >= 0) inv.equipFrom(drag, (EquipSlot)hoverEquip);
-            else if (!moved && hoverSlot == drag && drag < Inventory::HOTBAR) inv.pressHotbarKey(drag);
-            drag = -1;
+            Inventory& from = dragChest ? *chest : inv;
+            if (hoverSlot >= 0 && (dragChest || hoverSlot != drag)) Inventory::moveAcross(from, drag, inv, hoverSlot, dragHalf);
+            else if (hoverChest >= 0 && (!dragChest || hoverChest != drag)) Inventory::moveAcross(from, drag, *chest, hoverChest, dragHalf);
+            else if (hoverEquip >= 0 && !dragChest) inv.equipFrom(drag, (EquipSlot)hoverEquip);
+            else if (!moved && !dragChest && hoverSlot == drag && drag < Inventory::HOTBAR) inv.pressHotbarKey(drag);
+            drag = -1; dragChest = false;
         }
         if (dragEquip >= 0 && release) {
             int s = inv.equip[dragEquip];
@@ -162,12 +209,15 @@ public:
             }
             dragEquip = -1;
         }
-        // 1..0 over a slot: swap it with that hotbar slot
-        if (hoverSlot >= 0 && drag < 0) {
+        // 1..0 over a slot (yours or the chest's): swap it with that hotbar slot
+        if ((hoverSlot >= 0 || hoverChest >= 0) && drag < 0) {
             for (int k = 0; k < Inventory::HOTBAR; k++) {
                 int key = k == 9 ? GLFW_KEY_0 : GLFW_KEY_1 + k;
                 bool down = glfwGetKey(window, key) == GLFW_PRESS;
-                if (down && !keyPrev[k] && hoverSlot != k) inv.move(hoverSlot, k);
+                if (down && !keyPrev[k]) {
+                    if (hoverChest >= 0) Inventory::moveAcross(*chest, hoverChest, inv, k);
+                    else if (hoverSlot != k) inv.move(hoverSlot, k);
+                }
                 keyPrev[k] = down;
             }
         } else {
@@ -177,8 +227,9 @@ public:
 
         // the dragged item follows the mouse
         int dragging = drag >= 0 ? drag : (dragEquip >= 0 ? inv.equip[dragEquip] : -1);
-        if (dragging >= 0 && !inv.slots[dragging].empty())
-            swatch(ui, gItems.get(inv.slots[dragging].itemID), (float)mx - slot * 0.35f, (float)my - slot * 0.35f, slot * 0.7f);
+        const Inventory& dragInv = (drag >= 0 && dragChest) ? *chest : inv;
+        if (dragging >= 0 && !dragInv.slots[dragging].empty())
+            swatch(ui, gItems.get(dragInv.slots[dragging].itemID), (float)mx - slot * 0.35f, (float)my - slot * 0.35f, slot * 0.7f);
 
         ui.end();
         return ScreenResult::Continue;
@@ -191,9 +242,12 @@ private:
     bool   mouseDown = false, mousePrev = false, rightDown = false, rightPrev = false;
     bool   keyPrev[Inventory::HOTBAR] = {};
     float  slot = 48.0f;
-    int    hoverSlot = -1, hoverEquip = -1;
+    int    hoverSlot = -1, hoverEquip = -1, hoverChest = -1;
+    bool   delPrev = false;
     int    drag = -1, dragEquip = -1;
-    bool   dragHalf = false;
+    bool   dragHalf = false, dragChest = false;
+    Inventory* chest = nullptr;          // an open chest's contents
+    std::string chestName;
 
     bool hovered(float x, float y, float w, float h) const {
         return mx >= x && mx < x + w && my >= y && my < y + h;
@@ -208,30 +262,32 @@ private:
         return hov && mouseDown && !mousePrev;
     }
 
-    void drawSlot(UIRenderer& ui, const Inventory& inv, int i, float x, float y) {
+    // One slot of the player's inventory, or (inChest) of the open chest
+    void drawSlot(UIRenderer& ui, const Inventory& inv, int i, float x, float y, bool inChest = false, float size = 0.0f) {
         const auto& theme = gResourcePacks.getTheme();
-        bool hov = hovered(x, y, slot, slot);
-        if (hov) hoverSlot = i;
+        float sz = size > 0.0f ? size : slot;
+        bool hov = hovered(x, y, sz, sz);
+        if (hov) (inChest ? hoverChest : hoverSlot) = i;
         const ItemStack& s = inv.slots[i];
-        bool sel = i == inv.selected || i == inv.offhand;
-        bool off = i < Inventory::OFFHAND;
-        bool eq = !s.empty() && inv.isEquipped(i);
-        bool fromHere = drag == i;
+        bool sel = !inChest && (i == inv.selected || i == inv.offhand);
+        bool off = !inChest && i < Inventory::OFFHAND;
+        bool eq = !inChest && !s.empty() && inv.isEquipped(i);
+        bool fromHere = drag == i && dragChest == inChest;
         float tint[4] = { theme.bg[0], theme.bg[1], theme.bg[2], theme.bg[3] };
         if (off) { tint[0] *= 0.8f; tint[1] *= 0.9f; tint[2] = std::min(255.0f, tint[2] * 1.4f + 10.0f); }
-        ui.drawRect(x, y, slot, slot, hov ? theme.bgHover : tint);
-        ui.drawBorder(x, y, slot, slot, sel ? theme.textHover : (eq ? theme.accent : theme.border), sel ? 3.0f : (eq ? 2.0f : 1.0f));
+        ui.drawRect(x, y, sz, sz, hov ? theme.bgHover : tint);
+        ui.drawBorder(x, y, sz, sz, sel ? theme.textHover : (eq ? theme.accent : theme.border), sel ? 3.0f : (eq ? 2.0f : 1.0f));
         if (!s.empty() && !fromHere) {
             const ItemDef& d = gItems.get(s.itemID);
-            float m = slot * 0.18f;
-            swatch(ui, d, x + m, y + m, slot - 2 * m);
+            float m = sz * 0.18f;
+            swatch(ui, d, x + m, y + m, sz - 2 * m);
             if (s.count > 1 && !inv.infinite) {
                 std::string c = std::to_string(s.count);
-                ui.drawText(c, x + slot - 3 - ui.textWidth(c, 1), y + slot - 11, theme.textHover, 1);
+                ui.drawText(c, x + sz - 3 - ui.textWidth(c, 1), y + sz - 11, theme.textHover, 1);
             }
-            if (eq) ui.drawText("E", x + 3, y + slot - 11, theme.accent, 1);
+            if (eq) ui.drawText("E", x + 3, y + sz - 11, theme.accent, 1);
         }
-        if (i < Inventory::HOTBAR) {
+        if (!inChest && i < Inventory::HOTBAR) {
             char num[2] = { (char)(i == 9 ? '0' : '1' + i), 0 };
             ui.drawText(num, x + 3, y + 3, sel ? theme.textHover : theme.textDim, 1);
         }

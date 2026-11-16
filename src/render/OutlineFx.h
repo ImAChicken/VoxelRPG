@@ -63,7 +63,9 @@ public:
     // A simulation event: start the flashes it causes
     void onEvent(const SimEvent& e) {
         if (e.kind != SimEvent::Kind::Hit || !e.b) return;
-        if (e.guardBroken)      start(e.b, "guard_break");
+        if (e.parried)          { start(e.b, "parry"); start(e.a, "exposed"); return; }
+        if (e.riposte)          start(e.b, "riposte");
+        else if (e.guardBroken) start(e.b, "guard_break");
         else if (e.blocked)     start(e.b, "blocked");
         else if (e.amount > 0)  start(e.b, "hurt");
     }

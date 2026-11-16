@@ -40,6 +40,10 @@ struct GameSettings {
     int charLineColor = 0;   // 0 black, 1 tinted by the surface
     int charHairMesh  = 1;   // 0 voxels, 1 shards, 2 soft shards
 
+    // Saving: ordinary worlds save themselves every few minutes
+    // (dev worlds never do: see world/WorldSaveManager.h)
+    int autosave = 1;        // 0 off, 1 on
+
     std::filesystem::path path = "data/settings.toml";
 
     void resetToDefaults() {
@@ -50,6 +54,7 @@ struct GameSettings {
         renderDistance   = DEF_RENDER_DISTANCE;
         eyeHeight        = DEF_EYE_HEIGHT;
         charEdges = 1; charLineColor = 0; charHairMesh = 1;
+        autosave = 1;
     }
 
     void clamp() {
@@ -62,6 +67,7 @@ struct GameSettings {
         charEdges     = std::clamp(charEdges, 0, 2);
         charLineColor = std::clamp(charLineColor, 0, 1);
         charHairMesh  = std::clamp(charHairMesh, 0, 2);
+        autosave      = std::clamp(autosave, 0, 1);
     }
 
     bool load() {
@@ -77,6 +83,7 @@ struct GameSettings {
             charEdges     = (int)t["characters"]["edges"].value_or((int64_t)charEdges);
             charLineColor = (int)t["characters"]["line_color"].value_or((int64_t)charLineColor);
             charHairMesh  = (int)t["characters"]["hair_mesh"].value_or((int64_t)charHairMesh);
+            autosave      = (int)t["game"]["autosave"].value_or((int64_t)autosave);
             clamp();
             return true;
         } catch (const std::exception& e) {
@@ -101,7 +108,9 @@ struct GameSettings {
           << "[characters]\n"
           << "edges      = " << charEdges     << "   # 0 off, 1 lines, 2 lines + colour echo\n"
           << "line_color = " << charLineColor << "   # 0 black, 1 tinted\n"
-          << "hair_mesh  = " << charHairMesh  << "   # 0 voxels, 1 shards, 2 soft shards\n";
+          << "hair_mesh  = " << charHairMesh  << "   # 0 voxels, 1 shards, 2 soft shards\n\n"
+          << "[game]\n"
+          << "autosave = " << autosave << "   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)\n";
         return (bool)f;
     }
 };

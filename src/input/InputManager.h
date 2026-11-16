@@ -83,6 +83,7 @@ public:
             {InputAction::LedgeGrab,    "actions", "ledge_grab",     "Ledge grab",     "F"},
             {InputAction::Inventory,    "actions", "inventory",      "Inventory",      "I"},
             {InputAction::SwapWeapon,   "actions", "swap_weapon",    "Swap weapon 1 / 2", "X"},
+            {InputAction::LockOn,       "actions", "lock_on",        "Lock on",        "TAB"},
             {InputAction::ToolbarNext,  "actions", "toolbar_next",   "Next tool",      "MOUSE_SCROLL_DOWN"},
             {InputAction::ToolbarPrev,  "actions", "toolbar_prev",   "Previous tool",  "MOUSE_SCROLL_UP"},
             {InputAction::ToolbarSlot1, "actions", "toolbar_slot_1", "Off-hand 1",     "1"},

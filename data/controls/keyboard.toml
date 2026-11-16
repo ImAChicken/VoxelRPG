@@ -25,6 +25,7 @@ interact        = "E"               # use / open / talk
 ledge_grab      = "F"               # burst to face, hang, press again = lift
 inventory       = "I"               # open the inventory (50 slots + equipment)
 swap_weapon     = "X"               # switch between weapon 1 and weapon 2
+lock_on         = "TAB"             # hold the camera on an enemy; flick the mouse sideways to switch
 toolbar_next    = "MOUSE_SCROLL_DOWN"   # main-hand hotbar slots 3..10
 toolbar_prev    = "MOUSE_SCROLL_UP"
 toolbar_slot_1  = "1"               # off-hand slot 1: in the left hand / out

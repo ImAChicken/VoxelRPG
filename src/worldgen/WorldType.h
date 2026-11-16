@@ -1,6 +1,7 @@
 #pragma once
 #include "../chunk/TerrainGenerator.h"
 #include "IslandGenerator.h"
+#include "FlatGenerator.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -20,17 +21,32 @@
 //   Single biome — one biome all over, at the Classic size, with
 //             the features that belong to it. For trying out a
 //             biome's ground, blocks and decorations
-enum class WorldType : uint8_t { Classic = 0, Island = 1, SingleBiome = 2, COUNT };
+//   Flat    — a level field at the Classic size, no structures;
+//             trees, plants and decor each on or off, any ground
+//             block (worldgen/FlatGenerator.h). For test worlds
+enum class WorldType : uint8_t { Classic = 0, Island = 1, SingleBiome = 2, Flat = 3, COUNT };
 
 inline const char* worldTypeKey(WorldType t) {
-    return t == WorldType::Island ? "island" : t == WorldType::SingleBiome ? "single" : "classic";
+    return t == WorldType::Island ? "island" : t == WorldType::SingleBiome ? "single" : t == WorldType::Flat ? "flat" : "classic";
 }
 inline const char* worldTypeName(WorldType t) {
-    return t == WorldType::Island ? "Island" : t == WorldType::SingleBiome ? "One biome" : "Classic";
+    return t == WorldType::Island ? "Island" : t == WorldType::SingleBiome ? "One biome" : t == WorldType::Flat ? "Flat" : "Classic";
 }
 inline WorldType worldTypeFromKey(const std::string& k) {
-    return k == "island" ? WorldType::Island : k == "single" ? WorldType::SingleBiome : WorldType::Classic;
+    return k == "island" ? WorldType::Island : k == "single" ? WorldType::SingleBiome : k == "flat" ? WorldType::Flat : WorldType::Classic;
 }
+// What a world type is, in a line (New World screen)
+inline const char* worldTypeBlurb(WorldType t) {
+    switch (t) {
+    case WorldType::Island:      return "One designed island: mountains, plains, coast, forest and swamp.";
+    case WorldType::SingleBiome: return "One biome all over, with its own features.";
+    case WorldType::Flat:        return "A level field with no structures. A base for testing.";
+    default:                     return "Rolling hills and forest.";
+    }
+}
+// Does a world type shape its ground with erosion and the
+// World Settings sliders (Island, One biome)
+inline bool worldTypeShaped(WorldType t) { return t == WorldType::Island || t == WorldType::SingleBiome; }
 
 // The biomes a single-biome world can be (every land biome)
 inline std::vector<int> singleBiomeChoices() {
@@ -69,10 +85,14 @@ inline TerrainStyle terrainStyleFromKey(const std::string& k) {
 // The generator for a world
 //   biome — single-biome worlds: which biome
 //   bakeCache — file to keep the eroded ground in ("" = none)
+//   flat — flat worlds: the field's options
 inline std::unique_ptr<TerrainGenerator> makeGenerator(WorldType t, uint64_t seed, int size, int biome = -1,
                                                        TerrainStyle style = TerrainStyle::GuidedRivers,
                                                        const std::string& bakeCache = "",
-                                                       const WorldGenParams& params = WorldGenParams()) {
+                                                       const WorldGenParams& params = WorldGenParams(),
+                                                       const FlatOptions& flat = FlatOptions()) {
+    if (t == WorldType::Flat)
+        return std::make_unique<FlatGenerator>((int)seed, size, flat);
     IslandOptions opt;
     opt.bakeCache    = bakeCache;
     opt.params       = params;

@@ -3,6 +3,8 @@
 #include "../game/GameMode.h"
 #include "../worldgen/IslandChart.h"
 #include "../worldgen/WorldType.h"
+#include "ItemIcon.h"
+#include "../world/WorldSaveManager.h"
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -11,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <filesystem>
+#include <fstream>
 #include <algorithm>
 
 class MainMenuScreen : public UIScreen {
@@ -55,7 +58,7 @@ public:
         } else if (state == State::NewWorld) {
             // Wider: settings on the left, island map on the right
             float nw = std::min(1000.0f, (float)sw - 20.0f);
-            result = drawNewWorldPanel(ui, (sw - nw) * 0.5f, 130.0f,
+            result = drawNewWorldPanel(ui, (sw - nw) * 0.5f, std::min(146.0f, std::max(10.0f, (float)sh - 570.0f)),
                                        nw, theme);
         } else if (state == State::LoadWorld) {
             result = drawLoadWorldPanel(ui, panelX, 180.0f,
@@ -88,6 +91,7 @@ public:
     int         getNewWorldBiome() const { return worldType == WorldType::SingleBiome ? singleBiome : -1; }
     TerrainStyle getNewWorldTerrain() const { return terrain; }
     const WorldGenParams& getNewWorldParams() const { return genParams; }
+    const FlatOptions& getNewWorldFlat() const { return flat; }
 
     // Coming back from a world: always start at the main
     // page, not whichever panel was open before
@@ -96,6 +100,12 @@ public:
         mousePrevPressed = mousePressed = true;
     }
     std::string getLoadWorldName() const { return selectedWorld; }
+    bool        getLoadWorldDev() const { return selectedDev; }
+    // New World: in devworlds/? a copy of which dev world ("" = new terrain)?
+    bool        getNewWorldDev() const { return newDev; }
+    std::string getNewWorldCopyOf() const { return copyFrom && !devSaves.empty() ? copyOf : std::string(); }
+    // New dev world on new terrain: lay out the showcase chests (game/DevKit.h)?
+    bool        getNewWorldKit() const { return newDev && !copyFrom && kit; }
 
 private:
     enum class State { Main, NewWorld, LoadWorld };
@@ -113,6 +123,7 @@ private:
     int         singleBiome = island::Forest;      // single-biome worlds
     TerrainStyle terrain    = TerrainStyle::GuidedRivers;
     WorldGenParams genParams;                       // the World Settings sliders
+    FlatOptions flat;                               // flat worlds
     bool        genOpen  = false;                   // World Settings showing
     int         genPage  = 0;                       // 0 Terrain, 1 Features, 2 Biomes
     int         genDrag  = -1;                      // slider being dragged
@@ -133,6 +144,14 @@ private:
     std::vector<std::string> saves;
     int         hoveredSave = -1;
     std::string selectedWorld;
+    bool        selectedDev = false;
+    std::vector<std::string> devSaves;   // devworlds/
+    bool        newDev = false;          // New World: save in devworlds/
+    bool        copyFrom = false;        // New World: start as a copy of a dev world
+    std::string copyOf;
+    bool        kit = true;                  // new dev worlds: start with the showcase chests
+    std::string copyInfoFor;                 // the preview's cached facts about copyOf
+    std::vector<std::string> copyInfo;
 
     // Button hover states
     int hoveredBtn = -1;
@@ -143,15 +162,8 @@ private:
     bool   mousePrevPressed = false;
 
     void scanSaves() {
-        saves.clear();
-        if (!std::filesystem::exists("saves")) return;
-        for (auto& e :
-             std::filesystem::directory_iterator("saves")) {
-            if (e.is_directory())
-                saves.push_back(
-                    e.path().filename().string());
-        }
-        std::sort(saves.begin(), saves.end());
+        saves = WorldSaveManager::list(false);
+        devSaves = WorldSaveManager::list(true);
     }
 
     void handleInput() {
@@ -194,6 +206,8 @@ private:
             if (hov && justClicked()) {
                 if (i == 0) {
                     state = State::NewWorld;
+                    scanSaves();
+                    newDev = false; copyFrom = false;
                     worldName.clear();
                     worldSeed.clear();
                     worldMode  = GameMode::Survival;
@@ -218,6 +232,9 @@ private:
         float cw  = (w - gap * (labels.size() - 1)) / labels.size();
         float ch  = (float)theme.buttonH;
         int clicked = -1;
+        // one text size for the whole row: large if every label fits
+        int scale = 2;
+        for (const auto& l : labels) if (ui.textWidth(l, 2) > cw - 6) scale = 1;
         for (size_t i = 0; i < labels.size(); i++) {
             float cx  = x + (cw + gap) * i;
             bool  hov = enabled && isHovered(cx, y, cw, ch);
@@ -226,11 +243,43 @@ private:
             ui.drawBorder(cx, y, cw, ch, on ? theme.accent : theme.buttonBorder,
                           on ? 2.0f : 1.0f);
             ui.drawTextCentered(labels[i], cx, y, cw, ch,
-                                !enabled ? theme.textDim : on ? theme.textHover : theme.text,
-                                ui.textWidth(labels[i], 2) <= cw + 4 ? 2 : 1);
+                                !enabled ? theme.textDim : on ? theme.textHover : theme.text, scale);
             if (hov && justClicked()) clicked = (int)i;
         }
         return clicked;
+    }
+
+    // A label at the left of a row (dimmed when the row is off)
+    void rowLabel(UIRenderer& ui, const UITheme& theme, const char* text, float x, float y, float h, bool enabled) {
+        ui.drawText(text, x, y + (h - ui.textHeight(2)) * 0.5f, enabled ? theme.text : theme.textDim, 2);
+    }
+    bool smallButton(UIRenderer& ui, const UITheme& theme, const char* text, float x, float y, float w, float h) {
+        bool hov = isHovered(x, y, w, h);
+        ui.drawRect(x, y, w, h, hov ? theme.buttonBgHover : theme.buttonBg);
+        ui.drawBorder(x, y, w, h, theme.buttonBorder, 1.0f);
+        ui.drawTextCentered(text, x, y, w, h, hov ? theme.textHover : theme.text, ui.textWidth(text, 2) <= w - 8 ? 2 : 1);
+        return hov && justClicked();
+    }
+    // < value >: click the left third for the previous one,
+    // anywhere else for the next. Returns the (new) value.
+    template <class NameFn>
+    int cyclePicker(UIRenderer& ui, const UITheme& theme, float x, float y, float w, float h,
+                    const std::vector<int>& values, int current, NameFn name) {
+        if (values.empty()) return current;
+        int at = 0;
+        for (int k = 0; k < (int)values.size(); k++) if (values[(size_t)k] == current) at = k;
+        bool hov = isHovered(x, y, w, h);
+        ui.drawRect(x, y, w, h, hov ? theme.buttonBgHover : theme.inputBg);
+        ui.drawBorder(x, y, w, h, hov ? theme.accent : theme.border, 1.0f);
+        ui.drawText("<", x + 8, y + (h - ui.textHeight(2)) * 0.5f, theme.textDim, 2);
+        ui.drawText(">", x + w - 8 - ui.textWidth(">", 2), y + (h - ui.textHeight(2)) * 0.5f, theme.textDim, 2);
+        std::string n = name(values[(size_t)at]);
+        ui.drawTextCentered(n, x, y, w, h, hov ? theme.textHover : theme.accent, ui.textWidth(n, 2) <= w - 50 ? 2 : 1);
+        if (hov && justClicked()) {
+            int nv = (int)values.size();
+            at = (mouseX < x + w / 3.0f) ? (at + nv - 1) % nv : (at + 1) % nv;
+        }
+        return values[(size_t)at];
     }
 
     ScreenResult drawNewWorldPanel(UIRenderer& ui,
@@ -238,7 +287,7 @@ private:
                                     float pw,
                                     const UITheme& theme) {
         float pad = (float)theme.panelPad;
-        float ph  = 526.0f;
+        float ph  = 560.0f;
         drawPanel(ui, px, py, pw, ph);
 
         float lx = px + pad;
@@ -253,106 +302,170 @@ private:
         }
 
         ui.drawText("New World", lx, ly, theme.title, 2);
-        ly += 26.0f;
+        ly += 30.0f;
+        const float bh = (float)theme.buttonH, rowGap = 8.0f;
+        const float labW = 128.0f, cx = lx + labW, cw = iw - labW;
 
-        // ── Name ──────────────────────────────────────────
-        ui.drawText("World Name:", lx, ly, theme.text, 2);
-        ly += 20.0f;
-        bool nameHov = isHovered(lx, ly, iw, (float)theme.buttonH);
-        if (nameHov && justClicked()) nameActive = true;
-        drawInput(ui, worldName, "My World", lx, ly, iw, nameActive, showCursor);
-        ly += theme.buttonH + 10.0f;
+        // ── Name and seed ─────────────────────────────────
+        rowLabel(ui, theme, "Name", lx, ly, bh, true);
+        if (isHovered(cx, ly, cw, bh) && justClicked()) nameActive = true;
+        drawInput(ui, worldName, "My World", cx, ly, cw, nameActive, showCursor);
+        ly += bh + rowGap;
 
-        // ── Seed, with a Random button ────────────────────
-        ui.drawText("Seed:", lx, ly, theme.text, 2);
-        ly += 20.0f;
-        float rw = 120.0f;
-        bool seedHov = isHovered(lx, ly, iw - rw - 8, (float)theme.buttonH);
-        if (seedHov && justClicked()) nameActive = false;
-        drawInput(ui, worldSeed, "42", lx, ly, iw - rw - 8, !nameActive, showCursor);
-        float rx = lx + iw - rw;
-        bool randHov = isHovered(rx, ly, rw, (float)theme.buttonH);
-        ui.drawRect(rx, ly, rw, (float)theme.buttonH, randHov ? theme.buttonBgHover : theme.buttonBg);
-        ui.drawBorder(rx, ly, rw, (float)theme.buttonH, theme.buttonBorder, 1.0f);
-        ui.drawTextCentered("Random", rx, ly, rw, (float)theme.buttonH,
-                            randHov ? theme.textHover : theme.text, 2);
-        if (randHov && justClicked()) {
-            std::random_device rd;
-            worldSeed = std::to_string(rd() % 1000000u);
-        }
-        ly += theme.buttonH + 10.0f;
-
-        // ── World type ────────────────────────────────────
-        ui.drawText("World Type:", lx, ly, theme.text, 2);
-        ly += 20.0f;
+        // ── Where it's kept, and what it starts as ────────
+        rowLabel(ui, theme, "Save in", lx, ly, bh, true);
         {
-            std::vector<std::string> types;
-            for (int t = 0; t < (int)WorldType::COUNT; t++)
-                types.push_back(worldTypeName((WorldType)t));
-            int c = choiceRow(ui, theme, lx, ly, iw, types, (int)worldType);
-            if (c >= 0) worldType = (WorldType)c;
+            int c = choiceRow(ui, theme, cx, ly, cw, { "Worlds", "Dev worlds" }, newDev ? 1 : 0);
+            if (c >= 0) newDev = c == 1;
         }
-        ly += theme.buttonH + 10.0f;
-
-        // ── Island size, or the biome of a single-biome world
-        if (worldType == WorldType::SingleBiome) {
-            ui.drawText("Biome:", lx, ly, theme.text, 2);
-            ly += 20.0f;
-            // < name >: click the left third for the previous
-            // biome, anywhere else for the next
-            std::vector<int> all = singleBiomeChoices();
-            int at = 0;
-            for (int k = 0; k < (int)all.size(); k++) if (all[k] == singleBiome) at = k;
-            float bh = (float)theme.buttonH;
-            bool hov = mouseX >= lx && mouseX <= lx + iw && mouseY >= ly && mouseY <= ly + bh;
-            ui.drawRect(lx, ly, iw, bh, hov ? theme.buttonBgHover : theme.inputBg);
-            ui.drawBorder(lx, ly, iw, bh, hov ? theme.accent : theme.border, 1.0f);
-            ui.drawText("<", lx + 8, ly + (bh - ui.textHeight(2)) * 0.5f, theme.textDim, 2);
-            ui.drawText(">", lx + iw - 8 - ui.textWidth(">", 2), ly + (bh - ui.textHeight(2)) * 0.5f, theme.textDim, 2);
-            ui.drawTextCentered(island::biomeInfo(singleBiome).name, lx, ly, iw, bh, hov ? theme.textHover : theme.accent, 2);
-            if (hov && justClicked()) {
-                int nAll = (int)all.size();
-                at = (mouseX < lx + iw / 3.0f) ? (at + nAll - 1) % nAll : (at + 1) % nAll;
-                singleBiome = all[at];
+        ly += bh + rowGap;
+        rowLabel(ui, theme, "Start", lx, ly, bh, true);
+        {
+            int c = choiceRow(ui, theme, cx, ly, cw, { "New terrain", "Copy a dev world" }, copyFrom ? 1 : 0);
+            if (c >= 0) copyFrom = c == 1;
+        }
+        ly += bh + rowGap;
+        if (newDev && !copyFrom) {
+            rowLabel(ui, theme, "Kit", lx, ly, bh, true);
+            int c = choiceRow(ui, theme, cx, ly, cw, { "None", "Showcase chests" }, kit ? 1 : 0);
+            if (c >= 0) kit = c == 1;
+            ly += bh + rowGap;
+        }
+        if (copyFrom) {
+            rowLabel(ui, theme, "Copy of", lx, ly, bh, !devSaves.empty());
+            if (devSaves.empty()) {
+                fitText(ui, "no dev worlds yet", cx + 8, ly + (bh - 16) * 0.5f, cw, theme.textDim);
+            } else {
+                std::vector<int> idx;
+                int cur = 0;
+                for (int k = 0; k < (int)devSaves.size(); k++) { idx.push_back(k); if (devSaves[(size_t)k] == copyOf) cur = k; }
+                int k = cyclePicker(ui, theme, cx, ly, cw, bh, idx, cur, [this](int i) { return devSaves[(size_t)i]; });
+                copyOf = devSaves[(size_t)k];
             }
-        } else {
-            bool isIsland = worldType == WorldType::Island;
-            ui.drawText("Island Size:", lx, ly, isIsland ? theme.text : theme.textDim, 2);
-            ly += 20.0f;
-            int sel = islandSize <= 72 ? 0 : islandSize <= 96 ? 1 : 2;
-            int c = choiceRow(ui, theme, lx, ly, iw, { "Small", "Medium", "Large" }, sel, isIsland);
-            if (c >= 0) islandSize = ISLAND_SIZES[c];
+            ly += bh + 10.0f;
+            wrapText(ui, std::string("Everything in it comes along: the ground and what is built on it, spawners, NPCs, ") +
+                     "your inventory and where you stand. The copy is a new world under the name above" +
+                     (newDev ? ", kept with the dev worlds." : "; it saves as you play."), cx, ly, cw, theme.textDim);
         }
-        ly += theme.buttonH + 10.0f;
 
-        // ── Default mode ──────────────────────────────────
-        ui.drawText("Default Mode:", lx, ly, theme.text, 2);
-        ly += 20.0f;
+        if (!copyFrom) {
+        rowLabel(ui, theme, "Seed", lx, ly, bh, true);
+        {
+            float rw = 110.0f;
+            if (isHovered(cx, ly, cw - rw - 6, bh) && justClicked()) nameActive = false;
+            drawInput(ui, worldSeed, "42", cx, ly, cw - rw - 6, !nameActive, showCursor);
+            if (smallButton(ui, theme, "Random", cx + cw - rw, ly, rw, bh)) {
+                std::random_device rd;
+                worldSeed = std::to_string(rd() % 1000000u);
+            }
+        }
+        ly += bh + rowGap;
+
+        // ── Mode players start in ─────────────────────────
+        rowLabel(ui, theme, "Mode", lx, ly, bh, true);
         {
             const GameMode choices[3] = { GameMode::Survival, GameMode::Dev, GameMode::Spectator };
             int sel = worldMode == GameMode::Survival ? 0 : worldMode == GameMode::Dev ? 1 : 2;
-            int c = choiceRow(ui, theme, lx, ly, iw,
+            int c = choiceRow(ui, theme, cx, ly, cw,
                               { rulesFor(choices[0], false).name, rulesFor(choices[1], false).name,
                                 rulesFor(choices[2], false).name }, sel);
             if (c >= 0) worldMode = choices[c];
         }
-        ly += theme.buttonH + 10.0f;
+        ly += bh + rowGap;
 
-        // ── Terrain: erosion, and how rivers are chosen ───
+        // ── World type, and what it is ────────────────────
+        rowLabel(ui, theme, "Type", lx, ly, bh, true);
         {
-            bool shaped = worldType != WorldType::Classic;
-            ui.drawText("Terrain:", lx, ly, shaped ? theme.text : theme.textDim, 2);
-            ly += 20.0f;
+            static const WorldType ORDER[] = { WorldType::Island, WorldType::SingleBiome, WorldType::Classic, WorldType::Flat };
+            std::vector<std::string> names;
+            int sel = 0;
+            for (int k = 0; k < 4; k++) { names.push_back(worldTypeName(ORDER[k])); if (ORDER[k] == worldType) sel = k; }
+            int c = choiceRow(ui, theme, cx, ly, cw, names, sel);
+            if (c >= 0) worldType = ORDER[c];
+        }
+        ly += bh + 6.0f;
+        ly += wrapText(ui, worldTypeBlurb(worldType), cx, ly, cw, theme.textDim) + 4.0f;
+
+        // ── Options of this type only ─────────────────────
+        {
+            float lineY = ly + 6.0f;
+            float lineCol[4] = { theme.border[0], theme.border[1], theme.border[2], theme.border[3] };
+            ui.drawRect(lx, lineY, iw, 1.0f, lineCol);
+            ly += 16.0f;
+        }
+        if (worldType == WorldType::Island) {
+            rowLabel(ui, theme, "Size", lx, ly, bh, true);
+            int sel = islandSize <= 72 ? 0 : islandSize <= 96 ? 1 : 2;
+            int c = choiceRow(ui, theme, cx, ly, cw, { "Small", "Medium", "Large" }, sel);
+            if (c >= 0) islandSize = ISLAND_SIZES[c];
+            ly += bh + rowGap;
+        }
+        if (worldType == WorldType::SingleBiome) {
+            rowLabel(ui, theme, "Biome", lx, ly, bh, true);
+            std::vector<int> all = singleBiomeChoices();
+            singleBiome = cyclePicker(ui, theme, cx, ly, cw, bh, all, singleBiome,
+                                      [](int b) { return std::string(island::biomeInfo(b).name); });
+            ly += bh + rowGap;
+        }
+        if (worldTypeShaped(worldType)) {
+            rowLabel(ui, theme, "Rivers", lx, ly, bh, true);
             std::vector<std::string> opts;
             for (int t = 0; t < (int)TerrainStyle::COUNT; t++) opts.push_back(terrainStyleName((TerrainStyle)t));
-            int c = choiceRow(ui, theme, lx, ly, iw, opts, (int)terrain, shaped);
+            int c = choiceRow(ui, theme, cx, ly, cw, opts, (int)terrain);
             if (c >= 0) terrain = (TerrainStyle)c;
+            ly += bh + rowGap;
+            std::string label = genParams.isDefault() ? "World settings..." : "World settings...  (changed)";
+            if (smallButton(ui, theme, label.c_str(), cx, ly, cw, bh)) { genOpen = true; genDrag = -1; }
+            ly += bh + rowGap;
         }
-        ly += theme.buttonH + 18.0f;
+        if (worldType == WorldType::Classic) {
+            fitText(ui, "No options: 32 x 32 chunks of hills and forest.", lx, ly + 6, iw, theme.textDim);
+        }
+        if (worldType == WorldType::Flat) {
+            rowLabel(ui, theme, "Ground", lx, ly, bh, true);
+            {
+                const auto& G = FlatOptions::grounds();
+                std::vector<int> idx;
+                int cur = 0;
+                for (int k = 0; k < (int)G.size(); k++) { idx.push_back(k); if (flat.ground == G[(size_t)k].first) cur = k; }
+                int k = cyclePicker(ui, theme, cx, ly, cw, bh, idx, cur,
+                                    [&G](int i) { return std::string(G[(size_t)i].second); });
+                flat.ground = G[(size_t)k].first;
+            }
+            ly += bh + rowGap;
+            // what grows: three toggles in a row
+            rowLabel(ui, theme, "Grows", lx, ly, bh, true);
+            {
+                bool* v[3] = { &flat.trees, &flat.plants, &flat.decor };
+                const char* names[3] = { "Trees", "Plants", "Decor" };
+                float g = 6.0f, w3 = (cw - g * 2) / 3.0f;
+                for (int k = 0; k < 3; k++) {
+                    float bx = cx + k * (w3 + g);
+                    bool hov = isHovered(bx, ly, w3, bh), on = *v[k];
+                    ui.drawRect(bx, ly, w3, bh, (on || hov) ? theme.buttonBgHover : theme.buttonBg);
+                    ui.drawBorder(bx, ly, w3, bh, on ? theme.accent : theme.buttonBorder, on ? 2.0f : 1.0f);
+                    ui.drawTextCentered(names[k], bx, ly, w3, bh, on ? theme.textHover : theme.textDim, 2);
+                    if (hov && justClicked()) *v[k] = !*v[k];
+                }
+            }
+            ly += bh + 4.0f;
+            ly += wrapText(ui, "plants: grass and flowers. decor: bushes, logs, stones", cx, ly, cw, theme.textDim) + 4.0f;
+            bool any = flat.anyDecoration();
+            rowLabel(ui, theme, "Biome", lx, ly, bh, any);
+            if (any) {
+                std::vector<int> all = singleBiomeChoices();
+                flat.biome = cyclePicker(ui, theme, cx, ly, cw, bh, all, flat.biome,
+                                         [](int b) { return std::string(island::biomeInfo(b).name); });
+            } else {
+                fitText(ui, "nothing grows", cx + 8, ly + (bh - 16) * 0.5f, cw, theme.textDim);
+            }
+            ly += bh + rowGap;
+        }
+
+        }   // !copyFrom
 
         // ── Buttons ───────────────────────────────────────
         float bw = (float)theme.buttonW;
-        float bh = (float)theme.buttonH;
         ly = py + ph - pad - bh;                // buttons sit on the panel's bottom edge
         float createX = lx;
         float backX   = lx + iw - bw;
@@ -360,25 +473,14 @@ private:
         bool backHov   = isHovered(backX,   ly, bw, bh);
         drawButton(ui, "Create World", createX, ly, createHov);
         drawButton(ui, "Back",         backX,   ly, backHov);
-        // World Settings: the sliders (Island and One biome)
-        if (worldType != WorldType::Classic) {
-            float sy = ly - bh - 8;
-            float sw2 = iw;
-            bool setHov = isHovered(lx, sy, sw2, bh);
-            ui.drawRect(lx, sy, sw2, bh, setHov ? theme.buttonBgHover : theme.buttonBg);
-            ui.drawBorder(lx, sy, sw2, bh, theme.buttonBorder, 1.0f);
-            std::string label = genParams.isDefault() ? "World settings..." : "World settings... (changed)";
-            ui.drawTextCentered(label, lx, sy, sw2, bh, setHov ? theme.textHover : theme.text, 2);
-            if (setHov && justClicked()) { genOpen = true; genDrag = -1; }
-        }
 
         // ── Preview, right column ─────────────────────────
         float mapX = lx + iw + 30.0f;
         float mapW = px + pw - pad - mapX;
         drawPreview(ui, theme, mapX, py + pad, mapW, ph - pad * 2);
 
-        if (createHov && justClicked()) {
-            if (worldName.empty()) worldName = "New World";
+        if (createHov && justClicked() && !(copyFrom && devSaves.empty())) {
+            if (worldName.empty()) worldName = copyFrom ? copyOf : "New World";
             return ScreenResult::NewWorld;
         }
         if (backHov && justClicked()) state = State::Main;
@@ -484,10 +586,68 @@ private:
     // The right-hand column: the island map, or a note for
     // world types without a map
     void drawPreview(UIRenderer& ui, const UITheme& theme, float x, float y, float w, float h) {
+        if (copyFrom) {
+            // the dev world being copied: what its world file says
+            ui.drawText("Copy of a dev world", x, y, theme.title, 2);
+            if (devSaves.empty()) {
+                wrapText(ui, "There are no dev worlds yet. Make one: New World, Save in: Dev worlds. "
+                             "Stage enemies, spawners and items in it, then Esc, Save.", x, y + 34, w, theme.textDim);
+                return;
+            }
+            if (copyInfoFor != copyOf) {
+                copyInfoFor = copyOf;
+                copyInfo.clear();
+                std::ifstream f(std::string(WorldSaveManager::rootFor(true)) + "/" + copyOf + "/world.vxrp");
+                for (std::string l; std::getline(f, l);) {
+                    while (!l.empty() && (l.back() == '\r' || l.back() == ' ')) l.pop_back();
+                    if (l.rfind("type=", 0) == 0) copyInfo.push_back(std::string("type: ") + worldTypeName(worldTypeFromKey(l.substr(5))));
+                    else if (l.rfind("size=", 0) == 0) copyInfo.push_back("size: " + l.substr(5) + " x " + l.substr(5) + " chunks");
+                    else if (l.rfind("mode=", 0) == 0) copyInfo.push_back("starts in: " + l.substr(5));
+                    else if (l.rfind("flat.ground=", 0) == 0) copyInfo.push_back("ground: " + std::string(FlatOptions::groundLabel(l.substr(12))));
+                }
+                std::error_code ec;
+                int structs = 0, npcs = 0;
+                std::ifstream sf(std::string(WorldSaveManager::rootFor(true)) + "/" + copyOf + "/structures.dat");
+                for (std::string l; std::getline(sf, l);) if (l.rfind("inst ", 0) == 0) structs++;
+                std::ifstream nf(std::string(WorldSaveManager::rootFor(true)) + "/" + copyOf + "/npcs.dat");
+                for (std::string l; std::getline(nf, l);) if (!l.empty() && l.rfind("npcs ", 0) != 0) npcs++;
+                copyInfo.push_back(std::to_string(structs) + " structures, " + std::to_string(npcs) + " NPCs");
+            }
+            fitText(ui, copyOf, x, y + 34, w, theme.accent);
+            float ty = y + 66;
+            for (const std::string& l : copyInfo) { fitText(ui, l, x, ty, w, theme.text); ty += 24; }
+            return;
+        }
         if (worldType == WorldType::Classic) {
             ui.drawText("Classic", x, y, theme.title, 2);
             ui.drawText("Rolling hills and forest.", x, y + 30, theme.text, 2);
             ui.drawText("32 x 32 chunks, 0.26 mi", x, y + 52, theme.textDim, 2);
+            return;
+        }
+        if (worldType == WorldType::Flat) {
+            // the field: its ground block, and what grows on it
+            ui.drawText("Flat", x, y, theme.title, 2);
+            float iy = y + 34;
+            uint16_t block = gRegistry.getIDByName(flat.ground);
+            uint16_t item = block ? gItems.itemForBlock(block) : 0;
+            float s = std::min(140.0f, w * 0.5f);
+            if (item) drawItemIcon(ui, gItems.get(item), x, iy, s);
+            float tx = x + s + 18, ty = iy + 8;
+            fitText(ui, std::string(FlatOptions::groundLabel(flat.ground)) + " field", tx, ty, w - s - 18, theme.text);
+            ty += 24;
+            fitText(ui, "32 x 32 chunks, 0.26 mi", tx, ty, w - s - 18, theme.textDim);
+            ty += 22;
+            fitText(ui, "no hills, water or structures", tx, ty, w - s - 18, theme.textDim);
+            iy += s + 24;
+            auto line = [&](const char* what, bool on) {
+                fitText(ui, what, x, iy, w, on ? theme.text : theme.textDim);
+                iy += 24;
+            };
+            line(flat.trees ? "trees in patches" : "no trees", flat.trees);
+            line(flat.plants ? "grass and flowers" : "no grass or flowers", flat.plants);
+            line(flat.decor ? "bushes, logs and stones" : "no bushes, logs or stones", flat.decor);
+            if (flat.anyDecoration())
+                fitText(ui, std::string("as they grow in: ") + island::biomeInfo(flat.biome).name, x, iy + 6, w, theme.accent);
             return;
         }
 
@@ -575,64 +735,71 @@ private:
         }
     }
 
+    // Text at scale 1 wrapped to maxW; returns the height used
+    float wrapText(UIRenderer& ui, const std::string& t, float x, float y, float maxW, const float* col) {
+        std::string line, word;
+        float lh = (float)ui.textHeight(1) + 5.0f, used = 0.0f;
+        auto flush = [&]() { if (!line.empty()) { ui.drawText(line, x, y + used, col, 1); used += lh; line.clear(); } };
+        for (size_t i = 0; i <= t.size(); i++) {
+            if (i == t.size() || t[i] == ' ') {
+                std::string cand = line.empty() ? word : line + " " + word;
+                if (!line.empty() && ui.textWidth(cand, 1) > maxW) { flush(); line = word; }
+                else line = cand;
+                word.clear();
+            } else word += t[i];
+        }
+        flush();
+        return used;
+    }
+
     // Text at scale 2, dropping to scale 1 if it would run past maxW
     void fitText(UIRenderer& ui, const std::string& t, float x, float y, float maxW, const float* col) {
         int scale = ui.textWidth(t, 2) <= maxW ? 2 : 1;
         ui.drawText(t, x, y, col, scale);
     }
 
+    // Two lists side by side: ordinary worlds (saves/) and
+    // dev worlds (devworlds/: stages that save only when asked)
     ScreenResult drawLoadWorldPanel(UIRenderer& ui,
                                      float px, float py,
                                      float pw,
                                      const UITheme& theme) {
+        (void)px; (void)pw;
         float pad  = (float)theme.panelPad;
-        float rowH = 36.0f;
-        float ph   = pad * 2 + rowH * (saves.size() + 1) + 50.0f;
-        ph = std::max(ph, 200.0f);
-        drawPanel(ui, px, py, pw, ph);
-
-        float lx = px + pad;
-        float ly = py + pad;
-
-        ui.drawText("Load World", lx, ly, theme.title, 2);
-        ly += 28.0f;
-
-        if (saves.empty()) {
-            ui.drawText("No saved worlds found.",
-                lx, ly, theme.textDim, 2);
-            ly += 24.0f;
-        } else {
-            for (int i = 0; i < (int)saves.size(); i++) {
-                bool hov = isHovered(lx, ly, pw - pad*2, rowH);
-                const float* bg   = hov
-                    ? theme.buttonBgHover : theme.buttonBg;
-                const float* text = hov
-                    ? theme.textHover : theme.text;
-                ui.drawRect(lx, ly, pw - pad*2, rowH, bg);
-                ui.drawBorder(lx, ly, pw-pad*2, rowH,
-                              theme.buttonBorder, 1.0f);
-                ui.drawText(saves[i],
-                    lx + pad, ly + (rowH - 16) * 0.5f,
-                    text, 2);
-                if (hov && justClicked()) {
-                    selectedWorld = saves[i];
-                    return ScreenResult::LoadWorld;
-                }
-                ly += rowH + 4.0f;
+        float rowH = 34.0f, gap = 4.0f;
+        float W = std::min(860.0f, (float)ui.getWidth() - 20.0f);
+        float X = ((float)ui.getWidth() - W) * 0.5f;
+        size_t most = std::max(saves.size(), devSaves.size());
+        int fit = std::max(4, (int)(((float)ui.getHeight() - py - 140.0f) / (rowH + gap)));
+        float ph = pad * 2 + 70.0f + (float)std::min<size_t>(std::max<size_t>(most, 1), (size_t)fit) * (rowH + gap) + 50.0f;
+        drawPanel(ui, X, py, W, ph);
+        ui.drawText("Load World", X + pad, py + pad, theme.title, 2);
+        float colW = (W - pad * 3) * 0.5f;
+        ScreenResult res = ScreenResult::Continue;
+        auto column = [&](const char* title, const char* note, const std::vector<std::string>& list, bool dev, float cx) {
+            float y = py + pad + 34.0f;
+            ui.drawText(title, cx, y, theme.text, 2);
+            ui.drawText(note, cx, y + 20, theme.textDim, 1);
+            y += 38.0f;
+            if (list.empty()) { ui.drawText(dev ? "none yet: New World, Save in: Dev worlds" : "No saved worlds found.", cx, y + 8, theme.textDim, 1); return; }
+            for (int i = 0; i < (int)list.size() && i < fit; i++) {
+                bool hov = isHovered(cx, y, colW, rowH);
+                ui.drawRect(cx, y, colW, rowH, hov ? theme.buttonBgHover : theme.buttonBg);
+                ui.drawBorder(cx, y, colW, rowH, dev ? theme.accent : theme.buttonBorder, 1.0f);
+                fitText(ui, list[(size_t)i], cx + 10, y + (rowH - 16) * 0.5f, colW - 20, hov ? theme.textHover : theme.text);
+                if (hov && justClicked()) { selectedWorld = list[(size_t)i]; selectedDev = dev; res = ScreenResult::LoadWorld; }
+                y += rowH + gap;
             }
-        }
+        };
+        column("Worlds", "saved as you play", saves, false, X + pad);
+        column("Dev worlds", "stages: save only when you do", devSaves, true, X + pad * 2 + colW);
 
-        // Back button
-        float bw = (float)theme.buttonW;
-        float bh = (float)theme.buttonH;
-        float bx = px + (pw - bw) * 0.5f;
-        bool backHov = isHovered(bx, ly + 8, bw, bh);
-        drawButton(ui, "Back", bx, ly + 8, backHov);
-        if (backHov && justClicked()) {
-            state = State::Main;
-        }
-
-        return ScreenResult::Continue;
+        float bw = (float)theme.buttonW, bh = (float)theme.buttonH;
+        float bx = X + (W - bw) * 0.5f, by = py + ph - pad - bh;
+        bool backHov = isHovered(bx, by, bw, bh);
+        drawButton(ui, "Back", bx, by, backHov);
+        if (backHov && justClicked()) state = State::Main;
+        return res;
     }
 
     void handleTextInput() {
@@ -660,4 +827,4 @@ public:
         if (key == GLFW_KEY_TAB)
             nameActive = !nameActive;
     }
-};
+};

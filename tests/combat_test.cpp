@@ -42,7 +42,8 @@ static std::vector<combat::HitEvent> tick(std::vector<Human*> bodies, std::vecto
     for (size_t i = 0; i < bodies.size(); i++) {
         HumanIntent in = i < ins.size() ? ins[i] : HumanIntent();
         combat::startAttack(*bodies[i], in);
-        bodies[i]->guarding = in.guard && !bodies[i]->attack.active();
+        bodies[i]->guarding = in.guard && !bodies[i]->attack.active() && bodies[i]->exposed <= 0.0f;
+        bodies[i]->guardTime = bodies[i]->guarding ? bodies[i]->guardTime + DT : 0.0f;   // as physics does
         combat::advanceAttack(*bodies[i], DT);
         combat::regainStamina(*bodies[i], DT);
         combat::regainPoise(*bodies[i], DT);
@@ -226,6 +227,54 @@ int main() {
             ev.insert(ev.end(), x.begin(), x.end());
         }
         check(ev.size() == 1 && ev[0].guardBroken, "the guard breaks without stamina");
+    }
+
+    std::printf("parry\n");
+    {
+        // the guard goes up just before the blade arrives
+        Human a, b;
+        stand(a, {0, 0, 0}, F); stand(b, {0, 0, -8}, -F);
+        HumanIntent g; g.guard = true;
+        std::vector<combat::HitEvent> ev;
+        float hitAt = atk(AttackKind::Light).activeStart;
+        int raise = (int)std::lround((hitAt - 0.08f) / DT);
+        for (int i = 0; i < 40; i++) {
+            auto e = tick({&a, &b}, {i == 0 ? press(true) : HumanIntent(), i >= raise ? g : HumanIntent()});
+            ev.insert(ev.end(), e.begin(), e.end());
+        }
+        check(ev.size() == 1 && ev[0].parried && ev[0].damage == 0.0f, "a guard raised just in time parries");
+        check(b.health == 100.0f && b.stamina >= 99.0f, "nothing gets through, no stamina spent");
+        check(!a.attack.active() && a.exposed > 0.0f, "the attacker's swing is knocked aside: exposed");
+        tick({&a, &b}, {press(true)});
+        check(!a.attack.active(), "exposed: can't attack");
+        tick({&a, &b}, {g});
+        check(!a.guarding, "nor guard");
+        // a riposte while it reels
+        ev.clear();
+        for (int i = 0; i < 40 && ev.empty(); i++) {
+            auto e = tick({&b, &a}, {i == 0 ? press(true) : HumanIntent()});
+            ev.insert(ev.end(), e.begin(), e.end());
+        }
+        check(ev.size() == 1 && ev[0].riposte && ev[0].knockedDown, "a riposte on the exposed body: critical, knocked down");
+        check(std::fabs(a.health - (100.0f - 12.0f * combat::RIPOSTE_DAMAGE)) < 0.01f, "for RIPOSTE_DAMAGE times the damage");
+        check(a.exposed == 0.0f, "and it's no longer exposed");
+        // too early (guard held long before) is an ordinary block
+        Human c, d;
+        stand(c, {0, 0, 0}, F); stand(d, {0, 0, -8}, -F);
+        ev.clear();
+        for (int i = 0; i < 20; i++) tick({&c, &d}, {HumanIntent(), g});
+        for (int i = 0; i < 40; i++) {
+            auto e = tick({&c, &d}, {i == 0 ? press(true) : HumanIntent(), g});
+            ev.insert(ev.end(), e.begin(), e.end());
+        }
+        check(ev.size() == 1 && ev[0].blocked && !ev[0].parried, "a guard held up a while blocks (no parry)");
+        // exposure wears off
+        Human x, y;
+        stand(x, {0, 0, 0}, F); stand(y, {0, 0, -40}, -F);
+        x.exposed = combat::EXPOSED_TIME;
+        runFor(combat::EXPOSED_TIME + 0.1f, {&x, &y});
+        tick({&x, &y}, {press(true)});
+        check(x.exposed == 0.0f && x.attack.active(), "exposure wears off: it can attack again");
     }
 
     std::printf("dodging\n");

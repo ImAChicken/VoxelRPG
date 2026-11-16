@@ -2,6 +2,7 @@
 #include "../entity/Human.h"
 #include "../character/Appearance.h"
 #include "NpcTypes.h"
+#include "../game/Container.h"
 #include <glm/glm.hpp>
 #include <cmath>
 #include <cstdint>
@@ -119,6 +120,9 @@ public:
     glm::vec3   homeFacing{0, 0, 1};
     std::vector<glm::vec3> patrol;     // waypoints
     int         patrolAt = 0;
+    uint32_t    spawner = 0;           // the spawner structure it came from (instance id; 0 = none)
+    Container   pack;                  // what it carries (unread: just its type's loot table).
+                                       // Searched on its body with E once it's dead
 
     // ── What it knows ─────────────────────────────────────
     EntityId    target = 0;            // who it's after

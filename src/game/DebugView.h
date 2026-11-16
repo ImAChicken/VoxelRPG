@@ -42,7 +42,10 @@
 //            target), last known spot of its target, its path
 //            (cyan; magenta: can't get all the way); players'
 //            breadcrumbs (yellow); each NPC's slot in its
-//            encounter, a red ring = holds an attack token
+//            encounter, a red ring = holds an attack token;
+//            spawner structures: where they spawn (green: awake,
+//            grey: asleep), how near a player must be (dim), and
+//            a label with their count and next spawn
 //
 // Colours of a capsule: cyan player, white NPC, orange
 // attacking, blue guarding, green invulnerable, grey dead.
@@ -145,7 +148,7 @@ inline void hitShapes(DebugDraw& dd, const Simulation& sim, const Human& h) {
         bool live = h.attack.active() && h.attack.kind != AttackKind::AirHeavy &&
                     h.attack.t >= d.activeStart && h.attack.t <= d.activeEnd;
         std::vector<hitshape::OBB> w;
-        hitshape::weaponBoxes(*p.held, *p.model, (*p.now)[B_WRIST_R], w);
+        hitshape::weaponBoxes(*p.held, *p.model, (*p.now)[B_WRIST_R] * p.held->turn(*p.model, p.turnNow), w);
         for (auto& o : w) obb(dd, o, live ? RED : YELLOW, live ? 1.0f : 0.5f);
     }
 }
@@ -227,6 +230,20 @@ inline void build(DebugDraw& dd, Simulation& sim, const Woodcutting* wood, const
                   const std::vector<std::array<glm::vec3, 3>>& axeBlade) {
     if (!gDebug.on) return;
     auto blade = [&](const Human& h) { hitshape::Posed p; return sim.bodyPoses().posed(h.uuid, p) && p.held; };
+    if (gDebug.ai)
+        for (const SpawnerState& s : sim.spawners().all()) {
+            const StructureType* t = gStructures.get(s.type);
+            if (!t) continue;
+            glm::vec3 at = s.at + glm::vec3(0, 0.3f, 0);
+            dd.circle(at, t->spawn.radius, s.active ? GREEN : GREY, 0.8f, 40);
+            dd.circle(at, t->spawn.activate, GREY, 0.2f, 64);
+            char b[128];
+            if (!s.active)                                  std::snprintf(b, sizeof(b), "%s  %d/%d  asleep", t->displayName.c_str(), s.alive, t->spawn.maxAlive);
+            else if (s.alive >= t->spawn.maxAlive)          std::snprintf(b, sizeof(b), "%s  %d/%d  full", t->displayName.c_str(), s.alive, t->spawn.maxAlive);
+            else if (t->spawn.total && s.spawned >= t->spawn.total) std::snprintf(b, sizeof(b), "%s  %d/%d  used up", t->displayName.c_str(), s.alive, t->spawn.maxAlive);
+            else                                            std::snprintf(b, sizeof(b), "%s  %d/%d  next %.0fs", t->displayName.c_str(), s.alive, t->spawn.maxAlive, std::max(0.0f, s.timer));
+            dd.label(s.at + glm::vec3(0, (float)t->size.y + 3.0f, 0), b, s.active ? GREEN : GREY);
+        }
     for (const auto& p : sim.players())
         if (p->rules().hasBody) {
             body(dd, *p, true, p.get() == &local ? "you" : "player", blade(*p));

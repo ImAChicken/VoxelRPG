@@ -131,6 +131,7 @@ struct Posed {
     const BodyBoxes*      body  = nullptr;
     const CharacterModel* model = nullptr;
     const HeldModelDef*   held  = nullptr;                     // in the right hand, or null
+    float turnNow = 0.0f, turnPrev = 0.0f;                     // the held item's thrust turn (HeldModelDef::turn)
 };
 
 // A wrist (or any bone) matrix between two ticks: position

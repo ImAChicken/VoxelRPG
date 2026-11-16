@@ -36,6 +36,9 @@ public:
     // each frame (screen pixels, origin top-left)
     struct EnemyBar { float x, y, fill, alpha; bool hurt; };
     std::vector<EnemyBar> enemyBars;
+    // The locked-on target (game/LockOn.h): where to put the marker
+    struct LockMarker { bool on = false; float x = 0, y = 0; };
+    LockMarker lockMarker;
 
     // The debug overlay (F3): labels placed by the game (screen
     // pixels) and a block of text for the corner
@@ -47,6 +50,7 @@ public:
     // Encounter bookends (npc/Encounters.h): a banner when a
     // fight starts, a review when it ends. Neither pauses.
     std::string encounterBanner;
+    bool        devWorld = false;          // the open world is a dev world (main.cpp sets it)
     float encounterBannerAge = 99.0f;
     std::vector<std::string> review;
     float reviewAge = 99.0f;
@@ -72,6 +76,14 @@ public:
             combat ? COMBAT_RED : theme.border, 1.0f);
         ui.drawText(label, 18.0f, 16.0f,
             combat ? COMBAT_RED : theme.text, 2);
+        if (devWorld) {
+            // a dev world saves only when you do (Esc → Save)
+            const char* tag = "dev world";
+            float tw = (float)ui.textWidth(tag, 1) + 12.0f;
+            ui.drawRect(16.0f + labelW, 10.0f, tw, 28.0f, theme.bg);
+            ui.drawBorder(16.0f + labelW, 10.0f, tw, 28.0f, theme.accent, 1.0f);
+            ui.drawText(tag, 22.0f + labelW, 20.0f, theme.accent, 1);
+        }
 
         // ── Centre of the screen ──────────────────────────
         if (combat)
@@ -149,6 +161,23 @@ public:
             float red[4] = {210, 60, 50, 255 * b.alpha};
             ui.drawRect(b.x - w * 0.5f, b.y, w, h, sh0);
             ui.drawRect(b.x - w * 0.5f + 1, b.y + 1, (w - 2) * std::clamp(b.fill, 0.0f, 1.0f), h - 2, red);
+        }
+
+        // ── The lock-on marker: a small dotted diamond ────
+        if (lockMarker.on) {
+            float ink[4] = {20, 14, 10, 230}, gold[4] = {255, 214, 90, 255};
+            const float r = 9.0f;
+            for (int i = 0; i < 12; i++) {
+                float a = i * 3.14159265f / 6.0f;
+                float px = lockMarker.x + std::sin(a) * r * (1.0f - std::fabs(std::cos(a)) * 0.0f);
+                float py = lockMarker.y - std::cos(a) * r;
+                // a diamond: |dx| + |dy| = r
+                float dx = std::sin(a), dy = -std::cos(a), k = r / (std::fabs(dx) + std::fabs(dy));
+                px = lockMarker.x + dx * k; py = lockMarker.y + dy * k;
+                ui.drawRect(px - 2.5f, py - 2.5f, 5, 5, ink);
+                ui.drawRect(px - 1.5f, py - 1.5f, 3, 3, gold);
+            }
+            ui.drawRect(lockMarker.x - 2.0f, lockMarker.y - 2.0f, 4, 4, gold);
         }
 
         // ── Health (Survival, both stances) and stamina ───

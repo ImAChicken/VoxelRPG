@@ -648,3 +648,21 @@ name    = "limestone_dark"
 top     = [12, 1]
 side    = [12, 1]
 bottom  = [12, 1]
+
+[[face_map]]
+name    = "chest_wood"
+top     = [1, 13]
+side    = [0, 13]
+bottom  = [1, 13]
+
+[[face_map]]
+name    = "chest_iron"
+top     = [2, 13]
+side    = [2, 13]
+bottom  = [2, 13]
+
+[[face_map]]
+name    = "chest_lock"
+top     = [3, 13]
+side    = [3, 13]
+bottom  = [3, 13]

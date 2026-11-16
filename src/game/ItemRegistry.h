@@ -2,6 +2,7 @@
 #include "../voxel/VoxelRegistry.h"
 #include "../world/Decorations.h"
 #include "../entity/BodyMass.h"
+#include "../character/GearLook.h"
 #include <toml++/toml.hpp>
 #include <algorithm>
 #include <cctype>
@@ -89,6 +90,7 @@ struct ItemDef {
     std::string heldModel;                  // drawn in the hand ("axe"), "" = nothing
     int         worn        = -1;           // worn items: which WornSlot (-1: not worn)
     std::string accessory;                  // "ring" or "amulet": goes in those equipment slots
+    GearLook    gear;                       // worn items: how it shows on the body (shape "" = not drawn)
 
     float       color[3]    = {0.7f, 0.7f, 0.7f};   // menu swatch
 
@@ -260,6 +262,16 @@ private:
                 d.weight = (float)(*t)["weight"].value_or(0.0);
                 d.heldModel = (*t)["held_model"].value_or(std::string());
                 d.accessory = (*t)["accessory"].value_or(std::string());
+                if (auto* g = (*t)["gear"].as_table()) {
+                    auto hex = [](const std::string& h, glm::vec3 def) {
+                        if (h.size() != 7 || h[0] != '#') return def;
+                        unsigned v = (unsigned)std::stoul(h.substr(1), nullptr, 16);
+                        return glm::vec3((float)((v >> 16) & 255), (float)((v >> 8) & 255), (float)(v & 255));
+                    };
+                    d.gear.shape = (*g)["shape"].value_or(std::string());
+                    d.gear.color = hex((*g)["color"].value_or(std::string()), d.gear.color);
+                    d.gear.trim  = hex((*g)["trim"].value_or(std::string()), d.gear.trim);
+                }
                 {
                     std::string w = (*t)["worn"].value_or(std::string());
                     if (!w.empty()) {

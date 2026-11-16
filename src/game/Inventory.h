@@ -80,6 +80,17 @@ struct Inventory {
     // block does not use it up
     bool infinite = false;
 
+    // A store (a chest: world/Chests.h): every slot is just a
+    // slot — no hotbar or off-hand to keep free
+    bool storage = false;
+    // How many slots it uses (a store can be smaller than 50:
+    // an NPC's pack, a crate). Slots past it stay empty.
+    int  capacity = SLOTS;
+    // A showcase store (a dev world chest): what's taken out of
+    // it is a copy, so it never runs out. Putting things in, and
+    // moving them about inside it, work as usual.
+    bool showcase = false;
+
     Inventory() { std::fill(std::begin(equip), std::end(equip), -1); }
 
     static const ItemStack& none() { static const ItemStack e; return e; }
@@ -217,11 +228,63 @@ struct Inventory {
         tidy();
     }
 
+    // ── Between two inventories (a chest and a player) ────
+    // Drag slot a of A onto slot b of B: stack onto the same
+    // item, else swap. half = half the stack. Whatever leaves
+    // an inventory leaves its equipment and hands too.
+    static void moveAcross(Inventory& A, int a, Inventory& B, int b, bool half = false) {
+        if (&A == &B) { A.move(a, b, half); return; }
+        if (!valid(a) || !valid(b) || a >= A.capacity || b >= B.capacity || A.slots[a].empty()) return;
+        ItemStack& X = A.slots[a];
+        ItemStack& Y = B.slots[b];
+        int cap = std::max<int>(1, gItems.get(X.itemID).maxStack);
+        int want = half ? std::max(1, X.count / 2) : X.count;
+        if (A.showcase) {                     // a copy comes out; the showcase keeps its own
+            if (Y.empty()) Y = { X.itemID, (uint16_t)want };
+            else if (Y.itemID == X.itemID) Y.count = (uint16_t)std::min(cap, (int)Y.count + want);
+            else B.add(X.itemID, want);       // that slot's taken: wherever it fits
+            B.tidy();
+            return;
+        }
+        if (Y.itemID == X.itemID && cap > 1) {
+            int n = std::min(want, cap - (int)Y.count);
+            Y.count += (uint16_t)n; X.count -= (uint16_t)n;
+            if (X.count == 0) X.clear();
+        } else if (half && Y.empty() && want < X.count) {
+            Y = { X.itemID, (uint16_t)want };
+            X.count -= (uint16_t)want;
+        } else {
+            std::swap(X, Y);
+            A.unlinkSlot(a);
+            B.unlinkSlot(b);
+        }
+        A.tidy(); B.tidy();
+    }
+    // Shift-click: as much of slot a as fits, into B (stacks
+    // first, then free slots). Returns how many moved.
+    static int sendAcross(Inventory& A, int a, Inventory& B) {
+        if (!valid(a) || A.slots[a].empty()) return 0;
+        ItemStack& X = A.slots[a];
+        int left = B.add(X.itemID, X.count);
+        int moved = X.count - left;
+        if (A.showcase) { B.tidy(); return moved; }     // a copy: the showcase keeps its own
+        X.count = (uint16_t)left;
+        if (X.count == 0) { X.clear(); A.unlinkSlot(a); }
+        A.tidy();
+        return moved;
+    }
+    // Slot s holds something else now: it's no longer equipped
+    // or in the left hand
+    void unlinkSlot(int s) {
+        for (int& e : equip) if (e == s) e = -1;
+        if (offhand == s) offhand = -1;
+    }
+
     // ── Adding and taking ─────────────────────────────────
     // A free slot: the main hotbar first, then the pack (never
     // the off-hand slots: those are filled by hand)
     int freeSlot() const {
-        for (int i = FIRST_MAIN; i < SLOTS; i++) if (slots[i].empty()) return i;
+        for (int i = storage ? 0 : FIRST_MAIN; i < capacity; i++) if (slots[i].empty()) return i;
         return -1;
     }
     // A slot holding the item (preferring an unequipped one), or -1
@@ -244,7 +307,7 @@ struct Inventory {
                 count   -= n;
                 if (!count) return 0;
             }
-        for (int i = FIRST_MAIN; i < SLOTS && count > 0; i++)
+        for (int i = storage ? 0 : FIRST_MAIN; i < capacity && count > 0; i++)
             if (slots[i].empty()) {
                 int n = std::min(cap, count);
                 slots[i] = { itemID, (uint16_t)n };
@@ -252,6 +315,8 @@ struct Inventory {
             }
         return count;
     }
+
+    bool isEmpty() const { for (auto& s : slots) if (!s.empty()) return false; return true; }
 
     // How many of an item there are
     int count(uint16_t itemID) const {
@@ -387,3 +452,15 @@ struct Inventory {
 private:
     std::vector<std::pair<uint16_t, int>> pending;   // old-save weapon / worn gear
 };
+
+// How the gear it has on shows on a body (head to back)
+inline std::vector<GearLook> gearLooksOf(const Inventory& inv) {
+    std::vector<GearLook> out;
+    for (int w = 0; w < WORN_SLOTS; w++) {
+        const ItemStack& st = inv.worn((WornSlot)w);
+        if (st.empty()) continue;
+        const ItemDef& d = gItems.get(st.itemID);
+        if (!d.gear.shape.empty()) out.push_back(d.gear);
+    }
+    return out;
+}

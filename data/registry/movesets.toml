@@ -192,3 +192,197 @@ lift = 0.45
 knockdown = true
 cancel_from = 0.65
 armor_from = 0.0
+
+# ── Club: slow, heavy blunt blows that break guards and poise ──
+[[moveset]]
+id = "club"
+ref_weight = 2.0
+light = ["club_light1", "club_light2"]
+heavy = "club_heavy"
+air_heavy = "sword_plunge"
+
+[[attack]]
+id = "club_light1"
+pose = "sword_light1"
+duration = 0.78
+active = [0.30, 0.44]
+damage = 1.0
+poise = 18
+stamina = 18
+reach = 9
+arc = [-70, 60]
+band = [3, 16]
+knock = 20
+lift = 0.15
+lunge = 10
+lunge_time = [0.10, 0.44]
+combo_from = 0.56
+cancel_from = 0.54
+
+[[attack]]
+id = "club_light2"
+pose = "sword_light2"
+duration = 0.76
+active = [0.26, 0.40]
+damage = 1.0
+poise = 18
+stamina = 18
+reach = 9
+arc = [60, -70]
+band = [3, 16]
+knock = 20
+lift = 0.15
+lunge = 10
+lunge_time = [0.06, 0.40]
+combo_from = 0.54
+cancel_from = 0.52
+
+[[attack]]
+id = "club_heavy"
+pose = "sword_heavy"
+duration = 1.30
+active = [0.66, 0.80]
+damage = 2.6
+poise = 48
+stamina = 32
+reach = 10
+arc = [-20, 20]
+band = [0, 18]
+knock = 34
+lift = 0.35
+knockdown = true
+lunge = 4
+lunge_time = [0.50, 0.80]
+cancel_from = 1.0
+armor_from = 0.30
+
+# ── Spear: long, narrow thrusts; keep enemies at the tip ──
+#   grip = "thrust"  the spear turns to point along the thrust
+#                    (its model's 'thrust' direction)
+[[moveset]]
+id = "spear"
+ref_weight = 2.5
+light = ["spear_thrust", "spear_thrust"]
+heavy = "spear_lunge"
+air_heavy = "sword_plunge"
+
+[[attack]]
+id = "spear_thrust"
+pose = "sword_light1"
+grip = "thrust"
+duration = 0.62
+active = [0.20, 0.30]
+damage = 1.0
+poise = 12
+stamina = 16
+reach = 18
+arc = [-12, 12]
+band = [4, 16]
+knock = 18
+lift = 0.05
+lunge = 8
+lunge_time = [0.12, 0.30]
+combo_from = 0.42
+cancel_from = 0.40
+
+[[attack]]
+id = "spear_lunge"
+pose = "sword_heavy"
+grip = "thrust"
+duration = 1.15
+active = [0.58, 0.70]
+damage = 2.3
+poise = 34
+stamina = 30
+reach = 20
+arc = [-10, 10]
+band = [3, 16]
+knock = 30
+lift = 0.10
+knockdown = true
+lunge = 34
+lunge_time = [0.50, 0.70]
+cancel_from = 0.90
+armor_from = 0.35
+
+# ── Quarterstaff: quick, wide, long sweeps; light damage, a
+#    knockdown sweep for the heavy ──
+[[moveset]]
+id = "staff"
+ref_weight = 1.8
+light = ["staff_light1", "staff_light2", "staff_light3"]
+heavy = "staff_sweep"
+air_light = "sword_air_light"
+air_heavy = "sword_plunge"
+
+[[attack]]
+id = "staff_light1"
+pose = "sword_light1"
+duration = 0.50
+active = [0.16, 0.27]
+damage = 1.0
+poise = 9
+stamina = 12
+reach = 14
+arc = [-80, 70]
+band = [3, 17]
+knock = 14
+lift = 0.15
+lunge = 10
+lunge_time = [0.06, 0.27]
+combo_from = 0.32
+cancel_from = 0.30
+
+[[attack]]
+id = "staff_light2"
+pose = "sword_light2"
+duration = 0.50
+active = [0.14, 0.25]
+damage = 1.0
+poise = 9
+stamina = 12
+reach = 14
+arc = [70, -80]
+band = [3, 17]
+knock = 14
+lift = 0.15
+lunge = 10
+lunge_time = [0.04, 0.25]
+combo_from = 0.32
+cancel_from = 0.30
+
+[[attack]]
+id = "staff_light3"
+pose = "sword_heavy"
+duration = 0.66
+active = [0.28, 0.38]
+damage = 1.3
+poise = 16
+stamina = 15
+reach = 14
+arc = [-25, 25]
+band = [0, 18]
+knock = 20
+lift = 0.25
+lunge = 12
+lunge_time = [0.18, 0.38]
+cancel_from = 0.48
+
+[[attack]]
+id = "staff_sweep"
+pose = "sword_light1"
+duration = 1.00
+active = [0.48, 0.64]
+damage = 1.6
+poise = 36
+stamina = 26
+reach = 15
+arc = [-150, 150]
+band = [0, 8]
+knock = 26
+lift = 0.40
+knockdown = true
+lunge = 6
+lunge_time = [0.40, 0.64]
+cancel_from = 0.82
+armor_from = 0.30
