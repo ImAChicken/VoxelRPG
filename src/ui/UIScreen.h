@@ -15,7 +15,8 @@ enum class ScreenResult {
     OpenSettings,   // pause menu → settings
     OpenCharacter,  // pause menu → character creator
     SaveGame,       // pause menu → save, and stay
-    QuitNoSave,     // pause menu → leave without saving (dev worlds)
+    QuitNoSave,     // pause menu → leave without saving (dev worlds; disconnecting from a server)
+    JoinServer,     // main menu → connect to a server (MainMenuScreen::getJoinAddress / getJoinName)
 };
 
 class UIScreen {

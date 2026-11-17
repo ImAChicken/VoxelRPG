@@ -1,5 +1,6 @@
 #pragma once
 #include <glad/glad.h>
+#include "../world/DayClock.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <algorithm>
@@ -23,15 +24,6 @@
 //                sky behind it. Kept thin: distance stays clear
 //
 // time: 0 midnight · 0.25 sunrise · 0.5 noon · 0.75 sunset
-struct DayClock {
-    float time = 0.35f;              // starts mid-morning
-    float dayLengthSeconds = 1200.0f; // 20 minutes
-    bool  frozen = false;
-    void update(float dt) {
-        if (frozen || dayLengthSeconds <= 0) return;
-        time = std::fmod(time + dt / dayLengthSeconds, 1.0f);
-    }
-};
 
 struct SkyState {
     glm::vec3 sunDir{0, 1, 0};        // toward the sun
@@ -173,4 +165,3 @@ struct FrameLight {
     float seamHaze   = 0.0f;       // how much haze from there on (0..1)
 };
 inline FrameLight gFrameLight;
-inline DayClock   gClock;

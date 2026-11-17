@@ -148,6 +148,10 @@ public:
 
     explicit WorldEditor(ChunkManager& w) : world(w) {}
 
+    // Told about every voxel that changes (world position, new
+    // block): the server sends them on to clients (server/ServerHost.h)
+    std::function<void(glm::ivec3, uint16_t)> onVoxel;
+
     // ── Applying ──────────────────────────────────────────
     // Apply now, whatever the size. Use for small edits
     // that must finish before the caller continues (the
@@ -408,6 +412,7 @@ private:
                 continue;
             }
             chunk->setIndex(at, id);
+            if (onVoxel) onVoxel(worldPos(ce.cx, ce.cz, at), id);
             sections |= (uint8_t)(1u << (at / VOXEL_COUNT));
             changedHere++;
             job.result.changed++;
@@ -465,6 +470,8 @@ private:
             else
                 for (size_t i = n; i-- > 0; )
                     chunk->setIndex(cu.idx[i], cu.oldIDs[i]);
+            if (onVoxel)
+                for (size_t i = 0; i < n; i++) onVoxel(worldPos(cu.cx, cu.cz, cu.idx[i]), forward ? cu.newIDs[i] : chunk->getIndex(cu.idx[i]));
             for (size_t i = 0; i < n; i++)
                 sections |= (uint8_t)(1u << (cu.idx[i] / VOXEL_COUNT));
             chunk->compress();

@@ -104,6 +104,7 @@ public:
         playerList.erase(std::remove_if(playerList.begin(), playerList.end(),
                          [&](const auto& p) { return p->uuid == id; }), playerList.end());
         intents.erase(id);
+        viewDelay.erase(id);
     }
     const std::vector<std::unique_ptr<Player>>& players() const { return playerList; }
     NpcManager& npcs() { return npcList; }
@@ -129,6 +130,15 @@ public:
     // ── Input ─────────────────────────────────────────────
     // What a player wants this tick. One-shots (jump, dodge,
     // attacks) are used by the next step and then cleared.
+    // Lag compensation: how many ticks behind the server this
+    // player sees the world (its lag + its interpolation delay).
+    // Its weapon hits bodies where they were that long ago, up to
+    // BodyPoses::HISTORY. 0: as they are now (the host's own player).
+    void setViewDelay(EntityId player, int ticks) {
+        if (ticks <= 0) viewDelay.erase(player);
+        else viewDelay[player] = std::min(ticks, BodyPoses::HISTORY - 1);
+    }
+
     void setIntent(EntityId player, const HumanIntent& in) {
         HumanIntent& mine = intents[player];
         bool j = mine.jump, d = mine.dodge, l = mine.attackLight, h = mine.attackHeavy;
@@ -182,7 +192,13 @@ public:
         }, hits, [this](const Human& a, const Human& b) {
             // NPCs only hit what they're hostile to; players hit anyone
             return a.isPlayer() || hostile(static_cast<const Npc&>(a), b);
-        }, [this](const Human& h, hitshape::Posed& out) { return poses.posed(h.uuid, out); });
+        }, [this](const Human& h, hitshape::Posed& out) { return poses.posed(h.uuid, out); },
+        [this](const Human& a, const Human& b, hitshape::Posed& out) {
+            // a remote player's swing meets bodies where they were on
+            // its screen (its view delay: set by the server host)
+            auto it = viewDelay.find(a.uuid);
+            return it != viewDelay.end() && it->second > 0 && poses.posedAgo(b.uuid, it->second, out);
+        });
         combat::separate(all, [&](glm::vec3 pos) {
             return physics->capsuleIsClear(pos, Human::RADIUS, Human::STAND_HEIGHT);
         });
@@ -262,6 +278,7 @@ public:
 
     // The skeletons the hits use (debug overlay, tests)
     const BodyPoses& bodyPoses() const { return poses; }
+    std::unordered_map<EntityId, int> viewDelay;   // lag compensation (setViewDelay)
 
     // What a body holds in its right hand (held model id) and
     // whether it stands ready to fight, for its pose

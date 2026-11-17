@@ -96,6 +96,10 @@ public:
     WorldStreamer& operator=(const WorldStreamer&) = delete;
 
     // Call once per frame with the chunk the player is in
+    // Columns the streamer must not load itself: a client playing
+    // on a server gets the ones the server has changed from it
+    std::function<bool(int, int)> skipLoad;
+
     void update(int playerCX, int playerCZ) {
         collectResults(playerCX, playerCZ);
         collectEdits();
@@ -556,6 +560,7 @@ private:
             int d = ringDistance(cx, cz, pcx, pcz);
 
             if (!world.isLoaded(cx, cz)) {
+                if (skipLoad && skipLoad(cx, cz)) continue;      // it comes from elsewhere (a server)
                 if (!s.loading)
                     candidates.push_back(
                         { d * 2, JobKind::Load, cx, cz });

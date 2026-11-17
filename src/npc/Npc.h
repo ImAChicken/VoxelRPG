@@ -152,6 +152,8 @@ public:
     float       inState = 0.0f;        // s in the current state
     std::vector<NpcEvent> inbox;       // events since the last tick
 
+    std::vector<std::string> wearing;  // puppets of players: the worn items the server says they have on
+    bool     puppet = false;           // a body shown from a server's snapshots (client): never thinks or moves itself
     uint8_t  tier = 0;                 // NpcManager::Tier (how much of it is simulated)
     uint32_t lookSeed = 0;             // its look (saved, so it looks the same next time)
     uint32_t rng = 1;

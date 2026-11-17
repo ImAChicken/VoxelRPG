@@ -129,6 +129,22 @@ public:
         return loadDescriptor();
     }
 
+    // A world's settings from any folder holding its world.vxrp
+    // (a client keeps the server's in servercache/<server>/)
+    bool loadFolder(const std::string& folder) {
+        worldDev = false;
+        worldPath = folder;
+        worldName = std::filesystem::path(folder).filename().string();
+        defaultMode = GameMode::Survival;
+        worldType = WorldType::Classic;
+        worldSize = CLASSIC_WORLD_SIZE;
+        worldBiome = -1;
+        worldTerrain = TerrainStyle::NoErosion;
+        worldParams.reset();
+        worldFlat = FlatOptions();
+        return loadDescriptor();
+    }
+
     // Only chunks the player has changed are written. Every
     // other chunk is rebuilt from the seed on load, so a save
     // stays small no matter how much of the world was visited.

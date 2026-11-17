@@ -1,0 +1,68 @@
+VoxelRPG - building, running, testing, sharing
+==============================================
+Everything is run in PowerShell from the repo root (the folder with
+CMakeLists.txt). Needs: Visual Studio (C++), CMake, git.
+
+EVERYDAY
+--------
+Build everything (game + server + tests):
+    .\build.bat
+
+Run the game:
+    .\build\bin\Release\VoxelRPG.exe
+
+Run a server on this PC, then join it from the game:
+    .\build\bin\Release\VoxelRPG-Server.exe                    (world "server" in saves\, made if missing)
+    .\build\bin\Release\VoxelRPG-Server.exe showroom --dev     (a dev world by name)
+  In the game: Join Server -> leave Address empty -> type a name -> Join.
+  In the server window: status, save, stop, quit-nosave.
+
+A fake second player, to test a server alone:
+    .\build\bin\Release\net_bot.exe 127.0.0.1 bot1 600
+
+MAKE THE DOWNLOADS FOR FRIENDS
+------------------------------
+    .\package.bat
+  Builds, then writes:
+    dist\VoxelRPG-Client.zip    friends: unzip, run VoxelRPG.exe, Join Server
+    dist\VoxelRPG-Server.zip    whoever hosts: unzip, run Start-Server.bat
+  dist\ is not committed. Put the zips on GitHub as a Release:
+    website:  repo page -> Releases -> "Draft a new release" -> pick a tag
+              like v0.1 -> drag both zips in -> Publish. Send friends the link.
+    or:       gh release create v0.1 dist\VoxelRPG-Client.zip dist\VoxelRPG-Server.zip --title "v0.1" --notes "First test build"
+  After any change to the game, run package.bat again and make a new
+  release: clients and server must be from the same build.
+
+TESTS
+-----
+All of them (hit_test takes a few minutes):
+    foreach ($t in "ragdoll","woodcut","combat","sim","npc","anim","inventory","hit","flat","spawner","chest","icon","build","server","net") { & ".\build\bin\Release\${t}_test.exe" | Select-Object -Last 1; "$t" }
+  Each should end with "all passed".
+One of them, with every line:
+    .\build\bin\Release\net_test.exe
+
+THE COMMANDS build.bat RUNS
+---------------------------
+    cmake -B build -DVOXELRPG_TESTS=ON
+    cmake --build build --config Release
+  (leave off -DVOXELRPG_TESTS=ON to skip the tests and net_bot)
+
+COMMIT AND PUSH
+---------------
+    git status                 (look it over)
+    git add -A
+    git commit -m "what changed"
+    git push
+  build\, saves\, your dev worlds, dist\, servercache\ and server.toml are
+  ignored, so they don't go up.
+
+IF SOMETHING GOES WRONG
+-----------------------
+Link errors mentioning ozz or RuntimeLibrary:
+    Remove-Item -Recurse -Force build\_deps\ozz-build
+    .\build.bat
+Anything stranger: start clean (re-downloads the libraries, a few minutes):
+    Remove-Item -Recurse -Force build
+    .\build.bat
+The first build downloads GLFW, GLM, toml++, ozz and ENet: it needs internet.
+"The game can't find data": start it from the repo root, as above.

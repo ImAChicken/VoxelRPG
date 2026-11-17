@@ -29,11 +29,13 @@ public:
     // their BodyMass (see Human.h).
     float     mass     = 70.0f;
 
+    // Ids are handed out by whoever runs the world (the server,
+    // or the game's own server in single player) and sent to
+    // clients, so a counter is enough. An entity loaded with a
+    // saved id keeps it; reserveId makes sure no new one gets it.
+    static void reserveId(uint64_t id) { if (id >= idCounter()) idCounter() = id + 1; }
+
 private:
-    // Simple counter for now — swap for real UUIDs when
-    // multiplayer needs IDs that are unique across machines
-    static uint64_t nextUUID() {
-        static uint64_t counter = 1;
-        return counter++;
-    }
+    static uint64_t& idCounter() { static uint64_t counter = 1; return counter; }
+    static uint64_t nextUUID() { return idCounter()++; }
 };

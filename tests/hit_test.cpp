@@ -187,6 +187,38 @@ int main() {
         check(th && th->thrust && gAnimMap.attackClip("spear_thrust") >= 0, "spear thrusts turn the spear and play Punch_Cross");
     }
 
+    std::printf("lag compensation (BodyPoses history, Simulation::setViewDelay)\n");
+    {
+        // a dummy stands ahead; just as the swing starts it moves away
+        // (as a remote target would have, by the time the attacker's
+        // input reaches the server)
+        auto swingAfterMove = [](int delayTicks) {
+            World w;
+            glm::vec3 at(64.5f, (float)GROUND, 64.5f);
+            Player& p = w.player(at);
+            p.facing = glm::vec3(0, 0, -1);
+            p.inventory.setSlot(Inventory::FIRST_MAIN, gItems.find("iron_sword"), 1);
+            p.inventory.select(Inventory::FIRST_MAIN);
+            Npc& d = *w.sim.npcs().spawn("dummy", at + glm::vec3(0, 0, -6), glm::vec3(0, 0, 1));
+            w.run(0.6f);
+            w.sim.takeEvents();
+            w.sim.setViewDelay(p.uuid, delayTicks);
+            HumanIntent in; in.attackLight = true;
+            w.sim.setIntent(p.uuid, in);
+            bool hit = false;
+            for (int i = 0; i < 60 && !hit; i++) {
+                if (i == 1) { d.position += glm::vec3(30, 0, 0); d.prevPosition = d.position; }
+                p.facing = glm::vec3(0, 0, -1);
+                w.sim.step(DT);
+                for (const SimEvent& e : w.sim.takeEvents()) hit = hit || (e.kind == SimEvent::Kind::Hit && e.a == p.uuid);
+            }
+            return hit;
+        };
+        check(!swingAfterMove(0), "with no view delay, a target that moved away is missed");
+        check(swingAfterMove(25), "seen 25 ticks late (lag + interpolation), the swing meets it where it was on screen");
+        check(!swingAfterMove(3), "but only that far back: 3 ticks of delay doesn't reach before the move");
+    }
+
     std::printf("lock-on (game/LockOn.h)\n");
     {
         World w;

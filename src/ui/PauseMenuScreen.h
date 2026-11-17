@@ -18,6 +18,8 @@ public:
     // A dev world: never saved by itself, so it also offers
     // leaving without saving
     void setDevWorld(bool dev) { devWorld = dev; }
+    // Playing on a server: nothing to save here, only to leave
+    void setRemote(bool r) { remote = r; }
     // A line under the title for a moment ("world saved")
     void notice(const std::string& text) { noticeText = text; noticeAge = 0.0f; }
 
@@ -41,6 +43,11 @@ public:
 
         struct Btn { const char* label; ScreenResult result; };
         std::vector<Btn> list = { { "Resume", ScreenResult::ResumeGame } };
+        if (remote) {
+            list.push_back({ "Controls",   ScreenResult::OpenControls });
+            list.push_back({ "Settings",   ScreenResult::OpenSettings });
+            list.push_back({ "Disconnect", ScreenResult::QuitNoSave });
+        } else {
         if (devMenuAllowed)
             list.push_back({ "Dev Menu", ScreenResult::OpenDevMenu });
         list.push_back({ "Character",     ScreenResult::OpenCharacter });
@@ -49,6 +56,7 @@ public:
         list.push_back({ "Save",          ScreenResult::SaveGame });
         list.push_back({ "Save and Quit", ScreenResult::SaveAndQuit });
         if (devWorld) list.push_back({ "Quit without saving", ScreenResult::QuitNoSave });
+        }
 
         float bw  = (float)theme.buttonW;
         for (const Btn& b : list) bw = std::max(bw, (float)ui.textWidth(b.label, 2) + 28.0f);   // the longest label fits
@@ -64,6 +72,8 @@ public:
         ui.drawText("Paused", px + pad, py + pad, theme.title, 2);
         if (!noticeText.empty() && noticeAge < 2.5f)
             ui.drawText(noticeText, px + pad, py + pad + 24, theme.accent, 1);
+        else if (remote)
+            ui.drawText("on a server - the world keeps running", px + pad, py + pad + 24, theme.textDim, 1);
         else if (devWorld)
             ui.drawText("dev world - saves only when you do", px + pad, py + pad + 24, theme.textDim, 1);
 
@@ -85,6 +95,7 @@ private:
     GLFWwindow* window;
     bool devMenuAllowed = false;
     bool devWorld = false;
+    bool remote = false;
     std::string noticeText;
     float noticeAge = 99.0f;
     double mouseX = 0, mouseY = 0;

@@ -6,3 +6,10 @@ saves/
 # Dev worlds: share one on purpose with  git add -f devworlds/<name>
 devworlds/*/
 !devworlds/README.md
+
+# A client's copies of servers' world settings and bakes
+servercache/
+# Packaged downloads (package.bat / tools/package.cmake)
+/dist/
+# The server's settings on this machine
+/server.toml

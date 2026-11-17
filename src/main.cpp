@@ -34,6 +34,9 @@
 #include "game/Commands.h"
 #include "game/PlayerInteraction.h"
 #include "game/DevKit.h"
+#include "server/GameSession.h"
+#include "client/ClientWorld.h"
+#include "net/EnetTransport.h"
 #include "game/LockOn.h"
 #include "ui/ItemIcon.h"
 
@@ -111,7 +114,6 @@ constexpr float AUTOSAVE_SECONDS = 180.0f;
 GameState gState    = GameState::MainMenu;
 
 std::unique_ptr<IRenderer> gRenderer;
-std::unique_ptr<IPhysics>  gPhysics;
 
 // Lets the GLFW text callbacks reach the main menu and
 // the console
@@ -399,12 +401,17 @@ int main() {
         controller.reset(player);
         physicsTime = 0.0f;
     };
-    std::unique_ptr<TerrainGenerator> gen;
-    std::unique_ptr<ChunkManager>     world;
-    std::unique_ptr<WorldEditor>      editor;    // all world edits
-    std::unique_ptr<StructureManager> structs;   // doors, trees, buildings
-    ChestStore chests;                           // what each chest holds (world/Chests.h)
-    std::unique_ptr<Woodcutting>      wood;      // felled trees, logs, wood on the ground
+    // The open world: the same GameSession the headless server
+    // runs (server/GameSession.h). The names below are its parts.
+    GameSession session(sim);
+    session.log = say;
+    auto& gen      = session.gen;
+    auto& world    = session.world;
+    auto& editor   = session.editor;    // all world edits
+    auto& structs  = session.structs;   // doors, trees, buildings
+    ChestStore& chests = session.chests;   // what each chest holds (world/Chests.h)
+    auto& wood     = session.wood;      // felled trees, logs, wood on the ground
+    auto& gPhysics = session.physics;
     // Meshes for woodcutting's logs (by log id), drawn like the
     // world (render/PropRenderer.h)
     std::unordered_map<uint32_t, PropRenderer::Mesh> logMeshes;
@@ -414,30 +421,107 @@ int main() {
     };
     // Enemies live in the simulation; their bodies to draw (by id)
     NpcManager& npcs = sim.npcs();
-    EntityId talkingTo = 0;
-    bool pendingKit = false;
-    LockOn lockOn;                    // the camera held on an enemy (TAB: game/LockOn.h)          // a new dev world: lay out the showcase chests (game/DevKit.h)           // the NPC this player is in a menu with
+    EntityId talkingTo = 0;           // the NPC this player is in a menu with
+    bool pendingKit = false;          // a new dev world: lay out the showcase chests (game/DevKit.h)
+    LockOn lockOn;                    // the camera held on an enemy (TAB: game/LockOn.h)
     std::unordered_map<uint64_t, std::unique_ptr<Character>> npcBodies;
     std::unique_ptr<WorldStreamer>    streamer;
     std::unique_ptr<FarTerrain>       farView;   // distant terrain
     float autosaveTimer = 0.0f;
+
+    // ── Playing on a server (client/ClientWorld.h) ────────
+    // 'remote' is the connection and the mirror of the server's
+    // world, built into 'session' so everything below draws and
+    // predicts on it like a local world. The local simulation
+    // then holds only this player (its prediction) and PUPPETS:
+    // the other players and NPCs, as Npcs that never think, moved
+    // from the server's snapshots.
+    std::unique_ptr<ClientWorld> remote;
+    uint64_t localUuid = player.uuid;         // this player's id off line
+    float remoteTime = 0.0f;                  // ticks owed while a menu is open
+    std::unordered_map<uint64_t, bool> puppetDown;
+    std::unordered_map<std::string, std::string> itemForModel;   // held model → an item that shows it
+    auto syncPuppets = [&](float dtFrame) {
+        if (!remote) return;
+        if (itemForModel.empty())
+            for (uint16_t id : gItems.inCategory(IC_TOOL | IC_WEAPON | IC_DEV)) {
+                const ItemDef& d = gItems.get(id);
+                if (!d.heldModel.empty() && !itemForModel.count(d.heldModel)) itemForModel[d.heldModel] = d.name;
+            }
+        auto& list = npcs.all();
+        list.erase(std::remove_if(list.begin(), list.end(), [&](auto& n) { return n->puppet && !remote->bodies.count(n->uuid); }), list.end());
+        for (auto& [id, body] : remote->bodies) {
+            Npc* n = npcs.find(id);
+            if (!n) {
+                auto made = std::make_unique<Npc>();
+                made->uuid = id;
+                made->puppet = made->untouchable = true;
+                made->typeId = body.info.type;
+                made->type = gNpcTypes.find(body.info.type);
+                made->name = body.info.name;
+                made->appearance = body.look;
+                if (made->type) made->faction = gFactions.find(made->type->faction);
+                n = made.get();
+                list.push_back(std::move(made));
+                puppetDown[id] = false;
+            }
+            if (!n->type) {                      // a player: what it wears can change
+                n->wearing.clear();
+                std::istringstream gs(body.info.gear);
+                for (std::string w; gs >> w;) n->wearing.push_back(w);
+            }
+            proto::BodyState st;
+            if (!remote->sample(id, st)) continue;
+            using B = proto::BodyState;
+            n->position = n->prevPosition = st.pos;
+            n->velocity = st.vel;
+            n->facing = st.facing;
+            if (st.health < n->health) n->sinceHurt = 0.0f; else n->sinceHurt += dtFrame;
+            n->health = st.health; n->maxHealth = st.maxHealth;
+            n->grounded = st.flags & B::F_GROUNDED; n->crouching = st.flags & B::F_CROUCH;
+            n->sprinting = st.flags & B::F_SPRINT;  n->flying = st.flags & B::F_FLY;
+            n->guarding = st.flags & B::F_GUARD;
+            n->move = (Human::Move)st.move; n->moveTimer = st.moveTimer;
+            auto im = itemForModel.find(st.held);
+            n->weaponItem = im == itemForModel.end() ? std::string() : im->second;
+            const AttackDef* ad = st.attack.empty() ? nullptr : gMovesets.attack(st.attack);
+            n->attack = AttackState();
+            if (ad) { n->attack.kind = AttackKind::Light; n->attack.d = ad; n->attack.t = st.attackT; n->attack.dir = st.attackDir; }
+            // knocked down or dead: it falls here too (for looks; the server decides what's hit)
+            bool down = st.flags & (B::F_DEAD | B::F_LIMP);
+            if (down && !puppetDown[id]) {
+                n->ragdoll.stayDown = st.flags & B::F_DEAD;
+                n->hit(n->bodyPoint(0.6f), -n->facing * 46.0f * n->mass);
+            } else if (!down && puppetDown[id]) {
+                n->ragdoll.stayDown = false;
+                if (n->ragdoll.isLimp()) n->ragdoll.reset();
+            }
+            puppetDown[id] = down;
+        }
+    };
+    // One tick on a server: this tick's input goes out, the local
+    // simulation predicts it, the fallen bodies' ragdolls move
+    auto remoteTick = [&](const HumanIntent& in) {
+        remote->sendInput(in, player.facing, camera.pitch);
+        sim.setIntent(player.uuid, in);
+        sim.step(PHYSICS_STEP);
+        remote->afterPrediction();
+        for (auto& n : npcs.all()) if (n->puppet && gPhysics) gPhysics->stepRagdoll(*n, PHYSICS_STEP);
+    };
 
     // ── Save everything ───────────────────────────────────
     // Edited chunks (only those — untouched terrain is
     // rebuilt from the seed and comes out identical) and the
     // player file: position, view, mode, health, both
     // inventories, dev tool settings.
+    //   Single player trusts itself: every save is committed
+    //   (server/SaveStaging.h), the player file and the far
+    //   view's memory going in with the rest.
     auto saveWorld = [&]() {
-        if (!world) return;
-        if (editor) editor->flush();     // finish queued edits first
-        gWorldSave.saveDirtyChunks(*world);
-        if (structs) structs->save(gWorldSave.getWorldPath());
-        chests.save(gWorldSave.getWorldPath());
-        if (wood) wood->save(gWorldSave.getWorldPath());
-        npcs.save(gWorldSave.getWorldPath() + "/npcs.dat");
-        memory.save(gWorldSave.getWorldPath() + "/lowres.dat");
-        { std::ofstream tf(gWorldSave.getWorldPath() + "/time.txt"); tf << gClock.time << "\n"; }
-        gWorldSave.savePlayer([&](std::ostream& out) {
+        if (!world || remote) return;        // a server's world is the server's to save
+        session.save(true, [&](const std::string& stage) {
+            memory.save(stage + "/lowres.dat");
+            std::ofstream out(stage + "/player.dat");
             player.write(out);
             build.write(out);
             out << "look=" << camera.yaw << " " << camera.pitch << "\n";
@@ -456,20 +540,21 @@ int main() {
         pendingKit = false;
         lockOn.clear();
         if (save) saveWorld();
+        if (remote) remote->leave();
         streamer.reset();
         farView.reset();
         dev.attach(nullptr);
         hands.wood = nullptr;
-        wood.reset();
         dropWoodMeshes();
-        sim.detachWorld();
         npcBodies.clear();
-        structs.reset();
-        chests.clear();
-        editor.reset();
-        gPhysics.reset();
-        world.reset();
-        gen.reset();
+        if (remote) {
+            remote->receive();               // lets the goodbye out
+            remote.reset();
+            puppetDown.clear();
+            player.uuid = localUuid;
+            pauseMenu.setRemote(false);
+        }
+        session.close();
     };
 
     // Switch the player to another game mode. The body is
@@ -501,15 +586,16 @@ int main() {
                           bool devWorld = false) {     // in devworlds/
         streamer.reset();
         farView.reset();
-        gPhysics.reset();
+        session.close();
 
         if (isNew) {
             std::cout << "Creating world: " << name
                       << " seed=" << seed << "\n";
-            gWorldSave.createWorld(name, seed, mode, type, size, biome, terrain, genParams, flat, devWorld);
+            session.beginNew(name, seed, mode, type, size, biome, terrain, genParams, flat, devWorld);
         } else {
             std::cout << "Loading world: " << name << (devWorld ? " (dev world)" : "") << "\n";
-            gWorldSave.loadWorld(name, devWorld);
+            session.begin(name, devWorld);
+            if (!session.recovered.empty()) say(session.recovered);
             seed = gWorldSave.getSeed();
             mode = gWorldSave.getDefaultMode();
             type = gWorldSave.getWorldType();
@@ -530,15 +616,10 @@ int main() {
         // progress screen keeps the window alive
         {
             const bool baking = worldTypeShaped(type) && gWorldSave.getTerrainStyle() != TerrainStyle::NoErosion;
-            std::string cache = gWorldSave.getWorldPath() + "/terrain.bake";
-            int biomeArg = gWorldSave.getWorldBiome();
-            TerrainStyle style = gWorldSave.getTerrainStyle();
-            WorldGenParams gparams = gWorldSave.getGenParams();
             gBakeProgress = 0.0f; gBakeStage = 0;
-            std::unique_ptr<TerrainGenerator> made;
             std::atomic<bool> done{ false };
             std::thread worker([&] {
-                made = makeGenerator(type, seed, size, biomeArg, style, cache, gparams, gWorldSave.getFlatOptions());
+                session.buildGenerator();
                 done = true;
             });
             while (baking && !done) {
@@ -561,35 +642,18 @@ int main() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(30));
             }
             worker.join();
-            gen = std::move(made);
         }
-        world = std::make_unique<ChunkManager>();
+        // The rest of the world from its folder: voxels' home,
+        // physics, structures, containers, logs, NPCs, the clock
+        session.attach();
 
-        // Where each chunk's voxels come from. Runs on worker
-        // threads: a chunk the player edited is read from the
-        // save folder, everything else is rebuilt from the seed.
-        const TerrainGenerator* genPtr = gen.get();
-        std::string worldFolder = gWorldSave.getWorldPath();
-        auto chunkSource =
-            [genPtr, worldFolder](int cx, int cz) -> ChunkPtr {
-                auto path = WorldSaveManager::chunkPath(
-                    worldFolder, cx, cz);
-                if (std::filesystem::exists(path)) {
-                    ChunkPtr saved = makeChunk();
-                    if (ChunkLoader::load(path, *saved))
-                        return saved;
-                }
-                return genPtr->generateChunk(cx, cz);
-            };
-
+        // Chunks come in around the camera (a chunk the player
+        // edited is read from the save folder, everything else is
+        // rebuilt from the seed: GameSession::chunkSource)
         streamer = std::make_unique<WorldStreamer>(
-            *world, chunkSource, blockTable, lightTable());
+            *world, session.chunkSource(), blockTable, lightTable());
         memory.load(gWorldSave.getWorldPath() + "/lowres.dat");
         memorySeen = 0;
-        {   // the world's clock
-            std::ifstream tf(gWorldSave.getWorldPath() + "/time.txt");
-            float t; if (tf >> t) gClock.time = std::fmod(std::fabs(t), 1.0f); else gClock.time = 0.35f;
-        }
 
         // The distant view, coloured with each block's
         // average atlas colour
@@ -606,41 +670,9 @@ int main() {
             }
         }
 
-        gPhysics = std::make_unique<VoxelPhysics>();
-        gPhysics->init(*world);
-
-        editor = std::make_unique<WorldEditor>(*world);
-        structs = std::make_unique<StructureManager>(*world, *editor, *gen);
-        structs->log = say;
-        structs->load(gWorldSave.getWorldPath());
-        chests.worldSeed = (uint32_t)gWorldSave.getSeed();
-        chests.load(gWorldSave.getWorldPath());
         dropWoodMeshes();
-        wood = std::make_unique<Woodcutting>();
-        wood->load(gWorldSave.getWorldPath());
-        // a chest (anything with storage) that goes (broken,
-        // removed, collapsed) spills what it held as pickups —
-        // its loot rolled now if it was never opened
-        structs->onRemoved = [&](const StructureInstance& si) {
-            const StructureType* t = gStructures.get(si.type);
-            glm::vec3 at = glm::vec3(si.origin) + glm::vec3(0.5f, 2.0f, 0.5f);
-            for (auto& [item, n] : chests.take(si.id, t)) {
-                if (wood) wood->drop(item, n, at, glm::vec3(0.0f));
-                else      player.inventory.add(item, n);
-            }
-        };
-        // one a player builds starts empty (no loot from building
-        // chests); a command or the world rolls its loot table
-        structs->onPlaced = [&](const StructureInstance& si, EditSource src) {
-            const StructureType* t = gStructures.get(si.type);
-            if (ChestStore::holds(t) && (src == EditSource::Player || src == EditSource::Dev)) chests.makeEmpty(si.id, *t);
-        };
         hands.wood = wood.get();
         hands.chests = &chests;
-        // bodies collide with fallen logs; raycasts hit them
-        gPhysics->setLooseSolids([&](int x, int y, int z) { return wood && wood->solidAt(x, y, z); });
-        sim.attachWorld(gPhysics.get(), wood.get());
-        if (int n = npcs.load(gWorldSave.getWorldPath() + "/npcs.dat")) std::cout << n << " NPCs loaded\n";
         build.reset();
         dev.resetForNewWorld();
         dev.attach(editor.get());
@@ -720,6 +752,117 @@ int main() {
         std::cout << "World streaming on "
                   << streamer->workerCount()
                   << " worker thread(s)\n";
+    };
+
+    // ── Join a server ─────────────────────────────────────
+    // Connects (a screen shows how it's going; Esc gives up),
+    // builds the same world from the settings the server sends,
+    // and starts playing on the mirror. Returns "" or what went
+    // wrong.
+    auto joinServer = [&](const std::string& address, const std::string& name) -> std::string {
+        streamer.reset();
+        farView.reset();
+        session.close();
+        std::string host; int port;
+        net::splitAddress(address, host, port);
+        auto conn = net::enetConnect(host, port);
+        if (!conn) return "couldn't look up " + host;
+        player.resetForNewWorld();
+        player.inventory = Inventory();
+        player.appearance = loadDefaultCharacter();
+        localUuid = player.uuid;
+        remote = std::make_unique<ClientWorld>(conn, "servercache", &player, &session);
+        remote->join(name, player.appearance);
+        auto screen = [&](const std::string& title, const std::string& line, float bar) {
+            glfwPollEvents();
+            gRenderer->beginFrame();
+            UIRenderer* ui = gRenderer->getUIRenderer();
+            const auto& theme = gResourcePacks.getTheme();
+            float sw = (float)ui->getWidth(), sh = (float)ui->getHeight();
+            ui->begin();
+            ui->drawRect(0, 0, sw, sh, theme.bg);
+            ui->drawTextCentered(title, 0, sh * 0.5f - 60, sw, 30, theme.title, 3);
+            ui->drawTextCentered(line, 0, sh * 0.5f - 18, sw, 20, theme.textDim, 2);
+            if (bar >= 0.0f) {
+                float bw = std::min(520.0f, sw - 80.0f), bx = (sw - bw) * 0.5f, by = sh * 0.5f + 20;
+                ui->drawRect(bx, by, bw, 14, theme.inputBg);
+                ui->drawRect(bx, by, bw * std::clamp(bar, 0.0f, 1.0f), 14, theme.accent);
+                ui->drawBorder(bx, by, bw, 14, theme.border, 1.0f);
+            }
+            ui->end();
+            gRenderer->endFrame();
+            glfwSwapBuffers(window);
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        };
+        auto fail = [&](const std::string& why) { remote.reset(); player.uuid = localUuid; session.close(); return why; };
+        // 1. the answer
+        while (remote->state == ClientWorld::State::Connecting) {
+            remote->receive();
+            screen("Joining " + address, "Esc: cancel", -1.0f);
+            if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS || glfwWindowShouldClose(window)) return fail("cancelled");
+        }
+        if (remote->state == ClientWorld::State::Refused) return fail(remote->refusedWhy);
+        if (remote->state != ClientWorld::State::Joined) return fail("no answer from " + address);
+        // 2. the same world, from its settings (island worlds bake:
+        //    on a worker, the connection kept alive meanwhile)
+        {
+            gBakeProgress = 0.0f; gBakeStage = 0;
+            std::atomic<bool> done{ false };
+            std::thread worker([&] { remote->buildGenerator(); done = true; });
+            while (!done) {
+                remote->keepAlive();
+                screen("Shaping the land", bakeStageName(gBakeStage), gBakeProgress.load());
+            }
+            worker.join();
+        }
+        std::cout << "Joined " << address << " as " << name << ": " << worldTypeName(gWorldSave.getWorldType()) << " world, "
+                  << WORLD_SIZE_X << " x " << WORLD_SIZE_Z << " chunks\n";
+        hud.devWorld = false;
+        pauseMenu.setRemote(true);
+        streamer = std::make_unique<WorldStreamer>(*world, remote->chunkSource(), blockTable, lightTable());
+        // columns the server has changed come from the server, not the seed
+        streamer->skipLoad = [&](int cx, int cz) { return remote && remote->isModified(cx, cz); };
+        memory.load(remote->cacheFolder() + "/lowres.dat");
+        memorySeen = 0;
+        {
+            auto colors = std::make_shared<FarTerrain::ColorTable>(blockTable->blocks.size());
+            for (size_t id = 0; id < blockTable->blocks.size(); id++) {
+                const BlockRenderInfo& info = blockTable->get((uint16_t)id);
+                (*colors)[id] = glr->tileAverage(info.tileX[FACE_TOP], info.tileY[FACE_TOP]);
+            }
+            farView = std::make_unique<FarTerrain>(*gen, WORLD_SIZE_X, WORLD_SIZE_Z, colors);
+            if (!farView->initGL()) farView.reset();
+        }
+        dropWoodMeshes();
+        hands.wood = wood.get();
+        hands.chests = &chests;
+        build.reset();
+        dev.resetForNewWorld();
+        dev.attach(nullptr);
+        hands.clearTarget();
+        playerBody->resetAnimation();
+        player.spawnPoint = glm::vec3(gen->spawnPoint(WORLD_SIZE_X, WORLD_SIZE_Z));
+        camera = Camera();
+        controller.thirdPersonWanted = false;
+        camera.position = player.position + glm::vec3(0.0f, Human::eyeStand, 0.0f);
+        controller.reset(player);
+        physicsTime = 0.0f;
+        remoteTime = 0.0f;
+        say("joined " + address + " as " + name);
+        gState = GameState::Playing;
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        camera.firstMouse = true;
+        gInput.resetMouseDelta(window);
+        return "";
+    };
+    // Back to the main menu's Join page, saying why
+    auto dropToMenu = [&](const std::string& why) {
+        leaveWorld(false);
+        gState = GameState::MainMenu;
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        glfwSetWindowTitle(window, "VoxelRPG");
+        mainMenu.onEnter();
+        mainMenu.showJoinError(why);
     };
 
     // ── Draw the world ────────────────────────────────────
@@ -863,7 +1006,7 @@ int main() {
                 // Axe: trace the blade's edge from last frame to this
                 // one; the first solid voxel it passes is the hit
                 AxeSwing& sw = player.swing;
-                if (sw.active() && editor && structs) {
+                if (sw.active() && editor && structs && !remote) {    // (on a server the axe waits for requests)
                     const ItemDef& tool = player.activeInventory().heldDef();
                     const HeldModelDef* hm = gHeldModels.find(tool.heldModel);
                     std::vector<glm::vec3> bp = hm ? hm->edgePoints(model) : std::vector<glm::vec3>();
@@ -916,7 +1059,7 @@ int main() {
                 if (!ch) ch = std::make_unique<Character>();
                 {
                     std::vector<GearLook> gear;
-                    if (n.type) for (const std::string& w : n.type->wear)
+                    for (const std::string& w : n.type ? n.type->wear : n.wearing)
                         if (uint16_t id = gItems.find(w); id && !gItems.get(id).gear.shape.empty()) gear.push_back(gItems.get(id).gear);
                     ch->setAppearance(n.appearance, hairMesh(), false, gear);
                 }
@@ -1221,7 +1364,7 @@ int main() {
         // cannot fling the camera across the map
         float dt = std::min(frameTime, 0.1f);
         frameDt = dt;
-        if (gState == GameState::Playing || gState == GameState::Console) gClock.update(dt);
+        if ((gState == GameState::Playing || gState == GameState::Console) && !remote) gClock.update(dt);
 
         // Menus draw block icons from the world atlas (ui/ItemIcon.h)
         {
@@ -1233,6 +1376,27 @@ int main() {
         // any isPressed / isHeld check this frame
         glfwPollEvents();
         gInput.poll(window);
+
+        // ── On a server: what it sent, every frame ────────
+        if (remote && gState != GameState::MainMenu) {
+            remote->receive();
+            std::string lastNotice;
+            for (const std::string& n : remote->notices) { say(n); lastNotice = n; }
+            remote->notices.clear();
+            if (remote->state != ClientWorld::State::Joined) {
+                dropToMenu(lastNotice.empty() ? "the connection to the server was lost" : lastNotice);
+            } else {
+                gClock.time = remote->clockTime;
+                syncPuppets(dt);
+                // a menu is open: the world goes on, you stand still
+                if (gState != GameState::Playing) {
+                    remoteTime = std::min(remoteTime + dt, 0.25f);
+                    while (remoteTime >= PHYSICS_STEP) { remoteTick(HumanIntent()); remoteTime -= PHYSICS_STEP; }
+                    remote->events.clear();
+                    sim.takeEvents();
+                }
+            }
+        }
 
         // ── ESC ───────────────────────────────────────────
         if (gInput.isPressed(InputAction::Pause)) {
@@ -1252,7 +1416,7 @@ int main() {
             // Spectator → Test Play → Survival → Spectator.
             // (Combat is not in the cycle: it is a stance
             // inside Survival, toggled with R.)
-            if (gInput.isPressed(InputAction::GamemodeCycle))
+            if (gInput.isPressed(InputAction::GamemodeCycle) && !remote)     // the server sets your mode
                 changeMode(nextGameMode(player.mode));
 
             // F3 — the debug overlay
@@ -1372,13 +1536,13 @@ int main() {
 
             // Big edits are spread over frames: a few
             // milliseconds of them per frame
-            if (editor) editor->update(4.0f);
+            session.updateEdits(4.0f);
 
             // Autosave every few minutes (Settings → Auto save);
             // dev worlds only save when asked
             autosaveTimer += frameTime;
             if (autosaveTimer >= AUTOSAVE_SECONDS) {
-                if (gSettings.autosave && !gWorldSave.isDevWorld()) saveWorld();
+                if (gSettings.autosave && !gWorldSave.isDevWorld() && !remote) saveWorld();
                 else autosaveTimer = 0.0f;
             }
         }
@@ -1425,6 +1589,9 @@ int main() {
                            WorldType::Classic, 0,
                            -1, TerrainStyle::GuidedRivers, WorldGenParams(), FlatOptions(),
                            mainMenu.getLoadWorldDev());
+            } else if (r == ScreenResult::JoinServer) {
+                std::string why = joinServer(mainMenu.getJoinAddress(), mainMenu.getJoinName());
+                if (!why.empty()) mainMenu.showJoinError(why);
             } else if (r == ScreenResult::Quit) {
                 glfwSetWindowShouldClose(window, true);
             }
@@ -1437,7 +1604,10 @@ int main() {
             // What this player's mode allows. Every mode
             // with a body shares the same physics path;
             // only the free camera is different.
-            const GameModeRules rules = player.rules();
+            GameModeRules rules = player.rules();
+            // on a server the world is changed by asking the server
+            // (building, chests and tools there: not yet)
+            if (remote) rules.worldInteraction = false;
 
             if (!rules.hasBody) {
                 // Free fly camera — no physics, no collision
@@ -1527,27 +1697,34 @@ int main() {
                 physicsTime = std::min(physicsTime + dt, 0.25f);
                 // the spawner structures placed in the world, for the
                 // simulation to run (sim/Spawners.h)
-                if (structs) {
-                    static std::vector<Spawners::Placed> placedSpawners;
-                    placedSpawners.clear();
-                    structs->forEachInstance([](const StructureInstance& si) {
-                        const StructureType* t = gStructures.get(si.type);
-                        if (t && t->kind == StructureKind::Spawner)
-                            placedSpawners.push_back({ si.id, si.type, glm::vec3(si.origin) + glm::vec3(0.5f, 0.0f, 0.5f) });
-                    });
-                    sim.syncSpawners(placedSpawners);
-                }
+                if (!remote) session.syncSpawners();
                 while (physicsTime >= PHYSICS_STEP) {
                     controller.beforeTick(player);
-                    sim.setIntent(player.uuid, controller.intent);
-                    sim.step(PHYSICS_STEP);
+                    if (remote) remoteTick(controller.intent);
+                    else {
+                        sim.setIntent(player.uuid, controller.intent);
+                        sim.step(PHYSICS_STEP);
+                    }
                     controller.afterTick(player);
                     physicsTime -= PHYSICS_STEP;
                 }
 
                 // 3. What happened, as it concerns this player
+                //    (on a server: what the server says happened)
                 gOutlineFx.update(frameDt);
-                for (const SimEvent& e : sim.takeEvents()) {
+                std::vector<SimEvent> happened = sim.takeEvents();
+                if (remote) {
+                    happened.clear();
+                    for (const proto::EventMsg& m : remote->events) {
+                        SimEvent e;
+                        e.kind = (SimEvent::Kind)m.kind; e.a = m.a; e.b = m.b; e.attack = (AttackKind)m.attack; e.amount = m.amount;
+                        e.blocked = m.flags & 1; e.guardBroken = m.flags & 2; e.poiseBroken = m.flags & 4; e.knockedDown = m.flags & 8;
+                        e.parried = m.flags & 16; e.riposte = m.flags & 32;
+                        if (e.kind <= SimEvent::Kind::Respawned) happened.push_back(e);
+                    }
+                    remote->events.clear();
+                }
+                for (const SimEvent& e : happened) {
                     gOutlineFx.onEvent(e);       // flashing outlines (hurt, blocked …)
                     if (e.kind == SimEvent::Kind::Hit && e.parried && e.b == player.uuid) say("parried - strike now for a riposte");
                     if (e.kind == SimEvent::Kind::Hit && e.parried && e.a == player.uuid) say("you were parried");
@@ -1675,7 +1852,7 @@ int main() {
                 // E: search the body in front of you, or talk to the
                 // NPC in front of you (it waits in its 'unavailable'
                 // state until you leave)
-                if (gInput.isPressed(InputAction::Interact)) {
+                if (gInput.isPressed(InputAction::Interact) && !remote) {
                     if (talkingTo) { sim.closeMenu(talkingTo); }
                     else if (Npc* body = (hands.target.hit && structs->instanceAt(hands.target.blockPos)) ? nullptr : bodyInView()) {
                         inventoryScreen.setContext(&player, &body->pack.read(), body->name + " - pack");
@@ -1760,6 +1937,12 @@ int main() {
 
             // Run whatever was typed this frame
             for (const std::string& line : gConsoleLines) {
+                if (remote) {
+                    // on a server only what's yours to change runs here
+                    std::string w = line.substr(0, line.find(' '));
+                    if (w == "ping") { char b[64]; std::snprintf(b, sizeof(b), "ping %.0f ms", remote->pingMs()); say(b); continue; }
+                    if (w != "debug" && w != "help" && w != "where" && w != "outline") { say("on a server: only debug, where, ping, help"); continue; }
+                }
                 CommandContext ctx {
                     player, dev, hands.target, structs.get(),
                     [&](GameMode m) { changeMode(m); },
@@ -2001,7 +2184,7 @@ int main() {
     // Closing the window while in a world still saves it
     // (a dev world only saves when asked, so not that)
     if (gState != GameState::MainMenu && world)
-        leaveWorld(!gWorldSave.isDevWorld());
+        leaveWorld(!gWorldSave.isDevWorld() && !remote);
 
     // Everything that owns OpenGL objects goes before
     // glfwTerminate() destroys the context
@@ -2014,10 +2197,7 @@ int main() {
     props.cleanup();
     skyRenderer.cleanup();
     distantLights.cleanup();
-    editor.reset();
-    gPhysics.reset();
-    world.reset();
-    gen.reset();
+    session.close();
     gRenderer->shutdown();
     gRenderer.reset();
     glfwTerminate();

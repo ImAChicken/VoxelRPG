@@ -1907,7 +1907,7 @@ private:
         std::vector<int> pred(n, -1);
         using E = std::pair<float, int>;
         std::priority_queue<E, std::vector<E>, std::greater<E>> pq;
-        for (int i = 0; i < n; i++) if (isSeaBiome(chart.biomes[i])) { cost[i] = 0; pq.push({ 0, i }); }
+        for (int i = 0; i < n; i++) if (isSeaBiome(chart.biomes[i])) { cost[i] = 0; pq.push({ 0.0f, i }); }
         while (!pq.empty()) {
             auto [c, i] = pq.top(); pq.pop();
             if (c > cost[i]) continue;

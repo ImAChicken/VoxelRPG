@@ -300,8 +300,13 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
 // canHit(attacker, target): false skips the pair (an NPC's swing
 // passes through its friends)
 using CanHitFn = std::function<bool(const Human&, const Human&)>;
+// targetPose(attacker, target, out): where to check the target's
+// limbs for this attacker (lag compensation: as the attacker saw
+// it); null: as it is now (poseOf)
+using TargetPoseFn = std::function<bool(const Human&, const Human&, hitshape::Posed&)>;
 inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear, std::vector<HitEvent>& out,
-                        const CanHitFn& canHit = nullptr, const PoseFn& poseOf = nullptr) {
+                        const CanHitFn& canHit = nullptr, const PoseFn& poseOf = nullptr,
+                        const TargetPoseFn& targetPose = nullptr) {
     std::vector<std::pair<int, hitshape::OBB>> limbs;
     for (Human* a : bodies) {
         if (!a || !a->attack.active() || a->dead()) continue;
@@ -326,7 +331,7 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
             if (std::find(st.hitIds.begin(), st.hitIds.end(), b->uuid) != st.hitIds.end()) continue;
             if (blade) {
                 hitshape::Posed pb;
-                bool bp = poseOf(*b, pb);
+                bool bp = (targetPose && targetPose(*a, *b, pb)) || poseOf(*b, pb);
                 limbBoxes(*b, bp ? &pb : nullptr, limbs);
                 Contact c;
                 if (!bladeContact(pa, s0, s1, limbs, c)) continue;

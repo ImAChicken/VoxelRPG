@@ -91,6 +91,7 @@ public:
               const std::vector<glm::vec3>& players) {
         for (auto& np : list) {
             Npc& n = *np;
+            if (n.puppet) continue;                // driven from outside (a client's copy of a server's body)
             float near = 1e9f;
             for (const glm::vec3& p : players) near = std::min(near, glm::length(glm::vec2(p.x - n.position.x, p.z - n.position.z)));
             bool loaded = physics.columnLoaded((int)std::floor(n.position.x), (int)std::floor(n.position.z));
@@ -160,6 +161,7 @@ public:
               << n->health << " " << n->lookSeed << " " << n->patrol.size();
             for (const auto& p : n->patrol) f << " " << p.x << " " << p.y << " " << p.z;
             if (n->spawner) f << " sp " << n->spawner;     // which spawner it belongs to
+            f << " id " << n->uuid;                        // its id, the same after a reload
             f << "\n";
             if (n->pack.opened() || n->pack.loot != (n->type ? n->type->loot : "")) n->pack.write(f, "p");   // its pack, once read
         }
@@ -168,6 +170,14 @@ public:
         std::ifstream f(path);
         std::string line;
         if (!std::getline(f, line) || line.rfind("npcs 1", 0) != 0) return 0;
+        {   // saved ids first, so no NPC made while loading takes one
+            std::ifstream scan(path);
+            std::string l, w;
+            while (std::getline(scan, l)) {
+                std::istringstream ls(l);
+                while (ls >> w) if (w == "id") { uint64_t id = 0; if (ls >> id) Entity::reserveId(id); }
+            }
+        }
         int count = 0;
         Npc* last = nullptr;
         while (std::getline(f, line)) {
@@ -188,7 +198,13 @@ public:
             n->patrol.clear();
             for (size_t i = 0; i < np; i++) { glm::vec3 p; if (s >> p.x >> p.y >> p.z) n->patrol.push_back(p); }
             std::string tag;
-            if (s >> tag && tag == "sp") s >> n->spawner;
+            while (s >> tag) {
+                if (tag == "sp") s >> n->spawner;
+                else if (tag == "id") {
+                    uint64_t id = 0;
+                    if (s >> id && id && !find(id)) { n->uuid = id; Entity::reserveId(id); }
+                }
+            }
             last = n;
             count++;
         }

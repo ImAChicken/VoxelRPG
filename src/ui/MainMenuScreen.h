@@ -63,12 +63,20 @@ public:
         } else if (state == State::LoadWorld) {
             result = drawLoadWorldPanel(ui, panelX, 180.0f,
                                         panelW, theme);
+        } else if (state == State::Join) {
+            result = drawJoinPanel(ui, panelX, 190.0f, panelW, theme);
         }
 
         ui.end();
 
         return result;
     }
+
+    // Join Server: where, and as whom (remembered in saves/last_server.txt)
+    std::string getJoinAddress() const { return joinAddress.empty() ? std::string("127.0.0.1") : joinAddress; }
+    std::string getJoinName() const { return joinName; }
+    // Back on the Join page with a line saying what went wrong
+    void showJoinError(const std::string& why) { state = State::Join; joinMessage = why; mousePrevPressed = mousePressed = true; }
 
     // After NewWorld is returned, caller gets these
     std::string getNewWorldName() const { return worldName; }
@@ -108,7 +116,7 @@ public:
     bool        getNewWorldKit() const { return newDev && !copyFrom && kit; }
 
 private:
-    enum class State { Main, NewWorld, LoadWorld };
+    enum class State { Main, NewWorld, LoadWorld, Join };
 
     GLFWwindow* window;
     State       state       = State::Main;
@@ -153,6 +161,47 @@ private:
     std::string copyInfoFor;                 // the preview's cached facts about copyOf
     std::vector<std::string> copyInfo;
 
+    // Join Server
+    std::string joinAddress, joinName, joinMessage;
+    int  joinField = 0;                  // 0 address, 1 name
+    bool joinEnter = false;
+
+    ScreenResult drawJoinPanel(UIRenderer& ui, float px, float py, float pw, const UITheme& theme) {
+        const float pad = (float)theme.panelPad, bh = (float)theme.buttonH;
+        float ph = 250.0f;
+        drawPanel(ui, px, py, pw, ph);
+        ui.drawText("Join Server", px + pad, py + pad, theme.title, 2);
+        float labW = 110.0f, cx = px + pad + labW, cw = pw - 2 * pad - labW, y = py + 54.0f;
+        cursorTimer += 0.016f;
+        bool cur = std::fmod(cursorTimer, 1.0f) < 0.5f;
+        ui.drawText("Address", px + pad, y + (bh - 16) * 0.5f, theme.text, 2);
+        if (isHovered(cx, y, cw, bh) && justClicked()) joinField = 0;
+        drawInput(ui, joinAddress, "127.0.0.1", cx, y, cw, joinField == 0, cur);
+        y += bh + 10.0f;
+        ui.drawText("Name", px + pad, y + (bh - 16) * 0.5f, theme.text, 2);
+        if (isHovered(cx, y, cw, bh) && justClicked()) joinField = 1;
+        drawInput(ui, joinName, "your name", cx, y, cw, joinField == 1, cur);
+        y += bh + 8.0f;
+        ui.drawText(joinMessage.empty() ? "address or address:port   your name is your character on that server" : joinMessage,
+                    px + pad, y, joinMessage.empty() ? theme.textDim : theme.accent, 1);
+        y += 26.0f;
+        float bw = (pw - 2 * pad - 12.0f) * 0.5f;
+        bool hj = isHovered(px + pad, y, bw, bh), hb = isHovered(px + pad + bw + 12.0f, y, bw, bh);
+        drawButton(ui, "Join", px + pad, y, hj, 2, bw);
+        drawButton(ui, "Back", px + pad + bw + 12.0f, y, hb, 2, bw);
+        bool go = (hj && justClicked()) || joinEnter;
+        joinEnter = false;
+        if (hb && justClicked()) state = State::Main;
+        if (go) {
+            if (joinName.empty()) { joinMessage = "type a name first"; joinField = 1; return ScreenResult::Continue; }
+            std::filesystem::create_directories("saves");
+            std::ofstream f("saves/last_server.txt");
+            f << joinAddress << "\n" << joinName << "\n";
+            return ScreenResult::JoinServer;
+        }
+        return ScreenResult::Continue;
+    }
+
     // Button hover states
     int hoveredBtn = -1;
 
@@ -196,10 +245,11 @@ private:
         Btn buttons[] = {
             { "New World",  py },
             { "Load World", py + (bh + gap) },
-            { "Quit",       py + (bh + gap) * 2 },
+            { "Quit",       py + (bh + gap) * 3 },
+            { "Join Server", py + (bh + gap) * 2 },
         };
 
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             bool hov = isHovered(bx, buttons[i].y, bw, bh);
             drawButton(ui, buttons[i].label,
                        bx, buttons[i].y, hov);
@@ -220,6 +270,16 @@ private:
                     scanSaves();
                 }
                 else if (i == 2) return ScreenResult::Quit;
+                else if (i == 3) {
+                    state = State::Join;
+                    joinMessage.clear();
+                    joinField = joinName.empty() ? 1 : 0;
+                    if (joinAddress.empty() && joinName.empty()) {
+                        std::ifstream f("saves/last_server.txt");
+                        std::getline(f, joinAddress);
+                        std::getline(f, joinName);
+                    }
+                }
             }
         }
         return ScreenResult::Continue;
@@ -815,12 +875,26 @@ public:
     // Called by GLFW char callback
     void onChar(unsigned int codepoint) {
         if (codepoint < 32 || codepoint > 126) return;
+        if (state == State::Join) {
+            std::string& t = joinField == 0 ? joinAddress : joinName;
+            bool ok = joinField == 0 ? (std::isalnum((int)codepoint) || codepoint == '.' || codepoint == ':' || codepoint == '-')
+                                     : (std::isalnum((int)codepoint) || codepoint == '_' || codepoint == '-');
+            if (ok && t.size() < (joinField == 0 ? 60u : 24u)) t += (char)codepoint;
+            return;
+        }
         std::string& target = nameActive ? worldName : worldSeed;
         if (target.size() < 32)
             target += (char)codepoint;
     }
 
     void onKey(int key) {
+        if (state == State::Join) {
+            std::string& t = joinField == 0 ? joinAddress : joinName;
+            if (key == GLFW_KEY_BACKSPACE && !t.empty()) t.pop_back();
+            if (key == GLFW_KEY_TAB) joinField = 1 - joinField;
+            if (key == GLFW_KEY_ENTER) joinEnter = true;
+            return;
+        }
         std::string& target = nameActive ? worldName : worldSeed;
         if (key == GLFW_KEY_BACKSPACE && !target.empty())
             target.pop_back();

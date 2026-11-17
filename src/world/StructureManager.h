@@ -411,6 +411,11 @@ public:
     bool save(const std::string& worldFolder) const {
         std::ofstream f(worldFolder + "/structures.dat");
         if (!f) return false;
+        write(f);
+        return (bool)f;
+    }
+    // The same text as structures.dat (the server sends it to clients)
+    void write(std::ostream& f) const {
         f << "structures 1\n";
         for (auto& [id, s] : instances) {
             const StructureType* t = typeOf(s);
@@ -424,12 +429,17 @@ public:
         }
         for (int64_t k : feltNatural)
             f << "felled " << (int)(k >> 32) << " " << (int)(uint32_t)k << "\n";
-        return (bool)f;
     }
 
     void load(const std::string& worldFolder) {
-        instances.clear(); byChunk.clear(); feltNatural.clear(); nextId = 1;
         std::ifstream f(worldFolder + "/structures.dat");
+        read(f);
+    }
+    // Replace every instance with those in the text (a client's
+    // copy, from the server). Voxels aren't touched: they come with
+    // the chunks.
+    void read(std::istream& f) {
+        instances.clear(); byChunk.clear(); feltNatural.clear(); nextId = 1;
         std::string line;
         while (std::getline(f, line)) {
             std::istringstream in(line);
