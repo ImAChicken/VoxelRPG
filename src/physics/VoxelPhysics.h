@@ -134,7 +134,7 @@ public:
                      h.weaponDamage > 0.0f && h.exposed <= 0.0f;
         h.guardTime = h.guarding ? h.guardTime + dt : 0.0f;     // a hit just after raising it is parried
 
-        if (in.jump && !busy && !attacking) {
+        if (in.jump && !busy && !attacking && !h.hop.on) {
             if (h.grounded) {
                 h.velocity.y = launchSpeed(Human::JUMP_HEIGHT);
                 h.grounded   = false;
@@ -198,7 +198,10 @@ public:
 
         glm::vec2 vh(h.velocity.x, h.velocity.z);
 
-        if (attacking) {
+        if (h.hop.on && !attacking) {
+            // A hopper: still on the ground, moving only in the air
+            hopTick(h, in, vh, dt);
+        } else if (attacking) {
             // Committed: the attack moves the body
             const AttackDef& d = h.attack.def();
             glm::vec2 dir2(h.attack.dir.x, h.attack.dir.z);
@@ -316,6 +319,16 @@ public:
     void stepRagdoll(Human& h, float dt) override {
         Ragdoll& rd = h.ragdoll;
         if (!world || h.flying) {           // no body to knock about
+            h.hits.clear();
+            rd.reset();
+            return;
+        }
+        if (h.noRagdoll) {                  // a blob: a hit is only a push
+            h.mass = h.body.total();
+            for (const Human::Hit& hit : h.hits) {
+                h.velocity += hit.impulse / std::max(h.mass, 1.0f);
+                if (hit.impulse.y > 0.0f) h.grounded = false;
+            }
             h.hits.clear();
             rd.reset();
             return;
@@ -519,6 +532,45 @@ private:
         return (len > 1e-6f) ? in.move / len : glm::vec2(0);
     }
 
+    // ── Hopping (slimes: Human::Hopper) ───────────────────
+    // On the ground it sticks where it lands and waits 'every';
+    // then, if it wants to go somewhere, it hops that way: its
+    // whole move happens in the air, where it can't steer. A
+    // jump in the intent (its path: a ledge) is a higher hop;
+    // sprint is the lunge at its target.
+    void hopTick(Human& h, const HumanIntent& in, glm::vec2& vh, float dt) {
+        Human::Hopper& hp = h.hop;
+        // a jump asked for (its path: a ledge) is kept a moment: it
+        // may come mid-hop or while it waits
+        if (in.jump) hp.climbFor = 0.6f;
+        hp.climbFor -= dt;
+        if (!h.grounded) {                                // flying where it was thrown
+            if (hp.climbing) vh = glm::vec2(hp.carryX, hp.carryZ);   // up a ledge: over the edge once clear of it
+            return;
+        }
+        hp.climbing = false;
+        if (hp.lunging) { hp.lunging = false; hp.wait = std::max(hp.wait, hp.every * 1.5f); }   // landed: a breath
+        vh *= std::exp(-dt * 18.0f);
+        hp.wait -= dt;
+        float want = std::min(1.0f, glm::length(in.move));
+        bool climb = hp.climbFor > 0.0f;
+        if ((want < 0.2f && !climb) || hp.wait > 0.0f) return;
+        if (climb) hp.climbFor = 0.0f;
+        glm::vec2 dir = want > 1e-3f ? in.move / glm::length(in.move) : glm::vec2(0.0f);
+        bool lunge = in.sprint && want >= 0.2f;
+        float up = lunge ? hp.lungeHeight : climb ? hp.climb : hp.height;
+        float along = lunge ? hp.lungeSpeed
+                            : hp.speed * want * std::clamp(in.speedScale, 0.2f, 1.0f) * slopeFactor(h);
+        vh = dir * along;
+        h.velocity.y = launchSpeed(up);
+        h.grounded = false;
+        hp.wait = hp.every;
+        hp.lunging = lunge;
+        hp.climbing = climb && !lunge;
+        hp.carryX = vh.x; hp.carryZ = vh.y;
+        hp.hops++;
+    }
+
     // Upward speed that peaks exactly 'height' voxels higher
     static float launchSpeed(float height) {
         return std::sqrt(2.0f * Human::GRAVITY * height);
@@ -600,7 +652,7 @@ private:
         h.position += h.velocity * dt;
         h.grounded  = false;
         h.crouching = false;
-        h.height    = Human::STAND_HEIGHT;
+        h.height    = h.standHeight;
         easeEye(h, dt);
     }
 
@@ -622,6 +674,11 @@ private:
 
     void updateCrouch(Human& h, const HumanIntent& in,
                       float dt) {
+        if (h.hop.on) {                                 // a hopper (a slime): no crouching
+            h.crouching = false;
+            h.height = h.standHeight;
+            return;
+        }
         if (in.crouch) {
             h.crouching = true;
             h.height    = Human::CROUCH_HEIGHT;

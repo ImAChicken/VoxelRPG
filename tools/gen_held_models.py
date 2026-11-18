@@ -192,6 +192,32 @@ def dev_wand(name, gem, title):
     m.write(name, "Dev tool wand (Test Play only)")
 
 
+def spellbook(name, cover, gem, title):
+    """A book held by its spine's foot: 8 x 6 inches, 1.5 thick. i runs up
+    the spine, j across the cover, k through the pages."""
+    m = Model(title, grip_back=1.0)
+    m.palette[8] = cover
+    m.palette[9] = gem
+    PAGES = 10
+    for i in range(0, 16):
+        for j in range(-1, 12):
+            for k in range(-1, 3):
+                edge = j == 11 or i in (0, 15)
+                cov = k in (-1, 2) or j == -1
+                if cov:
+                    m.put(i, j, k, BRASS if (cov and (i in (0, 15)) and j in (10, 11)) else 8)   # cover, brass corners
+                elif edge:
+                    m.put(i, j, k, BRIGHT)               # the page edges
+                else:
+                    m.put(i, j, k, PAGES)
+    for i in range(6, 10):                               # a gem on the front cover
+        for j in range(4, 8):
+            if abs(i - 7.5) + abs(j - 5.5) <= 2.2:
+                m.put(i, j, 3, 9)
+    m.palette[PAGES] = (226, 216, 190)
+    m.write(name, "Spellbook: held by the spine; the gem on its cover shows the spell")
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     pickaxe("wooden_pickaxe", DARKWOOD, DARKWOOD, "Wooden pickaxe")
@@ -208,3 +234,5 @@ if __name__ == "__main__":
                       ("dev_brush", (230, 120, 220)), ("dev_copy", (120, 150, 255)), ("dev_paste", (150, 120, 255)),
                       ("dev_explode", (255, 110, 60)), ("dev_breaker", (220, 70, 70)), ("dev_cube", (240, 240, 240))]:
         dev_wand(name, gem, "Dev tool: " + name)
+    spellbook("spellbook_wind", (70, 120, 140), (170, 235, 245), "Windburst spellbook")
+    spellbook("spellbook_ice", (52, 78, 132), (150, 205, 255), "Ice spike spellbook")

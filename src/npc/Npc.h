@@ -152,6 +152,7 @@ public:
     glm::vec3   stuckFrom{0.0f};
     float       stuckFor = 0.0f;
     bool        untouchable = false;   // in a protected menu: hits don't land
+    float       contactReadyAt = 0.0f; // world time it may hurt by touch again (Simulation::contactDamage)
 
     // ── Context steering in a fight (npc/ContextSteering.h) ─
     steer::Map  steerMap;              // the last answer (shown by 'debug steering')
@@ -194,7 +195,7 @@ public:
         face(position + glm::vec3(d.x, 0, d.y));
         intent.move = d;
         intent.speedScale = speed;
-        intent.sprint = run;
+        intent.sprint = run && !hop.on;          // a hopper's sprint is its lunge
         return left;
     }
 };

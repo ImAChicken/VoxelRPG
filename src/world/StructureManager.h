@@ -53,6 +53,7 @@ struct StructureInstance {
     float      health  = 0.0f;        // trees
     uint32_t   support = 0;           // instance holding this one up (0 = ground)
     bool       natural = false;       // a generated tree
+    float      age     = 0.0f;        // s since it was placed (types with a lifetime: StructureManager::tick)
     int        cellX = 0, cellZ = 0;  // natural trees: grid cell
 };
 
@@ -492,6 +493,22 @@ public:
         return made;
     }
 
+    // ── Lifetimes ─────────────────────────────────────────
+    // Every frame (GameSession::tickWorld): types with a lifetime
+    // (structures.toml lifetime = 15: a spell's ice) grow older and
+    // are taken away when it's up. Returns how many went.
+    int tick(float dt, EditSource src = EditSource::Command) {
+        std::vector<uint32_t> done;
+        for (auto& [id, s] : instances) {
+            const StructureType* t = typeOf(s);
+            if (!t || t->lifetime <= 0.0f) continue;
+            s.age += dt;
+            if (s.age >= t->lifetime) done.push_back(id);
+        }
+        for (uint32_t id : done) remove(id, src);
+        return (int)done.size();
+    }
+
     // ── Removing ──────────────────────────────────────────
     // Takes the instance's voxels out of the world (only the
     // ones still matching its shape) and brings down anything
@@ -606,8 +623,9 @@ public:
         write(f);
         return (bool)f;
     }
-    // The same text as structures.dat (the server sends it to clients)
-    void write(std::ostream& f) const {
+    // The same text as structures.dat (the server sends it to clients,
+    // without the ages: they'd make the text new every tick)
+    void write(std::ostream& f, bool ages = true) const {
         f << "structures 1\n";
         for (auto& [id, s] : instances) {
             const StructureType* t = typeOf(s);
@@ -617,7 +635,9 @@ public:
             f << "inst " << s.id << " " << t->name << " " << s.origin.x << " "
               << s.origin.y << " " << s.origin.z << " " << s.rot << " " << s.state
               << " " << s.health << " " << s.support << " " << (s.natural ? 1 : 0)
-              << " " << s.cellX << " " << s.cellZ << "\n";
+              << " " << s.cellX << " " << s.cellZ;
+            if (ages && t->lifetime > 0.0f) f << " " << s.age;
+            f << "\n";
         }
         for (int64_t k : feltNatural)
             f << "felled " << (int)(k >> 32) << " " << (int)(uint32_t)k << "\n";
@@ -646,6 +666,8 @@ public:
                 s.type = gStructures.find(name);
                 s.natural = nat != 0;
                 if (!s.type || !in) continue;          // type removed from the registry
+                float age = 0.0f;
+                if (in >> age) s.age = age;            // (only types with a lifetime write one)
                 nextId = std::max(nextId, s.id + 1);
                 index(s);
                 instances[s.id] = s;

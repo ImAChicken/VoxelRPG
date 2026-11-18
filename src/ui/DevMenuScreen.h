@@ -398,7 +398,7 @@ private:
             t += n; first = false;
         };
         tag(d.is(IC_BLOCK), "block"); tag(d.is(IC_TOOL), "tool");
-        tag(d.is(IC_WEAPON), "weapon"); tag(d.is(IC_DEV), "dev");
+        tag(d.is(IC_WEAPON), "weapon"); tag(d.is(IC_SPELLBOOK), "spellbook"); tag(d.is(IC_DEV), "dev");
         if (d.is(IC_WORN)) tag(true, wornSlotKey((WornSlot)d.worn));
         if (d.is(IC_DECOR)) {
             const decor::Def* dd = decor::current()->get(d.decor);

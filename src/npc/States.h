@@ -205,18 +205,26 @@ private:
         glm::vec2 left(dir.y, -dir.x);
         n.facing = glm::vec3(dir.x, 0.0f, dir.y);      // faces the target (an attack locks its own way)
         subTime -= dt;
-        bool busy = n.attack.active() || n.move != Human::Move::None;
+        // a hopper (a slime): no weapon, no guard, no rolls. Its
+        // attack is a lunge, a long hop at the target; it hurts by
+        // touching (Simulation::contactDamage). The lunge decides
+        // its fighting range
+        const bool hopper = n.hop.on;
+        const float reach = hopper && n.type ? std::max(6.0f, n.type->lungeRange * 0.85f) : FIGHT_RANGE;
+        if (hopper) in.sprint = false;                 // (sprint is its lunge: only the attack asks)
+        bool busy = n.attack.active() || n.move != Human::Move::None || n.hop.lunging;
         float aggression = n.type ? n.type->aggression : 0.7f;
         // its place in the fight (npc/Encounters.h): where to stand,
         // and whether it holds an attack token (may close in)
         glm::vec3 spot = tp;
         bool engage = true;
         bool slotted = n.seesTarget && w.slotSpot(n, t, spot, engage, dt);
-        if (!n.attack.active() && wasAttacking) { w.releaseAttack(n); }
-        wasAttacking = n.attack.active();
+        bool attackingNow = n.attack.active() || n.hop.lunging;
+        if (!attackingNow && wasAttacking) { w.releaseAttack(n); }
+        wasAttacking = attackingNow;
 
         // the target winds up close by → maybe roll away or guard
-        if (!busy && t.attack.active() && dist < FIGHT_RANGE + 4.0f) {
+        if (!hopper && !busy && t.attack.active() && dist < FIGHT_RANGE + 4.0f) {
             const AttackDef& d = t.attack.def();
             float until = d.activeStart - t.attack.t;
             if (until > 0.0f && until < 0.25f && sub != Sub::Guard) {
@@ -244,19 +252,21 @@ private:
         float offSpot = glm::length(toSpot);
         switch (sub) {
         case Sub::Approach:
-            if (slotted && offSpot > 4.0f && !(engage && dist <= FIGHT_RANGE)) {
-                if (offSpot > STEER_RANGE) n.walkTo(w, spot, 1.0f, offSpot > 30.0f && n.stamina > 40.0f, 2.0f);   // far: a path around obstacles
+            if (slotted && offSpot > 4.0f && !(engage && dist <= reach)) {
+                // far, or up something too high to step onto: a path (it says where to jump)
+                if (offSpot > STEER_RANGE || spot.y - n.position.y > Human::STEP_UP - 0.5f)
+                    n.walkTo(w, spot, 1.0f, offSpot > 30.0f && n.stamina > 40.0f, 2.0f);
                 else {
                     // near: context steering for the last stretch (npc/ContextSteering.h)
-                    in.move = w.contextSteer(n, spot, t, engage, FIGHT_RANGE, 0.0f);
+                    in.move = w.contextSteer(n, spot, t, engage, reach, 0.0f);
                     in.speedScale = 1.0f;
                     in.sprint = false;
                 }
                 n.facing = glm::vec3(dir.x, 0.0f, dir.y);
                 break;
             }
-            if (!slotted && dist > FIGHT_RANGE) {
-                n.walkTo(w, tp, 1.0f, dist > 40.0f && n.stamina > 40.0f, FIGHT_RANGE - 1.0f);
+            if (!slotted && dist > reach) {
+                n.walkTo(w, tp, 1.0f, dist > 40.0f && n.stamina > 40.0f, reach - 1.0f);
                 break;
             }
             to(Sub::Circle, n.randRange(0.4f, 1.3f));
@@ -267,24 +277,41 @@ private:
             if (slotted) {
                 // hold its place: steered to its spot, circling a little,
                 // clear of the others and out of the target's swing
-                in.move = w.contextSteer(n, spot, t, engage, FIGHT_RANGE, side);
+                in.move = w.contextSteer(n, spot, t, engage, reach, side);
                 in.speedScale = 0.6f * std::clamp(glm::length(in.move) * 1.5f, 0.3f, 1.0f);   // eases in as it settles
             } else {
                 glm::vec2 keep = dir * std::clamp((dist - KEEP_RANGE) * 0.2f, -0.6f, 0.6f);
                 in.move = left * side * 0.35f + keep;
                 in.speedScale = 0.6f;
             }
-            if ((slotted && offSpot > 12.0f) || (!slotted && dist > FIGHT_RANGE + 12.0f)) { to(Sub::Approach, 0); break; }
+            if ((slotted && offSpot > 12.0f) || (!slotted && dist > reach + 12.0f)) { to(Sub::Approach, 0); break; }
             if (subTime <= 0.0f) {
                 float r = n.rand01();
-                if (n.stamina < 35.0f) to(Sub::Guard, 1.0f);
-                else if (r < aggression && w.requestAttack(n)) to(Sub::Attack, 2.0f);   // its turn
+                if (n.stamina < 35.0f && !hopper) to(Sub::Guard, 1.0f);
+                else if (r < aggression && w.requestAttack(n)) to(Sub::Attack, hopper ? 4.0f : 2.0f);   // its turn (a hopper's hops take longer)
+                else if (hopper) to(Sub::Circle, n.randRange(0.5f, 1.3f));
                 else to(Sub::Guard, n.randRange(0.5f, 1.3f));
             }
             break;
         }
         case Sub::Attack:
             if (subTime <= 0.0f) { w.releaseAttack(n); to(Sub::Circle, 0.5f); break; }   // took too long
+            if (hopper) {
+                // the lunge: straight at the target with the next hop
+                if (n.hop.lunging) { wasAttacking = true; to(Sub::Recover, n.randRange(0.7f, 1.2f)); break; }
+                if (dist > reach) {
+                    // closing in: hops short enough not to land on it
+                    // before it can lunge (a hop carries hopDist at full
+                    // speed)
+                    float hopDist = n.hop.speed * 2.0f * std::sqrt(2.0f * n.hop.height / Human::GRAVITY);
+                    n.walkTo(w, tp, std::clamp((dist - reach * 0.7f) / std::max(hopDist, 1.0f), 0.25f, 1.0f), false, reach - 1.0f);
+                    break;
+                }
+                in.move = dir;
+                in.speedScale = 1.0f;
+                in.sprint = true;
+                break;
+            }
             if (dist > FIGHT_RANGE - 2.0f) { n.walkTo(w, tp, 1.0f, false, FIGHT_RANGE - 3.0f); n.facing = glm::vec3(dir.x, 0, dir.y); break; }
             if (n.rand01() < 0.25f) in.attackHeavy = true;
             else { in.attackLight = true; comboLeft = n.rand01() < 0.5f ? 1 : 0; }
@@ -292,6 +319,7 @@ private:
             to(Sub::Recover, n.randRange(0.3f, 0.8f));
             break;
         case Sub::Guard:
+            if (hopper) { to(Sub::Circle, 0.3f); break; }
             in.guard = true;
             in.move = left * side * 0.4f;
             if (subTime <= 0.0f) to(Sub::Circle, n.randRange(0.4f, 1.0f));

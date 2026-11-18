@@ -208,6 +208,7 @@ int main(int argc, char** argv) {
         session.syncSpawners();
         session.updateEdits(2.0f);
         sim.step(DT);
+        session.tickWorld(DT);
         gClock.update(DT);
         host.afterStep();
         host.takeEvents();

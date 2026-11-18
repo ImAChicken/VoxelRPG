@@ -47,13 +47,14 @@ inline bool beginAttack(Human& h, AttackKind k, int chain = 0) {
 // heavy. Air: lurch / plunge, once per jump.
 // An item's own attack (a spell's cast: ItemDef::cast). Needs
 // no weapon; can't start mid-attack, rolling or in the air.
-inline bool beginCast(Human& h, const AttackDef* d) {
+inline bool beginCast(Human& h, const AttackDef* d, uint16_t item = 0) {
     if (!d || h.dead() || h.attack.active() || h.exposed > 0.0f || h.flying) return false;
     if (h.move == Human::Move::Roll || h.move == Human::Move::Backstep) return false;
     if (!h.spend(d->stamina)) return false;
     h.attack = AttackState();
     h.attack.kind = AttackKind::Cast;
     h.attack.d = d;
+    h.attack.item = item;
     h.attack.dir = flatFacing(h);
     h.move = Human::Move::None;
     h.sprinting = false;
@@ -63,7 +64,7 @@ inline bool beginCast(Human& h, const AttackDef* d) {
 inline void startAttack(Human& h, const HumanIntent& in) {
     if (in.useItem) {
         const ItemDef& item = gItems.get(in.useItem);
-        if (item.valid() && !item.cast.empty()) beginCast(h, gMovesets.attack(item.cast));
+        if (item.valid() && !item.cast.empty()) beginCast(h, gMovesets.attack(item.cast), in.useItem);
         return;
     }
     if (!(in.attackLight || in.attackHeavy) || !h.moveset || h.weaponDamage <= 0.0f || h.dead()) return;

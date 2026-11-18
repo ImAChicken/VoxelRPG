@@ -109,17 +109,17 @@ inline bool sweeps(const Human& a, const Human& b, float t0, float t1) {
     if (hi < lo || t1 < d.activeStart) return false;
     glm::vec3 off = b.position - a.position;
     float dist = std::sqrt(off.x * off.x + off.z * off.z);
-    if (dist > d.reach + Human::RADIUS) return false;
+    if (dist > d.reach + b.hitRadius) return false;
     // height: the band against the target's body
     float bandLo = a.position.y + d.yLo, bandHi = a.position.y + d.yHi;
-    if (b.position.y > bandHi || b.position.y + b.height < bandLo) return false;
+    if (b.position.y > bandHi || b.position.y + std::max(b.height, b.hitHeight) < bandLo) return false;
     if (d.arcFrom <= -179.0f && d.arcTo >= 179.0f) return true;   // all around
-    if (dist < Human::RADIUS * 1.2f) return true;                 // too close to miss
+    if (dist < b.hitRadius * 1.2f) return true;                 // too close to miss
     float span = std::max(d.activeEnd - d.activeStart, 1e-3f);
     float u0 = (lo - d.activeStart) / span, u1 = (hi - d.activeStart) / span;
     float a0 = d.arcFrom + (d.arcTo - d.arcFrom) * u0;
     float a1 = d.arcFrom + (d.arcTo - d.arcFrom) * u1;
-    float pad = glm::degrees(std::atan2(Human::RADIUS, dist));    // the target's width
+    float pad = glm::degrees(std::atan2(b.hitRadius, dist));    // the target's width
     float ang = sideAngle(a.attack.dir, off);
     return ang >= std::min(a0, a1) - pad && ang <= std::max(a0, a1) + pad;
 }
@@ -127,8 +127,9 @@ inline bool sweeps(const Human& a, const Human& b, float t0, float t1) {
 // A body with no pose: its standing capsule as one upright box
 inline hitshape::OBB standingBox(const Human& b) {
     hitshape::OBB o;
-    o.c = b.position + glm::vec3(0.0f, b.height * 0.5f, 0.0f);
-    o.h = glm::vec3(Human::RADIUS, b.height * 0.5f, Human::RADIUS);
+    float h = b.hitHeight > 0.0f ? b.hitHeight : b.height;
+    o.c = b.position + glm::vec3(0.0f, h * 0.5f, 0.0f);
+    o.h = glm::vec3(b.hitRadius, h * 0.5f, b.hitRadius);
     return o;
 }
 

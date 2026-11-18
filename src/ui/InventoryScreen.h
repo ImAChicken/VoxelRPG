@@ -497,6 +497,7 @@ private:
         std::string t;
         auto add = [&](bool on, const std::string& n) { if (on) { if (!t.empty()) t += ", "; t += n; } };
         add(d.is(IC_BLOCK), "block"); add(d.is(IC_TOOL), "tool"); add(d.is(IC_WEAPON), "weapon");
+        add(d.is(IC_SPELLBOOK), "spellbook: casts it from a combat slot");
         add(d.is(IC_DEV), "dev"); add(d.is(IC_WORN), std::string("worn: ") + wornSlotKey((WornSlot)d.worn));
         add(!d.accessory.empty(), d.accessory);
         char b[48];

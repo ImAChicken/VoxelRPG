@@ -393,7 +393,15 @@ armor_from = 0.30
 #            windburst  a cone of wind: bodies in it are thrown
 #                       back, harder the closer; it hits poise
 #                       too, so a body low on poise is knocked down
-# effect_range  voxels;  effect_arc  half-angle, degrees
+#            ice_spike  a projectile from the chest along the facing
+#                       (or at an enemy within 12 degrees of it): a
+#                       body it meets takes effect_damage,
+#                       effect_poise and effect_knock; where it meets
+#                       the ground it leaves effect_place (a
+#                       structure: ice that melts)
+# effect_range  voxels (a projectile: how far it flies);  effect_arc
+#               half-angle, degrees
+# effect_speed, effect_gravity  a projectile's flight (vox/s, vox/s²)
 [[attack]]
 id = "windburst_cast"
 pose = "sword_heavy"
@@ -407,3 +415,22 @@ effect = "windburst"
 effect_range = 24
 effect_arc = 50
 cancel_from = 0.60
+
+[[attack]]
+id = "ice_spike_cast"
+pose = "sword_heavy"
+duration = 0.70
+active = [0.30, 0.38]
+damage = 0
+poise = 0
+stamina = 20
+reach = 0
+effect = "ice_spike"
+effect_range = 90
+effect_speed = 70
+effect_gravity = 22
+effect_damage = 18
+effect_poise = 20
+effect_knock = 14
+effect_place = "ice_spike"
+cancel_from = 0.55

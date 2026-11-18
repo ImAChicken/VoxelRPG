@@ -148,6 +148,31 @@ public:
     // (client/ClientWorld.h reconcile). Whoever reads it resets it.
     glm::vec3 renderOffset = { 0.0f, 0.0f, 0.0f };
 
+    // ── Body shape (npcs.toml body) ───────────────────────
+    // People are the default. A slime is short, a little wider
+    // to hit, has no ragdoll (hits just push it) and gets about
+    // by hopping (VoxelPhysics::hopTick)
+    float standHeight = STAND_HEIGHT;  // collision height standing
+    float hitRadius   = RADIUS;        // half width of its hit box when it has no limbs
+    float hitHeight   = 0.0f;          // how tall that box is (0: its height). A slime's is taller than
+                                       // it is: swings at a person's height still meet it
+    bool  noRagdoll   = false;         // nothing goes limp: a knock is only a push
+    struct Hopper {
+        bool  on = false;
+        float every = 0.45f;           // s on the ground between hops
+        float speed = 18.0f;           // vox/s along the ground while in the air
+        float height = 3.0f;           // vox: an ordinary hop
+        float climb = 9.0f;            // vox: a hop up a ledge (when its path says jump)
+        float lungeSpeed = 15.0f;      // the lunge at its target (intent.sprint while hopping)
+        float lungeHeight = 5.0f;
+        float wait = 0.0f;             // s left before the next hop
+        bool  lunging = false;         // in the air on a lunge
+        float climbFor = 0.0f;         // s a jump asked for is still waiting to be the next hop
+        bool  climbing = false;        // in the air on a hop up a ledge: it keeps pushing on over the edge
+        float carryX = 0.0f, carryZ = 0.0f;   // that hop's way along the ground
+        int   hops = 0;                // hops made (tests, the squash when drawn)
+    } hop;
+
     // ── Slopes ────────────────────────────────────────────
     float climb = 1.0f;               // how much slopes slow this body (NPC types: npcs.toml climb)
     float grade = 0.0f;               // the recent rise over run while walking (+ up, - down)

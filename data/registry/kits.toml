@@ -15,7 +15,8 @@ items = [
   "builders_hammer",
   "hoe",              # terrain: level, raise, lower, path (T changes mode)
   "blast_wand",       # explosions, for testing destruction
-  "windburst",        # a spell: in combat, the X slot (1) casts it
+  "windburst",        # spellbooks: in combat, the X slot (1) casts; 4 steps to the next
+  "ice_spike",
   "iron_sword",
   "iron_axe",
   "spear",

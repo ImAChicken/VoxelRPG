@@ -379,15 +379,27 @@ weight = 9.0
 worn = "back"
 color = [0.45, 0.42, 0.30]
 
-# ── Spells (categories = ["spell"]) ───────────────────────
-# Put in an X / Y / B slot (or the off hand) in combat: using it
-# plays its 'cast' attack (movesets.toml), whose effect does the
-# rest. Spells are never used up.
+# ── Spellbooks (categories = ["spellbook"]) ───────────────
+# A weapon type: put one in an X / Y / B slot (or the off hand) in
+# combat; using it plays its 'cast' attack (movesets.toml) with the
+# book in hand (held_model), and the attack's effect does the rest.
+# A book is never used up. ("spell" still reads as spellbook.)
 [[item]]
 id = 1400
 name = "windburst"
-display = "Windburst"
-categories = ["spell"]
+display = "Windburst Spellbook"
+categories = ["spellbook"]
 cast = "windburst_cast"
-weight = 0.2
+held_model = "spellbook_wind"
+weight = 0.6
 color = [0.70, 0.90, 0.95]
+
+[[item]]
+id = 1401
+name = "ice_spike"
+display = "Ice Spike Spellbook"
+categories = ["spellbook"]
+cast = "ice_spike_cast"
+held_model = "spellbook_ice"
+weight = 0.6
+color = [0.55, 0.75, 0.95]

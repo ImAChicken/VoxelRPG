@@ -92,6 +92,8 @@ public:
         intents.clear();
         noises.clear();
         fights.clear();
+        shots.clear();
+        landings.clear();
     }
     bool hasWorld() const { return physics != nullptr; }
 
@@ -205,6 +207,7 @@ public:
         for (auto& r : sight) r.age += dt;
         sight.erase(std::remove_if(sight.begin(), sight.end(), [](const SightRay& r) { return r.age > 2.0f; }), sight.end());
         castEffects(all);
+        flyProjectiles(dt, all);
         combat::resolveHits(all, [&](glm::vec3 a, glm::vec3 b) {
             bool c = clearLine(a, b);
             if (sight.size() < 64) sight.push_back({ a, b, c, 0.0f });   // for the debug overlay
@@ -219,6 +222,7 @@ public:
             auto it = viewDelay.find(a.uuid);
             return it != viewDelay.end() && it->second > 0 && poses.posedAgo(b.uuid, it->second, out);
         });
+        contactDamage(all);
         combat::separate(all, [&](glm::vec3 pos) {
             return physics->capsuleIsClear(pos, Human::RADIUS, Human::STAND_HEIGHT);
         });
@@ -309,6 +313,9 @@ public:
             const ItemDef* w = p.wielded();
             combat = p.combatStance || w;
             held = p.combatStance ? (w ? w->heldModel : std::string()) : p.activeInventory().heldDef().heldModel;
+            // casting: the spellbook it comes from is in hand
+            if (h.attack.active() && h.attack.kind == AttackKind::Cast && h.attack.item)
+                if (const ItemDef& b = gItems.get(h.attack.item); !b.heldModel.empty()) held = b.heldModel;
         } else {
             const Npc& n = static_cast<const Npc&>(h);
             uint16_t id = gItems.find(n.weaponItem);
@@ -340,7 +347,7 @@ public:
     // (Moves into the simulation's own weapon traces once swings
     // are sampled from animation clips.)
     void toolHit(EntityId attacker, EntityId target, float damage, float poiseDmg,
-                 glm::vec3 point, glm::vec3 dir, bool knockdown = false) {
+                 glm::vec3 point, glm::vec3 dir, bool knockdown = false, AttackKind kind = AttackKind::None) {
         Human* b = find(target);
         if (!b || b->dead() || untouchable(*b)) return;
         hitConsequences(attacker, target, point);
@@ -356,10 +363,58 @@ public:
         combat::knockBody(*b, point, glm::length(flat) > 1e-3f ? glm::normalize(flat) : glm::vec3(0, 0, 1), 0.15f, knock);
         ev.damage = damage;
         SimEvent e;
-        e.kind = SimEvent::Kind::Hit; e.a = attacker; e.b = target; e.amount = damage;
+        e.kind = SimEvent::Kind::Hit; e.a = attacker; e.b = target; e.amount = damage; e.attack = kind;
         e.poiseBroken = ev.poiseBroken; e.knockedDown = ev.knockedDown;
         events.push_back(e);
         if (ev.killed) { SimEvent k; k.kind = SimEvent::Kind::Killed; k.a = attacker; k.b = target; events.push_back(k); }
+    }
+
+    // ── Contact damage (npcs.toml contact: a slime) ───────
+    // A body that hurts by touching: anything it touches that
+    // isn't on its side (hostile or neutral to it) takes the hit,
+    // at most once every 'every' s from the same toucher. It's a
+    // hit like any other (events, reputation, the fight), knocked
+    // back from the toucher, which bounces off. A guard held
+    // facing it blocks: no damage, a little stamina.
+    static constexpr float CONTACT_REACH = 0.8f;      // vox past touching that still counts (separate() keeps them apart)
+    static constexpr float CONTACT_BLOCK_STAMINA = 12.0f;
+    static constexpr float CONTACT_BOUNCE = 14.0f;    // vox/s the toucher springs back
+    size_t contactHits = 0;                           // (tests)
+    void contactDamage(const std::vector<Human*>& all) {
+        for (auto& np : npcList.all()) {
+            Npc& n = *np;
+            if (!n.type || n.type->contactDamage <= 0.0f || n.dead() || n.puppet) continue;
+            if (n.tier != (uint8_t)NpcManager::Tier::Full) continue;
+            if (clock < n.contactReadyAt) continue;
+            for (Human* b : all) {
+                if (b == &n || b->dead() || friendly(n, *b) || b->flying) continue;
+                if (b->isPlayer() && !static_cast<Player*>(b)->rules().hasBody) continue;
+                if (!b->isPlayer() && static_cast<Npc*>(b)->type == n.type) continue;   // its own kind
+                glm::vec2 off(b->position.x - n.position.x, b->position.z - n.position.z);
+                float d = glm::length(off);
+                if (d > n.hitRadius + Human::RADIUS + CONTACT_REACH) continue;
+                if (b->position.y > n.position.y + n.height + 0.5f || b->position.y + b->height < n.position.y - 0.5f) continue;
+                glm::vec3 dir = d > 1e-3f ? glm::vec3(off.x / d, 0.0f, off.y / d) : n.facing;
+                glm::vec3 point = n.position + glm::vec3(0.0f, n.height * 0.5f, 0.0f) + dir * n.hitRadius;
+                n.contactReadyAt = clock + n.type->contactEvery;
+                n.velocity = glm::vec3(-dir.x * CONTACT_BOUNCE, CONTACT_BOUNCE * 0.6f, -dir.z * CONTACT_BOUNCE);
+                n.grounded = false;
+                n.hop.lunging = false;
+                // a guard raised toward it
+                glm::vec2 face(b->facing.x, b->facing.z);
+                if (b->guarding && glm::length(face) > 1e-3f && glm::dot(glm::normalize(face), -off / std::max(d, 1e-3f)) > 0.3f) {
+                    b->stamina = std::max(0.0f, b->stamina - CONTACT_BLOCK_STAMINA);
+                    SimEvent e; e.kind = SimEvent::Kind::Hit; e.a = n.uuid; e.b = b->uuid; e.blocked = true;
+                    events.push_back(e);
+                    break;
+                }
+                contactHits++;
+                toolHit(n.uuid, b->uuid, n.type->contactDamage, n.type->contactPoise, point, dir);
+                if (n.type->contactKnock > 0.0f && !b->dead())
+                    b->hit(point, (dir + glm::vec3(0.0f, 0.35f, 0.0f)) * n.type->contactKnock * b->mass);
+                break;                                   // one at a time
+            }
+        }
     }
 
     // ── Spells (an attack with an 'effect', movesets.toml) ─
@@ -376,6 +431,121 @@ public:
             const AttackDef& d = c->attack.def();
             if (d.effect.empty() || !(c->attack.prevT < d.activeStart && c->attack.t >= d.activeStart)) continue;
             if (d.effect == "windburst") windburst(*c, d, all);
+            else if (d.effect == "ice_spike") launch(*c, d, all);
+        }
+    }
+
+    // ── Projectiles (ice_spike) ───────────────────────────
+    // A spell that flies: it leaves the caster's chest along its
+    // facing (or at the nearest enemy within a few degrees of it:
+    // there's no aiming up or down), falls a little as it goes,
+    // and stops at the first body or solid voxel in its way.
+    //   a body   it takes effect_damage, effect_poise and a knock
+    //            (one the caster may hit: players anyone, NPCs
+    //            their enemies)
+    //   the ground or a wall   a Landing: where it hit and what
+    //            it leaves there (effect_place, a structure: the
+    //            world places it, GameSession::tickWorld)
+    // effect_range: it's gone after flying this far.
+    struct Projectile {
+        uint32_t    id = 0;
+        EntityId    owner = 0;
+        glm::vec3   pos{ 0.0f }, vel{ 0.0f };
+        float       travelled = 0.0f, range = 60.0f, gravity = 20.0f;
+        float       damage = 0.0f, poise = 0.0f, knock = 0.0f;
+        std::string place;              // structure left where it lands
+        std::string kind;               // the effect ("ice_spike"), for drawing
+    };
+    struct Landing {
+        EntityId    owner = 0;
+        std::string place;              // structure type
+        glm::vec3   at{ 0.0f };         // the last open point before the solid voxel
+        glm::ivec3  voxel{ 0 };         // the solid voxel it hit
+    };
+    static constexpr float AIM_ASSIST_DEG = 12.0f;     // turns toward an enemy this close to its line
+    static constexpr float PROJECTILE_STEP = 0.5f;     // vox: how finely its path is checked
+    const std::vector<Projectile>& projectiles() const { return shots; }
+    std::vector<Landing> takeLandings() { std::vector<Landing> l; l.swap(landings); return l; }
+    size_t projectileHits = 0;                         // (tests)
+
+    void launch(Human& c, const AttackDef& d, const std::vector<Human*>& all) {
+        glm::vec3 f = c.attack.dir;
+        f.y = 0.0f;
+        f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(0, 0, 1);
+        Projectile p;
+        p.id = ++nextShot;
+        p.owner = c.uuid;
+        p.pos = c.position + glm::vec3(0.0f, c.height * 0.7f, 0.0f) + f * (Human::RADIUS + 1.0f);
+        glm::vec3 aim = f;
+        float best = std::cos(glm::radians(AIM_ASSIST_DEG));
+        for (Human* b : all) {
+            if (b == &c || b->dead() || !mayHit(c, *b)) continue;
+            glm::vec3 to = b->position + glm::vec3(0.0f, b->height * 0.5f, 0.0f) - p.pos;
+            float dist = glm::length(to);
+            if (dist < 1e-3f || dist > d.effectRange) continue;
+            glm::vec3 flat = glm::normalize(glm::vec3(to.x, 0.0f, to.z) + glm::vec3(1e-6f));
+            float c2 = glm::dot(flat, f);
+            if (c2 < best || !clearLine(p.pos, p.pos + to)) continue;
+            best = c2;
+            // aim at its middle, lifted for the drop on the way
+            float t = dist / std::max(d.effectSpeed, 1.0f);
+            aim = glm::normalize(to + glm::vec3(0.0f, 0.5f * d.effectGravity * t * t, 0.0f));
+        }
+        p.vel = aim * d.effectSpeed;
+        p.range = d.effectRange;
+        p.gravity = d.effectGravity;
+        p.damage = d.effectDamage; p.poise = d.effectPoise; p.knock = d.effectKnock;
+        p.place = d.effectPlace;
+        p.kind = d.effect;
+        shots.push_back(p);
+    }
+    bool mayHit(const Human& a, const Human& b) const {
+        return a.isPlayer() || hostile(static_cast<const Npc&>(a), b);
+    }
+    void flyProjectiles(float dt, const std::vector<Human*>& all) {
+        for (size_t i = 0; i < shots.size();) {
+            Projectile& p = shots[i];
+            glm::vec3 from = p.pos;
+            p.vel.y -= p.gravity * dt;
+            glm::vec3 to = p.pos + p.vel * dt;
+            float len = glm::length(to - from);
+            int steps = std::max(1, (int)std::ceil(len / PROJECTILE_STEP));
+            bool done = false;
+            Human* owner = find(p.owner);
+            for (int s = 1; s <= steps && !done; s++) {
+                glm::vec3 q = from + (to - from) * ((float)s / steps);
+                // a body
+                for (Human* b : all) {
+                    if (b->uuid == p.owner || b->dead()) continue;
+                    if (owner && !mayHit(*owner, *b)) continue;
+                    if (!owner && !b->isPlayer()) continue;     // its caster is gone: players only
+                    glm::vec2 off(q.x - b->position.x, q.z - b->position.z);
+                    float hh = b->hitHeight > 0.0f ? std::max(b->height, b->hitHeight) : b->height;
+                    if (glm::length(off) > b->hitRadius + 0.6f || q.y < b->position.y - 0.3f || q.y > b->position.y + hh + 0.3f) continue;
+                    glm::vec3 dir = glm::length(p.vel) > 1e-3f ? glm::normalize(p.vel) : glm::vec3(0, 0, 1);
+                    projectileHits++;
+                    toolHit(p.owner, b->uuid, p.damage, p.poise, q, dir, false, AttackKind::Cast);
+                    if (p.knock > 0.0f && !b->dead()) b->hit(q, glm::normalize(glm::vec3(dir.x, 0.25f, dir.z)) * p.knock * b->mass);
+                    done = true;
+                    break;
+                }
+                if (done) break;
+                // the world
+                glm::ivec3 v((int)std::floor(q.x), (int)std::floor(q.y), (int)std::floor(q.z));
+                if (physics->solidAt(v.x, v.y, v.z) || q.y < 0.0f) {
+                    if (!p.place.empty()) {
+                        Landing l;
+                        l.owner = p.owner; l.place = p.place; l.voxel = v;
+                        l.at = from + (to - from) * ((float)(s - 1) / steps);
+                        landings.push_back(l);
+                    }
+                    done = true;
+                }
+            }
+            p.travelled += len;
+            p.pos = to;
+            if (done || p.travelled > p.range) shots.erase(shots.begin() + i);
+            else i++;
         }
     }
     void windburst(Human& c, const AttackDef& d, const std::vector<Human*>& all) {
@@ -608,6 +778,7 @@ private:
         }
         for (auto& n : npcList.all()) {
             if (n->tier != (uint8_t)NpcManager::Tier::Full) continue;
+            if (n->type && !n->type->person()) continue;          // no skeleton: its hit box is its body (a slime)
             handsOf(*n, held, combat);
             poses.update(*n, n->appearance, held, combat, dt);
         }
@@ -688,6 +859,9 @@ private:
     std::unordered_map<EntityId, HumanIntent> intents;
     std::unordered_map<EntityId, std::vector<HumanIntent>> queued;   // setInputs
     std::vector<SimEvent> events;
+    std::vector<Projectile> shots;      // spells in flight
+    std::vector<Landing> landings;      // where they hit the world, for GameSession::tickWorld
+    uint32_t nextShot = 0;
     std::vector<SightRay> sight;
     std::vector<Noise> noises;        // made this tick, heard next tick
     encounter::Registry fights;       // encounters, slots, tokens, breadcrumbs

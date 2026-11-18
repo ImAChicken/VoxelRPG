@@ -57,6 +57,12 @@ struct AttackDef {
     std::string id, pose;
     std::string effect;                  // what happens when the active window opens instead of a blade hit ("windburst")
     float effectRange = 20.0f, effectArc = 60.0f;   // effect: voxels, half-angle in degrees
+    // A projectile effect (ice_spike): what it does when it hits a
+    // body, how it flies, and the structure it leaves where it hits
+    // the ground (structures.toml)
+    float effectDamage = 0.0f, effectPoise = 0.0f, effectKnock = 0.0f;
+    float effectSpeed = 60.0f, effectGravity = 20.0f;   // vox/s, vox/s²
+    std::string effectPlace;
     float duration = 0.5f;               // s, wind-up + active + recovery
     float activeStart = 0.2f, activeEnd = 0.3f;   // s: the hit window
     float damage = 1.0f;                 // × the weapon's damage
@@ -196,6 +202,12 @@ public:
                     d->effect = v["effect"].value_or(std::string());
                     d->effectRange = (float)v["effect_range"].value_or(20.0);
                     d->effectArc = (float)v["effect_arc"].value_or(60.0);
+                    d->effectDamage = (float)v["effect_damage"].value_or(0.0);
+                    d->effectPoise = (float)v["effect_poise"].value_or(0.0);
+                    d->effectKnock = (float)v["effect_knock"].value_or(0.0);
+                    d->effectSpeed = (float)v["effect_speed"].value_or(60.0);
+                    d->effectGravity = (float)v["effect_gravity"].value_or(20.0);
+                    d->effectPlace = v["effect_place"].value_or(std::string());
                     if (d->id.empty()) { std::cerr << path << ": an attack without an id\n"; continue; }
                     atk[d->id] = std::move(d);
                 }
@@ -268,6 +280,7 @@ struct AttackState {
     bool       plunging = false;   // air heavy: falling
     bool       landed = false;     // air heavy: has slammed
     std::vector<uint64_t> hitIds;  // bodies this swing has hit already
+    uint16_t   item = 0;           // a cast: the item (spellbook) it came from, held while it plays
 
     bool active() const { return kind != AttackKind::None && d; }
     const AttackDef& def() const { static const AttackDef NONE; return d ? *d : NONE; }

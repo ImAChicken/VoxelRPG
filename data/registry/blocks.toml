@@ -1217,3 +1217,15 @@ opacity = "full"
 flags = ["solid", "destructible"]
 on_destroy = 0
 color = [0.62, 0.46, 0.28]
+
+# Ice: what a spell leaves (structures.toml ice_spike). Not dug
+# out by hand: it melts (the structure's lifetime takes it away)
+[[block]]
+id = 113
+name = "ice"
+material = "stone"
+hardness = 2
+opacity = "full"
+flags = ["solid"]
+on_destroy = 0
+color = [0.70, 0.86, 0.95]

@@ -696,3 +696,9 @@ name    = "workbench_top"
 top     = [4, 14]
 side    = [4, 14]
 bottom  = [4, 14]
+
+[[face_map]]
+name    = "ice"
+top     = [15, 5]
+side    = [15, 5]
+bottom  = [15, 5]

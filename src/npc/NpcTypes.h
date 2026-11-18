@@ -3,6 +3,7 @@
 #include <toml++/toml.hpp>
 #include <glm/glm.hpp>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -63,6 +64,24 @@ struct NpcType {
     int   pack = 0;                    // slots it carries (0: none; game/Container.h)
     std::string loot;                  // loot table its pack is rolled from when first searched
     std::vector<std::string> wear;     // worn items shown on it (items.toml: gear)
+
+    // ── Its body (body = { … }; left out: a person) ───────
+    std::string shape = "human";       // "human", or "slime": a hopping blob (no skeleton)
+    float bodyHeight = 0.0f;           // vox (0: a person's)
+    float bodyWidth = 0.0f;            // vox across, for hits and drawing (0: a person's)
+    float hitHeight = 0.0f;            // vox: how tall its hit box is (0: its height)
+    float bodyKg = 0.0f;               // its weight (0: from its look)
+    glm::vec3 color{ 0.4f, 0.8f, 0.4f };
+    // ── Hopping (hop = { … }; physics/VoxelPhysics.h hopTick)
+    bool  hops = false;
+    float hopEvery = 0.45f, hopSpeed = 18.0f, hopHeight = 3.0f, hopClimb = 9.0f;
+    float lungeSpeed = 15.0f, lungeHeight = 5.0f;
+    // ── Contact damage (contact = { … }; Simulation::contactDamage):
+    // whatever not on its side it touches is hurt, once every 'every' s
+    float contactDamage = 0.0f, contactPoise = 0.0f, contactKnock = 0.0f, contactEvery = 0.8f;
+    float lungeRange = 0.0f;           // vox: how far its lunge carries (worked out at load)
+
+    bool person() const { return shape == "human"; }
 
     bool has(const std::string& state) const {
         return state == "dead" || std::find(states.begin(), states.end(), state) != states.end();
@@ -164,6 +183,32 @@ public:
                     d->healsAfter = (float)t["heals_after"].value_or(0.0);
                     d->tracks = t["tracks"].value_or(false);
                     d->xp = (float)t["xp"].value_or(-1.0);
+                    if (auto* b = t["body"].as_table()) {
+                        d->shape = (*b)["shape"].value_or(std::string("human"));
+                        d->bodyHeight = (float)(*b)["height"].value_or(0.0);
+                        d->bodyWidth = (float)(*b)["width"].value_or(0.0);
+                        d->hitHeight = (float)(*b)["hit_height"].value_or(0.0);
+                        d->bodyKg = (float)(*b)["mass"].value_or(0.0);
+                        if (auto* c = (*b)["color"].as_array(); c && c->size() == 3)
+                            d->color = { (float)c->get(0)->value_or(0.4), (float)c->get(1)->value_or(0.8), (float)c->get(2)->value_or(0.4) };
+                    }
+                    if (auto* h = t["hop"].as_table()) {
+                        d->hops = true;
+                        d->hopEvery = (float)(*h)["every"].value_or(0.45);
+                        d->hopSpeed = (float)(*h)["speed"].value_or(18.0);
+                        d->hopHeight = (float)(*h)["height"].value_or(3.0);
+                        d->hopClimb = (float)(*h)["climb"].value_or(9.0);
+                        d->lungeSpeed = (float)(*h)["lunge_speed"].value_or(15.0);
+                        d->lungeHeight = (float)(*h)["lunge_height"].value_or(5.0);
+                        // flat ground: up and down again at the lunge's speed (gravity 40)
+                        d->lungeRange = d->lungeSpeed * 2.0f * std::sqrt(2.0f * d->lungeHeight / 40.0f);
+                    }
+                    if (auto* c = t["contact"].as_table()) {
+                        d->contactDamage = (float)(*c)["damage"].value_or(0.0);
+                        d->contactPoise = (float)(*c)["poise"].value_or(0.0);
+                        d->contactKnock = (float)(*c)["knock"].value_or(0.0);
+                        d->contactEvery = (float)(*c)["every"].value_or(0.8);
+                    }
                     if (d->id.empty()) continue;
                     t2[d->id] = std::move(d);
                 }

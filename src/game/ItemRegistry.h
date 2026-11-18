@@ -42,7 +42,8 @@ constexpr uint32_t IC_DEV    = 1 << 3;
 constexpr uint32_t IC_DECOR  = 1 << 4;   // a decoration from decorations.toml: places it
 constexpr uint32_t IC_WORN   = 1 << 5;   // gear worn on the body (helmet, armour, pack)
 constexpr uint32_t IC_CHARM  = 1 << 7;   // a charm: goes in a loadout's charm slots (game/CombatKit.h)
-constexpr uint32_t IC_SPELL  = 1 << 6;   // a spell: used from an X / Y / B slot or the off hand, casts 'cast'
+constexpr uint32_t IC_SPELLBOOK = 1 << 6;   // a spellbook (a weapon type): used from an X / Y / B slot or the off hand, casts 'cast', held while it does
+constexpr uint32_t IC_SPELL  = IC_SPELLBOOK;    // (the old name)
 
 // IDs below this belong to block items
 constexpr uint16_t FIRST_NON_BLOCK_ITEM = 1000;
@@ -249,7 +250,7 @@ private:
                         std::string s = c.value_or("");
                         if      (s == "block")  d.categories |= IC_BLOCK;
                         else if (s == "tool")   d.categories |= IC_TOOL;
-                        else if (s == "spell")  d.categories |= IC_SPELL;
+                        else if (s == "spellbook" || s == "spell") d.categories |= IC_SPELLBOOK;
                         else if (s == "charm")  d.categories |= IC_CHARM;
                         else if (s == "weapon") d.categories |= IC_WEAPON;
                         else if (s == "dev")    d.categories |= IC_DEV;

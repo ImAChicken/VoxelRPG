@@ -50,6 +50,25 @@
 #   loot            a loot table (loot.toml) its pack is rolled
 #                   from the first time it's searched. A body that
 #                   may hold something stays 5 minutes (else 20 s)
+#
+# Not a person (left out: a person, the Human body above):
+#   body            shape ("human" or "slime"), height and width
+#                   (vox), hit_height (vox: how tall its hit box is;
+#                   a slime's is taller than it, so swings at a
+#                   person's height still meet it), mass (kg),
+#                   color [r, g, b] 0..1. A slime has no skeleton
+#                   or ragdoll: a hit just pushes it
+#   hop             it gets about by hopping (still on the ground,
+#                   moving only in the air): every (s on the ground
+#                   between hops), speed (vox/s through the air),
+#                   height (vox), climb (vox: a hop up a ledge its
+#                   path needs), lunge_speed and lunge_height (its
+#                   attack: a long hop at the target; how far that
+#                   carries is its fighting range)
+#   contact         it hurts what it touches: damage, poise, knock
+#                   (vox/s it throws the target), every (s between
+#                   touches). Anything not on its side, not just
+#                   its target; a guard raised toward it blocks
 
 [[npc]]
 id = "bandit"
@@ -162,3 +181,24 @@ idle = "stand"
 sight = { range = 0, fov = 0 }
 hearing = 0.0
 heals_after = 4          # s without hits, then back to full health (a training target)
+
+[[npc]]
+id = "slime"
+name = "Slime"
+faction = "slimes"
+look = ""
+health = 40
+poise = 999              # never staggered or knocked down: hits push it instead
+body = { shape = "slime", height = 5, width = 5, hit_height = 10, mass = 25, color = [0.35, 0.82, 0.38] }
+hop = { every = 0.45, speed = 18, height = 3, climb = 9, lunge_speed = 16, lunge_height = 5 }
+contact = { damage = 8, poise = 10, knock = 12, every = 0.8 }
+states = ["idle", "alert", "combat", "search", "return", "dead"]
+idle = "wander"
+wander_radius = 20
+territory = { radius = 40, leash = 120 }
+sight = { range = 45, fov = 300 }
+hearing = 1.2
+alert_time = [0.2, 0.5]
+slots = ["front", "left", "right", "front_left", "front_right", "ring"]
+aggression = 0.85
+xp = 8

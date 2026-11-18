@@ -113,6 +113,28 @@ public:
                 if (!can) continue;
                 ok[i] = true; ys[i] = y;
             }
+            // Up a ledge: the cell at its foot is often no place to
+            // stand (the body won't fit against the side), so a jump
+            // can reach over it to the top, two cells on
+            Node over[4]; bool hasOver[4] = { false, false, false, false };
+            for (int i = 0; i < 4; i++) {
+                if (ok[i]) continue;
+                int y = 0;
+                if (standAt(centre(n.x + 2 * DX[i]), centre(n.z + 2 * DZ[i]), n.y, y) && y - n.y > STEP_UP) {
+                    over[i] = { n.x + 2 * DX[i], n.z + 2 * DZ[i], y };
+                    hasOver[i] = true;
+                }
+            }
+            for (int i = 0; i < 4; i++) {
+                if (!hasOver[i]) continue;
+                const Node& m = over[i];
+                float g = cur.g + 2.0f * CELL + (m.y - n.y) * climbCost + 6.0f;
+                int64_t mk = key(m);
+                auto it = seen.find(mk);
+                if (it != seen.end() && (it->second.closed || it->second.g <= g)) continue;
+                seen[mk] = { m, g, q.k, false };
+                open.push({ g + h(m), mk });
+            }
             for (int i = 0; i < 8; i++) {
                 if (!ok[i]) continue;
                 Node m{ n.x + DX[i], n.z + DZ[i], ys[i] };

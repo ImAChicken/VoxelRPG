@@ -33,7 +33,7 @@
 // coming while a player is near (sim/Spawners.h). What it
 // spawns, how many and how often are in its entry (spawn =).
 
-enum class StructureKind : uint8_t { Build, Door, Tree, Spawner, Chest, Station };
+enum class StructureKind : uint8_t { Build, Door, Tree, Spawner, Chest, Station, Effect };   // Effect: left by a spell (ice), goes after its lifetime
 
 // What a spawner structure spawns (structures.toml: spawn = { … })
 struct SpawnDef {
@@ -58,6 +58,11 @@ struct StructureType {
     int           snap = 0;        // grid while following the crosshair
     uint16_t      block = BLOCK_STONE;
     glm::ivec3    size  = {1, 1, 1};
+
+    // How long one lasts once placed, s (0: for good). The world
+    // takes it away after that (StructureManager::tick): a spell's
+    // ice melts
+    float    lifetime  = 0.0f;
 
     // Trees
     float    health    = 0.0f;
@@ -174,7 +179,9 @@ public:
                        : kind == "spawner" ? StructureKind::Spawner
                        : kind == "chest"   ? StructureKind::Chest
                        : kind == "station" ? StructureKind::Station
+                       : kind == "effect"  ? StructureKind::Effect
                                            : StructureKind::Build;
+                s.lifetime = (float)(*t)["lifetime"].value_or(0.0);
                 s.loot  = (*t)["loot"].value_or(std::string());
                 s.slots = std::clamp((int)(*t)["slots"].value_or((int64_t)(s.kind == StructureKind::Chest || !s.loot.empty() ? 50 : 0)), 0, 50);
                 if (auto* sp = (*t)["spawn"].as_table()) {

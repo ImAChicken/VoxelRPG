@@ -164,8 +164,54 @@ public:
         });
         sim.syncSpawners(placed);
     }
+    // The world's own changes, every tick or frame (not on a
+    // client: its server does them):
+    //   where spells hit the ground, what they leave (a spell's ice:
+    //   effect_place in movesets.toml), set down on the ground there
+    //   unless a body is in the way;
+    //   structures with a lifetime (structures.toml lifetime) aged,
+    //   and taken away when it's up
+    int tickWorld(float dt) {
+        int placedNow = 0;
+        for (const Simulation::Landing& l : sim.takeLandings()) {
+            if (!structs) continue;
+            uint16_t type = gStructures.find(l.place);
+            const StructureType* t = gStructures.get(type);
+            if (!t) continue;
+            if (placeEffect(type, *t, l)) placedNow++;
+        }
+        if (structs) structs->tick(dt);
+        return placedNow;
+    }
     // Queued edits a few milliseconds a frame
     void updateEdits(float budgetMs = 4.0f) { if (editor) editor->update(budgetMs); }
+
+    // A spell's leavings at a landing: on the ground under where it
+    // hit (a wall: the ground at its foot); up a voxel or two if
+    // that's what it takes to fit. Not
+    // where it would shut a body in
+    bool placeEffect(uint16_t type, const StructureType& t, const Simulation::Landing& l) {
+        glm::ivec3 at((int)std::floor(l.at.x), (int)std::floor(l.at.y), (int)std::floor(l.at.z));
+        for (int i = 0; i < 12 && at.y > 0 && !physics->solidAt(at.x, at.y - 1, at.z); i++) at.y--;   // down to the ground
+        if (!physics->solidAt(at.x, at.y - 1, at.z)) return false;                                     // nothing to stand on
+        const VoxelVolume& v = t.shape(0, 0);
+        for (int up = 0; up <= 2; up++) {
+            glm::ivec3 o = at + glm::ivec3(0, up, 0);
+            if (!structs->checkPlace(type, o, 0, false).empty()) continue;
+            glm::vec3 lo = glm::vec3(o - v.anchor), hi = lo + glm::vec3(v.size);
+            bool body = false;
+            for (Human* b : sim.bodies()) {
+                if (b->dead()) continue;
+                if (b->position.x + Human::RADIUS > lo.x && b->position.x - Human::RADIUS < hi.x &&
+                    b->position.z + Human::RADIUS > lo.z && b->position.z - Human::RADIUS < hi.z &&
+                    b->position.y < hi.y && b->position.y + b->height > lo.y) { body = true; break; }
+            }
+            if (body) return false;
+            structs->place(type, o, 0, EditSource::Command, 0);
+            return true;
+        }
+        return false;
+    }
 
     // ── Saving ────────────────────────────────────────────
     // extra(folder): anything else to write into the same

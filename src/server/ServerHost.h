@@ -198,7 +198,7 @@ public:
         // structures, when they've changed (4 times a second at most)
         if (serverTick % 15 == 0) {
             std::ostringstream os;
-            session.structs->write(os);
+            session.structs->write(os, false);
             std::string now = os.str();
             for (auto& c : list)
                 if (c->joined && c->structuresSent != now) { c->conn->send(proto::text(proto::Msg::Structures, now), net::Channel::Reliable); c->structuresSent = now; }

@@ -77,6 +77,7 @@
 #include "sim/Simulation.h"
 #include "game/DebugView.h"
 #include "render/PropRenderer.h"
+#include "render/BoxRenderer.h"
 #include "worldgen/WorldType.h"
 #include "render/Sky.h"
 #include "world/WorldMemory.h"
@@ -299,6 +300,8 @@ int main() {
 
     CharacterRenderer charRenderer;
     if (!charRenderer.init()) std::cerr << "Character renderer failed to start\n";
+    BoxRenderer blobs;                        // bodies with no skeleton (slimes): stacked boxes
+    if (!blobs.init()) std::cerr << "Box renderer failed to start\n";
     PropRenderer props;                       // logs, wood, leaves: drawn like the world
     if (!props.init()) std::cerr << "Prop renderer failed to start\n";
     DebugDraw debugDraw;                      // the debug overlay's lines (F3, game/DebugView.h)
@@ -452,7 +455,7 @@ int main() {
     auto syncPuppets = [&](float dtFrame) {
         if (!remote) return;
         if (itemForModel.empty())
-            for (uint16_t id : gItems.inCategory(IC_TOOL | IC_WEAPON | IC_DEV)) {
+            for (uint16_t id : gItems.inCategory(IC_TOOL | IC_WEAPON | IC_SPELLBOOK | IC_DEV)) {
                 const ItemDef& d = gItems.get(id);
                 if (!d.heldModel.empty() && !itemForModel.count(d.heldModel)) itemForModel[d.heldModel] = d.name;
             }
@@ -468,7 +471,7 @@ int main() {
                 made->type = gNpcTypes.find(body.info.type);
                 made->name = body.info.name;
                 made->appearance = body.look;
-                if (made->type) made->faction = gFactions.find(made->type->faction);
+                if (made->type) { made->faction = gFactions.find(made->type->faction); NpcManager::applyBody(*made, *made->type); }
                 n = made.get();
                 list.push_back(std::move(made));
                 puppetDown[id] = false;
@@ -982,8 +985,12 @@ int main() {
             in.swing = player.swing.t;
             in.carryAxe = player.holdingAxe() && !player.combatStance;
             // what the right hand shows (items.toml held_model)
-            playerBody->setHeldModel(player.combatStance ? (wielded ? wielded->heldModel : std::string())
-                                     : player.activeInventory().heldDef().heldModel);
+            {
+                // what the simulation says is in hand (a spellbook while it casts)
+                std::string held; bool fighting = false;
+                Simulation::handsOf(player, held, fighting);
+                playerBody->setHeldModel(held);
+            }
             // the left hand: the active off-hand slot
             {
                 const ItemStack& off = player.activeInventory().offhandItem();
@@ -1057,6 +1064,7 @@ int main() {
             std::unordered_map<uint64_t, bool> alive;
             for (auto& np : npcs.all()) {
                 Npc& n = *np;
+                if (n.type && !n.type->person()) continue;         // a slime: no skeleton (drawn below)
                 alive[n.uuid] = true;
                 auto& ch = npcBodies[n.uuid];
                 if (!ch) ch = std::make_unique<Character>();
@@ -1098,6 +1106,41 @@ int main() {
             charRenderer.skyTint   = ss.skyLight * leafTint * (sky * sky) + ss.ambient * 4.0f;
             glm::vec3 b(light::rOf(L) / 15.0f, light::gOf(L) / 15.0f, light::bOf(L) / 15.0f);
             charRenderer.blockTint = b * b * 1.3f;
+        };
+
+        // A body with no skeleton (npcs.toml body: a slime): three
+        // stacked boxes for a rounded blob, two eyes on the side it
+        // faces. Squashed on the ground (harder just after landing
+        // and just before a hop), stretched in the air, flat when
+        // dead; lit by the baked light where it is
+        auto drawBlob = [&](const Npc& n, glm::vec3 at, const glm::mat4& vp) {
+            const NpcType& t = *n.type;
+            float w = t.bodyWidth > 0.0f ? t.bodyWidth : n.hitRadius * 2.0f, h = n.standHeight;
+            float sy = 1.0f;
+            if (n.dead()) sy = 0.35f;
+            else if (!n.grounded) sy = 1.0f + std::clamp(std::fabs(n.velocity.y) / 45.0f, 0.0f, 0.35f);
+            else if (n.hop.on && n.hop.every > 0.0f && !n.puppet) {     // (a server's slime: its hop timer isn't sent)
+                float f = std::clamp(n.hop.wait / n.hop.every, 0.0f, 1.0f);    // 1 just landed .. 0 about to hop
+                sy = 1.0f - 0.24f * f * f * f * f - 0.18f * (1.0f - f) * (1.0f - f) * (1.0f - f) * (1.0f - f);
+            }
+            float sx = 1.0f / std::sqrt(sy);                                  // the same volume
+            uint16_t L = streamer ? streamer->lightAt(at.x, at.y + h * 0.5f, at.z) : (uint16_t)0xFFFF;
+            float sky = light::skyOf(L) / 15.0f, blk = std::max({ light::rOf(L), light::gOf(L), light::bOf(L) }) / 15.0f;
+            float lit = std::clamp(std::max(sky * gFrameLight.sky.skyLight.y * 1.1f + 0.12f, blk), 0.12f, 1.0f);
+            glm::vec3 col = t.color * lit * (n.dead() ? 0.55f : 1.0f);
+            if (n.sinceHurt < 0.15f && !n.dead()) col = glm::mix(col, glm::vec3(1.0f), 0.6f);   // a flash when hit
+            glm::vec3 f(n.facing.x, 0.0f, n.facing.z);
+            f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(1, 0, 0);
+            float yaw = glm::degrees(std::atan2(f.z, f.x));
+            float H = h * sy, W = w * sx;
+            blobs.draw(vp, at, { W, H * 0.55f, W }, yaw, col);
+            blobs.draw(vp, at + glm::vec3(0, H * 0.55f, 0), { W * 0.78f, H * 0.3f, W * 0.78f }, yaw, col * 1.06f);
+            blobs.draw(vp, at + glm::vec3(0, H * 0.85f, 0), { W * 0.45f, H * 0.15f, W * 0.45f }, yaw, col * 1.12f);
+            if (n.dead()) return;
+            glm::vec3 right(-f.z, 0.0f, f.x);
+            for (float side : { -1.0f, 1.0f })
+                blobs.draw(vp, at + f * (W * 0.5f) + right * (side * W * 0.2f) + glm::vec3(0, H * 0.42f, 0),
+                           { 0.5f, std::max(0.6f, H * 0.2f), 0.6f }, yaw, glm::vec3(0.05f, 0.07f, 0.05f));
         };
 
         // ── Woodcutting: logs, wood on the ground, leaves and
@@ -1174,18 +1217,24 @@ int main() {
             float alpha = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
             std::vector<CharacterRenderer::Placed> placed;
             for (auto& np : npcs.all()) {
+                const bool blob = np->type && !np->type->person();
                 auto it = npcBodies.find(np->uuid);
-                if (it == npcBodies.end()) continue;
+                if (it == npcBodies.end() && !blob) continue;
                 glm::vec3 at = glm::mix(np->prevPosition, np->position, alpha);
                 if (glm::length(at - camera.position) > 220.0f) continue;
-                lightCharacters(at);
-                charRenderer.draw(*it->second, proj * view, at, camera.position,
-                                  OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
-                placed.push_back({ it->second.get(), at, gOutlineFx.glowFor(*np) });
+                if (blob) drawBlob(*np, at, proj * view);
+                else {
+                    lightCharacters(at);
+                    charRenderer.draw(*it->second, proj * view, at, camera.position,
+                                      OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
+                    placed.push_back({ it->second.get(), at, gOutlineFx.glowFor(*np) });
+                }
+                const float top = blob ? np->height : Human::STAND_HEIGHT;     // for the bar and the marker
+                const glm::vec3 head = blob ? glm::vec3(0.0f) : np->ragdoll.headOffset(alpha);
                 // a health bar over the head, once hurt (or always, close)
                 float dist = glm::length(at - camera.position);
                 if (!np->dead() && (np->sinceHurt < 8.0f || dist < 40.0f) && dist < 120.0f) {
-                    glm::vec4 c = proj * view * glm::vec4(at + np->ragdoll.headOffset(alpha) + glm::vec3(0.0f, Human::STAND_HEIGHT + 2.5f, 0.0f), 1.0f);
+                    glm::vec4 c = proj * view * glm::vec4(at + head + glm::vec3(0.0f, top + 2.5f, 0.0f), 1.0f);
                     if (c.w > 0.1f) {
                         float sx = (c.x / c.w * 0.5f + 0.5f) * gRenderer->getScreenWidth();
                         float sy = (1.0f - (c.y / c.w * 0.5f + 0.5f)) * gRenderer->getScreenHeight();
@@ -1194,7 +1243,7 @@ int main() {
                     }
                 }
                 if (np->uuid == lockOn.target && !np->dead()) {     // the lock-on marker, on its chest
-                    glm::vec4 c = proj * view * glm::vec4(at + np->ragdoll.headOffset(alpha) + glm::vec3(0.0f, Human::STAND_HEIGHT * 0.6f, 0.0f), 1.0f);
+                    glm::vec4 c = proj * view * glm::vec4(at + head + glm::vec3(0.0f, top * 0.6f, 0.0f), 1.0f);
                     if (c.w > 0.1f)
                         hud.lockMarker = { true, (c.x / c.w * 0.5f + 0.5f) * gRenderer->getScreenWidth(),
                                            (1.0f - (c.y / c.w * 0.5f + 0.5f)) * gRenderer->getScreenHeight() };
@@ -1203,6 +1252,24 @@ int main() {
             int fw = gRenderer->getScreenWidth(), fh = gRenderer->getScreenHeight();
             if (!placed.empty())
                 charRenderer.drawEdges(placed, view, proj, 0, 0, fw, fh, fw, fh, edgeStyle());
+        }
+
+        // Spells in flight (Simulation::projectiles): an ice spike is
+        // a pale shard along its way, a thinner point ahead
+        if (!sim.projectiles().empty()) {
+            glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
+                                              Camera::NEAR_PLANE, Camera::FAR_PLANE);
+            glm::mat4 vp = proj * glr->getViewMatrix();
+            float alpha = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
+            for (const Simulation::Projectile& p : sim.projectiles()) {
+                glm::vec3 at = p.pos + p.vel * (alpha * PHYSICS_STEP);
+                glm::vec3 f(p.vel.x, 0.0f, p.vel.z);
+                f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(1, 0, 0);
+                float yaw = glm::degrees(std::atan2(f.z, f.x));
+                glm::vec3 col = p.kind == "ice_spike" ? glm::vec3(0.72f, 0.90f, 1.0f) : glm::vec3(1.0f);
+                blobs.draw(vp, at - glm::vec3(0.0f, 0.5f, 0.0f), { 3.0f, 1.0f, 1.0f }, yaw, col);
+                blobs.draw(vp, at + f * 2.0f - glm::vec3(0.0f, 0.25f, 0.0f), { 1.2f, 0.5f, 0.5f }, yaw, col * 1.1f);
+            }
         }
 
         // Debug overlay (F3): lines now, labels to the HUD
@@ -1563,6 +1630,10 @@ int main() {
             // Big edits are spread over frames: a few
             // milliseconds of them per frame
             session.updateEdits(4.0f);
+            // spells' ice set down, and melted when its time is up
+            // (a server does this for its own world)
+            if (!remote) session.tickWorld(dt);
+            else sim.takeLandings();
 
             // Autosave every few minutes (Settings → Auto save);
             // dev worlds only save when asked

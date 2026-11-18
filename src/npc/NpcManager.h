@@ -58,6 +58,7 @@ public:
             n->mass = n->body.total();
         }
         n->maxHealth = n->health = t->health;
+        applyBody(*n, *t);
         n->climb = t->climb;
         n->maxPoise = n->poise = t->poise;
         n->healthSeen = n->health;
@@ -74,6 +75,21 @@ public:
         }
         list.push_back(std::move(n));
         return list.back().get();
+    }
+
+    // Its body from its type: a person, or a slime (short, no
+    // ragdoll, hops). Also for a client's copies of a server's
+    // NPCs (puppets), so they're drawn and collide the same.
+    static void applyBody(Npc& n, const NpcType& t) {
+        if (t.bodyHeight > 0.0f) n.standHeight = n.height = t.bodyHeight;
+        if (t.bodyWidth > 0.0f) n.hitRadius = t.bodyWidth * 0.5f;
+        n.hitHeight = t.hitHeight;
+        n.noRagdoll = !t.person();
+        if (t.bodyKg > 0.0f) n.setBodyMass(t.bodyKg);
+        n.hop.on = t.hops;
+        n.hop.every = t.hopEvery; n.hop.speed = t.hopSpeed; n.hop.height = t.hopHeight; n.hop.climb = t.hopClimb;
+        n.hop.lungeSpeed = t.lungeSpeed; n.hop.lungeHeight = t.lungeHeight;
+        if (!t.person()) n.eyeHeight = std::max(1.0f, n.height - 1.0f);
     }
 
     // How much of an NPC is simulated, by distance to the nearest

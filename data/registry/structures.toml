@@ -4,7 +4,10 @@
 # Scale: 1 voxel = 4 inches, so 3 voxels = 1 ft, 12 voxels = 4 ft.
 # F6 reloads this file.
 #
-# kind:     build | door | tree | spawner | chest | station
+# kind:     build | door | tree | spawner | chest | station | effect
+#           (effect: left by a spell, like the ice spike's ice)
+# lifetime: s it lasts once placed (0 or left out: for good). The
+#           world takes it away after that (StructureManager::tick)
 # menu:     true = listed in the Builder's Hammer build menu
 # block:    what a build piece / door is made of
 # size:     [width, height, depth] in voxels
@@ -799,4 +802,24 @@ layers = [
   [ "iiillliii", "iwwwwwwwi", "iwwwwwwwi", "iwwwwwwwi", "iwwwwwwwi", "iiiiiiiii" ],
   [ "iwiwwwiwi", "wwwwwwwww", "wwwwwwwww", "wwwwwwwww", "wwwwwwwww", "iwiwwwiwi" ],
   [ "iwiwwwiwi", "wwiwwwiww", "wwiwwwiww", "wwiwwwiww", "wwiwwwiww", "iwiwwwiwi" ],
+]
+
+# ── Spell leavings ────────────────────────────────────────
+# Where an ice spike (movesets.toml ice_spike_cast) hits the ground
+# instead of a body: a cluster of ice that melts after 15 s. Set down
+# on the ground where it landed (GameSession::placeEffect), never
+# over a body.
+[[structure]]
+name = "ice_spike"
+display = "Ice"
+kind = "effect"
+lifetime = 15
+legend = { i = "ice" }
+layers = [
+  [ ".iii.", "iiiii", "iiiii", "iiiii", ".iii." ],
+  [ ".i.i.", "iiiii", ".iii.", "iiii.", "..i.." ],
+  [ ".....", ".i.i.", ".iii.", "..i..", "....." ],
+  [ ".....", "...i.", ".ii..", ".....", "....." ],
+  [ ".....", ".....", "..i..", ".....", "....." ],
+  [ ".....", ".....", "..i..", ".....", "....." ],
 ]

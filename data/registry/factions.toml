@@ -71,3 +71,25 @@ standing = -100
 a = "undead"
 b = "bandits"
 standing = -100
+
+# Slimes: everything that isn't a slime is food, and they're no
+# one's friends (neutral to wildlife and the dead)
+[[faction]]
+id = "slimes"
+name = "Slimes"
+player_standing = -100
+
+[[relation]]
+a = "slimes"
+b = "villagers"
+standing = -100
+
+[[relation]]
+a = "slimes"
+b = "guards"
+standing = -100
+
+[[relation]]
+a = "slimes"
+b = "bandits"
+standing = -100
