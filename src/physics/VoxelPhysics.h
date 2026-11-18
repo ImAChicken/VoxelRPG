@@ -131,7 +131,7 @@ public:
         combat::startAttack(h, in);
         bool attacking = h.attack.active();
         h.guarding = in.guard && !attacking && h.grounded && h.move == Human::Move::None &&
-                     h.weaponDamage > 0.0f && h.exposed <= 0.0f;
+                     (h.weaponDamage > 0.0f || h.guardStyle.shield) && h.exposed <= 0.0f;
         h.guardTime = h.guarding ? h.guardTime + dt : 0.0f;     // a hit just after raising it is parried
 
         if (in.jump && !busy && !attacking && !h.hop.on) {

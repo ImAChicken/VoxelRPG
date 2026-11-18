@@ -11,6 +11,7 @@
 #   faction         factions.toml
 #   look            appearance preset (data/characters/presets.toml)
 #   weapon          item it fights with (its moveset comes from the item)
+#   offhand         item in its left hand: a shield it guards with
 #   health, poise   its toughness
 #   climb           how much slopes slow it (default 1; 0.2 a goat, 1.5 a
 #                   heavy brute); its paths weigh climbing the same way
@@ -117,6 +118,7 @@ name = "Guard"
 faction = "guards"
 look = "guard"
 weapon = "iron_sword"
+offhand = "wooden_shield"
 loot = "guard"
 wear = ["iron_helmet", "chainmail", "iron_greaves", "leather_boots"]
 health = 140

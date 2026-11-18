@@ -22,6 +22,7 @@ air_up        = "Jump_Start"
 air_down      = "Jump_Loop"
 roll          = "Roll"
 guard         = "Sword_Block"
+guard_shield  = "Idle_Shield_Loop"   # guarding with a shield in the off hand
 
 # How fast (vox/s) the body moves when each moving clip plays at
 # its normal speed (measured from the packs' root-motion

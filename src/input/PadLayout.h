@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <string>
 #include <vector>
 
 // ══════════════════════════════════════════════════════════
@@ -30,9 +31,13 @@
 //             inventory, X turn the hammer's piece, D-pad nudge,
 //             Start the pause menu
 //
-// The table below is the whole layout: change it here. The
-// controller debug overlay (debug pad) draws the same table, so a
-// keyboard press lights the pad button it stands for.
+// The table below is the default layout. data/controls/pad.toml
+// (InputManager::loadPad) rebinds any of it, and so does the
+// Controls screen's Controller tab. The button that jumps also
+// interacts when held (wherever Jump is put), and the one that
+// opens the quick layer is wherever QuickLayer is. The controller
+// debug overlay (debug pad) draws the same table, so a keyboard
+// press lights the pad button it stands for.
 namespace pad {
 
 // Our names for the buttons (GLFW's gamepad order, then the two
@@ -51,7 +56,7 @@ enum class Layer : uint8_t { Both, Combat, Quick, Explore };
 
 struct Map { Button button; Layer layer; InputAction action; };
 
-inline const std::vector<Map>& layout() {
+inline const std::vector<Map>& defaults() {
     static const std::vector<Map> M = {
         // both
         { A,     Layer::Both,    InputAction::Jump },
@@ -99,6 +104,34 @@ inline const std::vector<Map>& layout() {
     };
     return M;
 }
+// The layout in use (defaults, then pad.toml / the Controls screen)
+inline std::vector<Map>& current() { static std::vector<Map> m = defaults(); return m; }
+inline const std::vector<Map>& layout() { return current(); }
+inline void resetLayout() { current() = defaults(); }
+
+inline const char* layerKey(Layer l) {
+    switch (l) { case Layer::Both: return "both"; case Layer::Combat: return "combat"; case Layer::Quick: return "quick"; default: return "explore"; }
+}
+inline int buttonFromName(const std::string& n) {
+    for (int b = 0; b < COUNT; b++) if (n == buttonName(b)) return b;
+    if (n == "Back") return Back;
+    return -1;
+}
+// The button an action is on in a layer (the first), or -1
+inline int buttonOf(InputAction a, Layer l) {
+    for (const Map& m : layout()) if (m.action == a && m.layer == l) return m.button;
+    return -1;
+}
+// The jump button (a tap jumps, a hold interacts) and the one that
+// opens the quick layer (held, in combat)
+inline Button jumpButton() { int b = buttonOf(InputAction::Jump, Layer::Both); return b >= 0 ? (Button)b : A; }
+inline Button quickButton() { int b = buttonOf(InputAction::QuickLayer, Layer::Quick); return b >= 0 ? (Button)b : Start; }
+// Two actions meant to share a button in a layer (one press, both:
+// sprint held / roll tapped)
+inline bool mayShare(InputAction x, InputAction y) {
+    auto pair = [&](InputAction a, InputAction b) { return (x == a && y == b) || (x == b && y == a); };
+    return pair(InputAction::Sprint, InputAction::Roll);
+}
 
 constexpr float DEADZONE     = 0.18f;
 constexpr float TRIGGER_DOWN = 0.35f;   // a trigger past this counts as pressed
@@ -124,7 +157,7 @@ inline Layer layerFor(bool combat, bool startHeld) {
     return startHeld ? Layer::Quick : Layer::Combat;
 }
 inline bool inLayer(Layer m, Layer now) {
-    if (m == Layer::Both) return now != Layer::Quick;     // the quick layer takes A for itself
+    if (m == Layer::Both) return now != Layer::Quick;     // the quick layer takes the face buttons for itself
     return m == now;
 }
 
@@ -134,17 +167,19 @@ inline bool inLayer(Layer m, Layer now) {
 //   aTap   A just came up after less than HOLD_A: a jump
 // A is a tap (jump, on release) or a hold (interact, once held
 // HOLD_A), so a jump waits for the button to come up.
+//   (aHeld / aTap: the jump button's, wherever it is: jumpButton())
 inline void apply(const State& s, Layer now, float aHeld, bool aTap, std::array<bool, (int)InputAction::COUNT>& held) {
     if (!s.connected) return;
+    const Button jb = jumpButton();
     for (const Map& m : layout()) {
-        if (m.button == A && m.action == InputAction::Jump) continue;     // below
+        if (m.action == InputAction::Jump) continue;     // below
         if (inLayer(m.layer, now) && s.down[m.button]) held[(int)m.action] = true;
     }
-    // the quick layer: Start itself is held too
+    // the quick layer: its button itself is held too
     if (now == Layer::Quick) held[(int)InputAction::QuickLayer] = true;
     if (now != Layer::Quick) {
         if (aTap) held[(int)InputAction::Jump] = true;
-        if (s.down[A] && aHeld >= HOLD_A) held[(int)InputAction::Interact] = true;
+        if (s.down[jb] && aHeld >= HOLD_A) held[(int)InputAction::Interact] = true;
     }
 }
 

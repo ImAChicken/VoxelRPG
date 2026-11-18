@@ -5,6 +5,7 @@
 #include "../game/Inventory.h"
 #include "../game/CombatKit.h"
 #include "../input/InputManager.h"
+#include "PadGlyphs.h"
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cstdio>
@@ -441,9 +442,13 @@ private:
         auto key = [](InputAction a) { return InputManager::bindingLabel(gInput.getBinding(a)); };
         const char* names[3] = { "X", "Y", "B" };
         for (int b = 0; b < 3; b++) {
-            label(padNames ? std::string(names[b])
-                           : key((InputAction)((int)InputAction::UseSlotX + b)) + " " + key((InputAction)((int)InputAction::CycleSlotX + b)),
-                  y, ks);
+            InputAction use = (InputAction)((int)InputAction::UseSlotX + b), next = (InputAction)((int)InputAction::CycleSlotX + b);
+            // pad: the use and next buttons' pictures (ui/PadGlyphs.h)
+            int pu = padglyph::buttonFor(use, pad::Layer::Combat), pn = padglyph::buttonFor(next, pad::Layer::Combat);
+            if (padNames && pu >= 0 && padglyph::draw(ui, pu, x0, y + (ks - 22) * 0.5f, 22.0f)) {
+                if (pn >= 0) padglyph::draw(ui, pn, x0 + 24, y + (ks - 22) * 0.5f, 22.0f);
+            } else
+                label(padNames ? std::string(names[b]) : key(use) + " " + key(next), y, ks);
             for (int k = 0; k < 2; k++)
                 for (int i = 0; i < CombatKit::PER_SLOT; i++)
                     refSlot(ui, kit.sets[k].slots[b][i], RefButton, cx[k] + i * (ks + g), y, ks);
@@ -455,7 +460,10 @@ private:
         y += ks + 14;
 
         // the 8 quick options (Start held), the pad's buttons as names
-        ui.drawText(padNames ? std::string("Quick - hold Start") : "Quick - hold " + key(InputAction::QuickLayer), x0, y, theme.text, 1);
+        if (padNames) {
+            ui.drawText("Quick - hold", x0, y, theme.text, 1);
+            padglyph::draw(ui, pad::quickButton(), x0 + ui.textWidth("Quick - hold ", 1), y - 5, 18.0f);
+        } else ui.drawText("Quick - hold " + key(InputAction::QuickLayer), x0, y, theme.text, 1);
         y += 14;
         const char* padQn[8] = { "Left", "Up", "Right", "Down", "X", "Y", "B", "A" };
         std::string keyQn[8];
@@ -463,8 +471,12 @@ private:
         float cell = (rw - 2 * pad) / 4.0f, qs = ks;
         for (int i = 0; i < CombatKit::QUICK; i++) {
             float qx = x0 + (i % 4) * cell + (cell - qs) * 0.5f, qy = y + (i / 4) * (qs + 18);
-            std::string qn = padNames ? std::string(padQn[i]) : keyQn[i];
-            ui.drawText(qn, qx + (qs - ui.textWidth(qn, 1)) * 0.5f, qy, theme.textDim, 1);   // the button, above
+            int qb = padNames ? pad::buttonOf((InputAction)((int)InputAction::ToolbarSlot1 + i), pad::Layer::Quick) : -1;
+            if (qb >= 0 && padglyph::draw(ui, qb, qx + (qs - 20.0f) * 0.5f, qy - 8, 20.0f)) {}   // the button's picture, above
+            else {
+                std::string qn = padNames ? std::string(padQn[i]) : keyQn[i];
+                ui.drawText(qn, qx + (qs - ui.textWidth(qn, 1)) * 0.5f, qy, theme.textDim, 1);   // the button, above
+            }
             refSlot(ui, kit.quick[i], RefQuick, qx, qy + 11, qs);
         }
     }
@@ -498,6 +510,7 @@ private:
         auto add = [&](bool on, const std::string& n) { if (on) { if (!t.empty()) t += ", "; t += n; } };
         add(d.is(IC_BLOCK), "block"); add(d.is(IC_TOOL), "tool"); add(d.is(IC_WEAPON), "weapon");
         add(d.is(IC_SPELLBOOK), "spellbook: casts it from a combat slot");
+        add(d.shield, "shield: in a loadout's off hand, guards");
         add(d.is(IC_DEV), "dev"); add(d.is(IC_WORN), std::string("worn: ") + wornSlotKey((WornSlot)d.worn));
         add(!d.accessory.empty(), d.accessory);
         char b[48];

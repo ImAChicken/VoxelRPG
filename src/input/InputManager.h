@@ -175,6 +175,63 @@ public:
         }
     }
 
+    // ── The controller's layout (data/controls/pad.toml) ──
+    // One section per layer (both, combat, quick, explore), each
+    // action's key (as in keyboard.toml) = its button:
+    //   [combat]
+    //   use_left = "RB"
+    // Anything left out keeps its default (input/PadLayout.h).
+    bool loadPad(const std::filesystem::path& path) {
+        padPath = path;
+        pad::resetLayout();
+        if (!std::filesystem::exists(path)) return false;
+        try {
+            auto tbl = toml::parse_file(path.string());
+            for (pad::Map& m : pad::current()) {
+                const ActionInfo* info = infoFor(m.action);
+                if (!info) continue;
+                auto v = tbl[pad::layerKey(m.layer)][info->key].value<std::string>();
+                if (!v) continue;
+                int b = pad::buttonFromName(*v);
+                if (b >= 0) m.button = (pad::Button)b;
+                else std::cerr << path << ": no button " << *v << "\n";
+            }
+            std::cout << "Controller layout loaded: " << path << "\n";
+            return true;
+        } catch (const std::exception& e) {
+            std::cerr << "Controller layout error: " << e.what() << "\n";
+            return false;
+        }
+    }
+    bool savePad() const {
+        if (padPath.empty()) return false;
+        std::ofstream f(padPath);
+        if (!f) return false;
+        f << "# VoxelRPG controller layout (input/PadLayout.h)\n"
+          << "# Change it in game (Esc -> Controls -> Controller) or here.\n"
+          << "# Buttons: A B X Y LB RB LT RT Select Start L3 R3 Up Down Left Right\n"
+          << "# (positions, Xbox names: A is the bottom face button on any pad).\n"
+          << "# Layers: both (always), combat, quick (combat with the quick\n"
+          << "# button held), explore (out of combat). The jump button also\n"
+          << "# interacts when held.\n";
+        for (pad::Layer l : { pad::Layer::Both, pad::Layer::Combat, pad::Layer::Quick, pad::Layer::Explore }) {
+            f << "\n[" << pad::layerKey(l) << "]\n";
+            for (const pad::Map& m : pad::layout()) {
+                if (m.layer != l) continue;
+                const ActionInfo* info = infoFor(m.action);
+                if (!info) continue;
+                std::string key = info->key;
+                f << key << std::string(key.size() < 16 ? 16 - key.size() : 1, ' ')
+                  << "= \"" << pad::buttonName(m.button) << "\"   # " << info->label << "\n";
+            }
+        }
+        return (bool)f;
+    }
+    static const ActionInfo* infoFor(InputAction a) {
+        for (const ActionInfo& i : actionTable()) if (i.action == a) return &i;
+        return nullptr;
+    }
+
     // Write every binding back to keyboard.toml
     bool saveKeyboard() const {
         if (keyboardPath.empty()) return false;
@@ -273,10 +330,10 @@ public:
         padTime = now;
         padState = readPad();
         // A: a tap (released before HOLD_A) jumps, a hold interacts
-        bool aDown = padState.connected && padState.down[pad::A];
+        bool aDown = padState.connected && padState.down[pad::jumpButton()];   // (the jump button: A unless rebound)
         bool aTap = !aDown && aHeld > 0.0f && aHeld < pad::HOLD_A;
         if (aDown) aHeld += frame;
-        padLayer = pad::layerFor(combatLayer, padState.connected && padState.down[pad::Start]);
+        padLayer = pad::layerFor(combatLayer, padState.connected && padState.down[pad::quickButton()]);
         pad::apply(padState, padLayer, aHeld, aTap, currState);
         if (!aDown) aHeld = 0.0f;
         if (padState.any) padLast = true;
@@ -311,7 +368,12 @@ public:
     const pad::State& padNow() const { return padState; }
     pad::Layer layerNow() const { return padLayer; }
     bool padConnected() const { return padState.connected; }
-    bool padLastUsed() const { return padLast && padState.connected; }   // the HUD shows pad buttons
+    // the HUD shows pad buttons. VOXELRPG_SHOW_PAD=1: always (to look
+    // at the button pictures with no controller: screenshots, Xvfb)
+    bool padLastUsed() const {
+        static const bool forced = std::getenv("VOXELRPG_SHOW_PAD") != nullptr;
+        return forced || (padLast && padState.connected);
+    }
     // Left stick: x right, y forward (0 when none)
     glm::vec2 padMove() const { return { padState.left.x, -padState.left.y }; }
     // Right stick: how far to turn the camera this frame, degrees
@@ -433,7 +495,7 @@ public:
 
 private:
     std::unordered_map<InputAction, InputBinding> bindings;
-    std::filesystem::path keyboardPath;
+    std::filesystem::path keyboardPath, padPath;
 
     std::array<bool, (int)InputAction::COUNT> currState{};
     std::array<bool, (int)InputAction::COUNT> prevState{};

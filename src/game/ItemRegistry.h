@@ -41,6 +41,7 @@ constexpr uint32_t IC_WEAPON = 1 << 2;
 constexpr uint32_t IC_DEV    = 1 << 3;
 constexpr uint32_t IC_DECOR  = 1 << 4;   // a decoration from decorations.toml: places it
 constexpr uint32_t IC_WORN   = 1 << 5;   // gear worn on the body (helmet, armour, pack)
+constexpr uint32_t IC_SHIELD = 1 << 8;   // a shield: the off hand's guard (shield = { … } sets it too)
 constexpr uint32_t IC_CHARM  = 1 << 7;   // a charm: goes in a loadout's charm slots (game/CombatKit.h)
 constexpr uint32_t IC_SPELLBOOK = 1 << 6;   // a spellbook (a weapon type): used from an X / Y / B slot or the off hand, casts 'cast', held while it does
 constexpr uint32_t IC_SPELL  = IC_SPELLBOOK;    // (the old name)
@@ -91,6 +92,10 @@ struct ItemDef {
     std::string cast;                       // used (X / Y / B, or LT in the off hand): the attack it plays (movesets.toml), e.g. a spell's cast
     std::string special;                    // LT with this in hand: "guard" (block, timed = parry), "heavy", or "" (weapons: guard)
     bool        shield      = false;        // an off-hand item that guards (LT: block and parry)
+    // shield = { block = 1.0, cost = 0.6, arc = 100, parry = 0.22 }:
+    // how much of a hit it stops, × stamina per point stopped, the
+    // half-angle it covers (degrees), the parry window (s)
+    float       shieldBlock = 1.0f, shieldCost = 0.6f, shieldArc = 100.0f, shieldParry = 0.22f;
 
     int         decor       = -1;           // decoration items: index in decor::Set
 
@@ -252,6 +257,7 @@ private:
                         else if (s == "tool")   d.categories |= IC_TOOL;
                         else if (s == "spellbook" || s == "spell") d.categories |= IC_SPELLBOOK;
                         else if (s == "charm")  d.categories |= IC_CHARM;
+                        else if (s == "shield") d.categories |= IC_SHIELD;
                         else if (s == "weapon") d.categories |= IC_WEAPON;
                         else if (s == "dev")    d.categories |= IC_DEV;
                         else if (s == "worn")   d.categories |= IC_WORN;
@@ -268,6 +274,16 @@ private:
                 d.cast    = (*t)["cast"].value_or(std::string());
                 d.special = (*t)["special"].value_or(std::string());
                 d.shield  = (*t)["shield"].value_or(false);
+                if (d.is(IC_SHIELD)) d.shield = true;
+                if (d.shield) d.categories |= IC_SHIELD;
+                if (auto* sh = (*t)["shield"].as_table()) {
+                    d.shield = true;
+                    d.categories |= IC_SHIELD;
+                    d.shieldBlock = (float)(*sh)["block"].value_or(1.0);
+                    d.shieldCost  = (float)(*sh)["cost"].value_or(0.6);
+                    d.shieldArc   = (float)(*sh)["arc"].value_or(100.0);
+                    d.shieldParry = (float)(*sh)["parry"].value_or(0.22);
+                }
                 d.cubeSize  = (int)(*t)["cube"].value_or((int64_t)0);
 
                 d.weaponClass = (*t)["weapon_class"].value_or(std::string());

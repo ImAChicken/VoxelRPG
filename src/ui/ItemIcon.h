@@ -55,7 +55,7 @@ inline void buildItemIcons() {
     sh.slot.clear();
     CharacterModel ref = CharacterModel::build(Appearance());
     std::vector<std::pair<uint16_t, iconraster::Image>> pics;
-    for (uint16_t id : gItems.inCategory(IC_TOOL | IC_WEAPON | IC_SPELLBOOK | IC_DEV | IC_WORN)) {
+    for (uint16_t id : gItems.inCategory(IC_TOOL | IC_WEAPON | IC_SPELLBOOK | IC_SHIELD | IC_DEV | IC_WORN)) {
         iconraster::Image im = itemModelIcon(gItems.get(id), ref, sh.cell);
         if (!im.empty() && im.coverage() > 0) pics.push_back({ id, std::move(im) });
     }
@@ -80,7 +80,7 @@ inline void buildItemIcons() {
 }
 
 inline const char* itemMark(const ItemDef& d) {
-    return d.is(IC_DEV) ? "D" : d.canFight() && d.is(IC_TOOL) ? "X" : d.is(IC_SPELLBOOK) ? "S" : d.is(IC_WEAPON) ? "W"
+    return d.is(IC_DEV) ? "D" : d.canFight() && d.is(IC_TOOL) ? "X" : d.is(IC_SPELLBOOK) ? "S" : d.shield ? "H" : d.is(IC_WEAPON) ? "W"
          : d.is(IC_TOOL) ? "T" : d.is(IC_WORN) ? "A" : nullptr;
 }
 

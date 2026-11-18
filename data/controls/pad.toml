@@ -1,0 +1,53 @@
+# VoxelRPG controller layout (input/PadLayout.h)
+# Change it in game (Esc -> Controls -> Controller) or here.
+# Buttons: A B X Y LB RB LT RT Select Start L3 R3 Up Down Left Right
+# (positions, Xbox names: A is the bottom face button on any pad).
+# Layers: both (always), combat, quick (combat with the quick
+# button held), explore (out of combat). The jump button also
+# interacts when held.
+
+[both]
+jump            = "A"   # Jump
+crouch          = "L3"   # Crouch
+lock_on         = "R3"   # Lock on
+draw_weapon     = "Select"   # Draw weapon
+
+[combat]
+sprint          = "LB"   # Sprint (hold)
+roll            = "LB"   # Roll (tap)
+use_left        = "RB"   # Use / place / attack
+use_right       = "RT"   # Break / heavy attack
+block           = "LT"   # Special: guard / off hand
+use_slot_x      = "X"   # Use X item
+use_slot_y      = "Y"   # Use Y item
+use_slot_b      = "B"   # Use B item
+cycle_slot_x    = "Left"   # Next X item
+cycle_slot_y    = "Up"   # Next Y item
+cycle_slot_b    = "Right"   # Next B item
+swap_weapon     = "Down"   # Next weapon set
+
+[quick]
+quick_layer     = "Start"   # Quick options (hold)
+toolbar_slot_1  = "Left"   # Off-hand 1
+toolbar_slot_2  = "Up"   # Off-hand 2
+toolbar_slot_3  = "Right"   # Hotbar slot 3
+toolbar_slot_4  = "Down"   # Hotbar slot 4
+toolbar_slot_5  = "X"   # Hotbar slot 5
+toolbar_slot_6  = "Y"   # Hotbar slot 6
+toolbar_slot_7  = "B"   # Hotbar slot 7
+toolbar_slot_8  = "A"   # Hotbar slot 8
+
+[explore]
+toolbar_prev    = "LB"   # Previous tool
+toolbar_next    = "RB"   # Next tool
+use_left        = "LT"   # Use / place / attack
+use_right       = "RT"   # Break / heavy attack
+sprint          = "B"   # Sprint (hold)
+roll            = "B"   # Roll (tap)
+inventory       = "Y"   # Inventory
+rotate_piece    = "X"   # Turn structure (hammer)
+nudge_forward   = "Up"   # Nudge paste away / size up
+nudge_back      = "Down"   # Nudge paste closer / size down
+nudge_left      = "Left"   # Nudge paste left
+nudge_right     = "Right"   # Nudge paste right
+pause           = "Start"   # Pause menu

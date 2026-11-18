@@ -240,9 +240,10 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
 
     // guard: held, standing, the attacker in front
     glm::vec2 bf(b.facing.x, b.facing.z);
-    bool facing = glm::length(bf) > 1e-3f && glm::dot(glm::normalize(bf), -glm::vec2(away.x, away.z)) > 0.35f;
+    const Human::GuardStyle& gs = b.guardStyle;
+    bool facing = glm::length(bf) > 1e-3f && glm::dot(glm::normalize(bf), -glm::vec2(away.x, away.z)) > gs.facing;
     float knock;
-    if (b.guarding && facing && b.guardTime <= PARRY_WINDOW && a.attack.kind != AttackKind::AirHeavy) {
+    if (b.guarding && facing && b.guardTime <= gs.parry && a.attack.kind != AttackKind::AirHeavy) {
         // parried: the swing is knocked aside, the attacker reels
         ev.parried = ev.blocked = true;
         ev.damage = 0.0f;
@@ -251,7 +252,7 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
         a.exposed = EXPOSED_TIME;
         glm::vec3 back = -away;
         knockBody(a, a.bodyPoint(0.7f), back, 0.1f, PARRY_KNOCK);
-        b.guardTime = PARRY_WINDOW + 1.0f;           // one parry per raise
+        b.guardTime = gs.parry + 1.0f;               // one parry per raise
         return ev;
     }
     if (b.exposed > 0.0f) {
@@ -266,7 +267,7 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
         dmg *= RIPOSTE_DAMAGE;
     } else if (b.guarding && facing) {
         ev.blocked = true;
-        float cost = dmg * (1.0f - GUARD_KEEP) * GUARD_COST;
+        float cost = dmg * (1.0f - gs.keep) * GUARD_COST * gs.cost;
         if (!b.infiniteStamina) { b.stamina -= cost; b.staminaWait = STAMINA_DELAY; }
         if (b.stamina < 0.0f) {                       // guard broken: staggers, takes half
             ev.guardBroken = true;
@@ -275,8 +276,8 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
             b.attack = AttackState();
             knock = std::clamp(d.knock, STAGGER_MIN, KNOCKDOWN_KNOCK * 0.7f);
         } else {
-            dmg *= GUARD_KEEP;
-            knock = std::min(d.knock * 0.25f, FLINCH_KNOCK);   // pushed back a little
+            dmg *= gs.keep;
+            knock = std::min(d.knock * (gs.shield ? 0.15f : 0.25f), FLINCH_KNOCK);   // pushed back a little (less behind a shield)
         }
         b.health = std::max(0.0f, b.health - dmg);
         if (b.dead()) { knock = KNOCKDOWN_KNOCK; ev.knockedDown = true; }

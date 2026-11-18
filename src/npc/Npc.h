@@ -118,6 +118,8 @@ public:
     std::string textureSet;            // look preset's own sheets (not drawn yet)
     int         faction = -1;          // FactionRegistry index
     std::string weaponItem;
+    std::string offhandItem;           // its type's offhand (a shield: it guards with it)
+    std::string offModel;              // puppets: the left hand's model, as the server says
     HumanIntent intent;
     float       deadFor = 0.0f;        // s since it died (removed after a while)
     glm::vec3   prevPosition{0.0f};    // before the last tick (drawing blends the two)

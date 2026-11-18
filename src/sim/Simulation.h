@@ -324,6 +324,23 @@ public:
         }
     }
 
+    // What its left hand holds (a held model id): in combat the
+    // loadout's off hand (a shield …), else the off-hand slot (a
+    // torch); an NPC's type's offhand. "" for nothing
+    static std::string offHandOf(const Human& h) {
+        uint16_t id = 0;
+        if (h.isPlayer()) {
+            const Player& p = static_cast<const Player&>(h);
+            if (p.combatStance) id = p.offhandInCombat();
+            else if (const ItemStack& s = p.activeInventory().offhandItem(); !s.empty()) id = s.itemID;
+        } else {
+            const Npc& n = static_cast<const Npc&>(h);
+            if (n.puppet) return n.offModel;
+            id = gItems.find(n.offhandItem);
+        }
+        return id ? gItems.get(id).heldModel : std::string();
+    }
+
     // A living body (other than 'except') with a limb (or, with
     // no pose, its capsule) at p
     EntityId bodyAt(glm::vec3 p, EntityId except) {

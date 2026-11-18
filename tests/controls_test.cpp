@@ -7,6 +7,7 @@
 #include "input/PadLayout.h"
 #include "game/CombatKit.h"
 #include "net/Protocol.h"
+#include <fstream>
 #include <cstdio>
 #include <sstream>
 
@@ -50,6 +51,42 @@ int main() {
               "the quick layer only in combat");
     }
 
+    std::printf("rebinding the pad\n");
+    {
+        using A = InputAction;
+        // jump (and interact, held) moved to B; the quick layer to Select
+        for (pad::Map& m : pad::current()) {
+            if (m.action == A::Jump) m.button = pad::B;
+            if (m.action == A::QuickLayer) m.button = pad::Back;
+        }
+        check(pad::jumpButton() == pad::B && pad::quickButton() == pad::Back, "the jump and quick buttons follow the layout");
+        pad::State s; s.connected = true;
+        std::array<bool, (int)A::COUNT> held{};
+        pad::apply(s, pad::Layer::Combat, 0.1f, true, held);
+        check(held[(int)A::Jump], "  a tap of B jumps");
+        s.down[pad::B] = true; held = {};
+        pad::apply(s, pad::Layer::Combat, 0.5f, false, held);
+        check(held[(int)A::Interact] && !held[(int)A::Jump], "  holding B interacts");
+        check(pad::layerFor(true, true) == pad::Layer::Quick, "  (the quick layer: whichever button is held)");
+        pad::resetLayout();
+        check(pad::jumpButton() == pad::A && pad::quickButton() == pad::Start && pad::layout().size() == pad::defaults().size(),
+              "reset: back to the defaults");
+        check(pad::buttonFromName("Select") == pad::Back && pad::buttonFromName("RT") == pad::RT && pad::buttonFromName("Q") < 0,
+              "button names read back (pad.toml)");
+        // its size, from the PNG header
+        int w = 0, h = 0;
+        {
+            std::ifstream f("data/ui/pad_glyphs.png", std::ios::binary);
+            unsigned char hd[24] = {};
+            if (f.read((char*)hd, 24)) {
+                w = (hd[16] << 24) | (hd[17] << 16) | (hd[18] << 8) | hd[19];
+                h = (hd[20] << 24) | (hd[21] << 16) | (hd[22] << 8) | hd[23];
+            }
+        }
+        bool sheet = w >= 8 * 48 && h >= 3 * 48;
+        check(sheet, "the button pictures (data/ui/pad_glyphs.png): " + std::to_string(w) + " x " + std::to_string(h));
+    }
+
     std::printf("the combat kit\n");
     const uint16_t SWORD = gItems.find("iron_sword"), CLUB = gItems.find("wooden_club"), WIND = gItems.find("windburst"),
                    TORCH = gItems.find("torch");
@@ -91,6 +128,67 @@ int main() {
         inv.slots[inv.find(TORCH)].clear();
         back.tidy(inv);
         check(back.sets[1].slots[1][2] == 0 && back.quick[0] == 0, "an item no longer carried drops out");
+    }
+
+    std::printf("the shield\n");
+    {
+        const uint16_t SHIELD = gItems.find("wooden_shield");
+        const ItemDef& sd = gItems.get(SHIELD);
+        check(SHIELD && sd.shield && sd.is(IC_SHIELD) && sd.shieldBlock >= 0.99f && !sd.canFight(),
+              "Wooden Shield: a shield (stops a whole hit), not a weapon");
+        check(CombatKit::fitsOff(SHIELD) && !CombatKit::fitsCharm(SHIELD), "  it goes in a loadout's off hand");
+        Inventory inv;
+        inv.add(SWORD, 1); inv.add(SHIELD, 1);
+        inv.equipFrom(inv.find(SWORD), EquipSlot::Weapon1);
+        CombatKit k;
+        k.tidy(inv);
+        check(k.sets[0].off == SHIELD && k.sets[1].off == SHIELD, "  a new kit puts the shield carried in both off hands");
+        check(k.special(SWORD, nullptr) == CombatKit::Special::Guard, "  LT / Q: guard (with it)");
+
+        World w;
+        Player& p = w.player(glm::vec3(256, GROUND, 256));
+        p.inventory.add(SHIELD, 1);
+        p.combatStance = true;
+        p.kit.sets[0].off = SHIELD;
+        p.refreshWeapon();
+        check(p.guardStyle.shield && p.shieldUp() == &sd && p.offhandInCombat() == SHIELD, "in combat it's up, in the left hand");
+        check(Simulation::offHandOf(p) == sd.heldModel, "  and drawn there (\"" + sd.heldModel + "\")");
+        HumanIntent g; g.guard = true;
+        w.sim.setIntent(p.uuid, g);
+        w.run(0.4f);
+        check(p.guarding, "  it guards with no weapon at all");
+        p.combatStance = false;
+        p.refreshWeapon();
+        check(!p.guardStyle.shield, "  out of combat: put away");
+
+        // a sword blow against a weapon's guard and a shield's, past the parry
+        auto blow = [&](bool shield, float sideDeg, float& staminaUsed) {
+            Human a, b;
+            a.position = glm::vec3(0, GROUND, 0);
+            float r = glm::radians(sideDeg);
+            b.position = glm::vec3(0, GROUND, 6);
+            b.facing = glm::vec3(std::sin(r), 0, -std::cos(r));        // 0: facing the attacker
+            a.facing = glm::vec3(0, 0, 1);
+            a.weaponDamage = 12.0f;
+            a.attack.kind = AttackKind::Light;
+            a.attack.d = gMovesets.attack("sword_light1");
+            a.attack.dir = a.facing;
+            b.weaponDamage = 12.0f;
+            if (shield) b.setGuard(1.0f - sd.shieldBlock, sd.shieldCost, sd.shieldArc, sd.shieldParry, true);
+            b.guarding = true;
+            b.guardTime = 1.0f;
+            float st = b.stamina;
+            combat::HitEvent e = combat::land(a, b);
+            staminaUsed = st - b.stamina;
+            return e;
+        };
+        float stW = 0.0f, stS = 0.0f, stSide = 0.0f, stSideW = 0.0f;
+        combat::HitEvent ew = blow(false, 0.0f, stW), es = blow(true, 0.0f, stS);
+        check(ew.blocked && ew.damage > 0.0f && es.blocked && es.damage == 0.0f,
+              "a weapon's guard lets " + std::to_string(ew.damage).substr(0, 4) + " through, the shield none");
+        check(stS < stW, "  and the shield costs less stamina (" + std::to_string((int)stS) + " against " + std::to_string((int)stW) + ")");
+        combat::HitEvent sw = blow(false, 90.0f, stSideW), ss = blow(true, 90.0f, stSide);
+        check(!sw.blocked && ss.blocked, "a blow from the side: past a weapon's guard, not past the shield");
     }
 
     std::printf("using an item, over the wire\n");

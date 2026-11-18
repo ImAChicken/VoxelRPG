@@ -29,6 +29,7 @@ inline AnimInput animInputFor(const Human& h, bool combat, float pitch) {
     in.attack       = h.attack.active() ? h.attack.d : nullptr;
     in.attackT      = h.attack.t;
     in.guard        = h.guarding;
+    in.shield       = h.guardStyle.shield;
     switch (h.move) {
     case Human::Move::Roll:
         in.move = AnimInput::Move::Roll;

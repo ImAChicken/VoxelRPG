@@ -58,6 +58,13 @@ public:
             n->mass = n->body.total();
         }
         n->maxHealth = n->health = t->health;
+        n->offhandItem = t->offhand;
+        if (uint16_t sid = t->offhand.empty() ? 0 : gItems.find(t->offhand)) {
+            const ItemDef& s = gItems.get(sid);
+            if (s.shield) n->setGuard(1.0f - s.shieldBlock, s.shieldCost, s.shieldArc, s.shieldParry, true);
+            n->body.addGear(SEG_HAND_L, s.weight);
+            n->mass = n->body.total();
+        }
         applyBody(*n, *t);
         n->climb = t->climb;
         n->maxPoise = n->poise = t->poise;

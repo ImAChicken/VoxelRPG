@@ -225,6 +225,17 @@ int main() {
         sa->inventory.add(PL, 5);                        // a pickup on the server
         tickAll(20);
         check(mine.count(PL) == 6, "what the server adds shows up in the client's inventory");
+        // a shield in her loadout's off hand: the server is told, and bob sees it
+        const uint16_t SHIELD = gItems.find("wooden_shield");
+        sa->inventory.add(SHIELD, 1);
+        tickAll(20);
+        A.w->me.kit.sets[0].off = SHIELD;
+        A.w->me.kit.sets[1].off = SHIELD;
+        tickAll(20);
+        proto::BodyState seen;
+        bool sees = B.w->sample(A.w->myId, seen);
+        check(sa->kit.sets[0].off == SHIELD && sa->guardStyle.shield, "her loadout's off hand reaches the server: she guards with the shield");
+        check(sees && seen.off == "wooden_shield", "  and bob sees it in her left hand");
         check(B.w->bodies[A.w->myId].info.gear.empty(), "bob is told what alice wears (nothing yet)");
     }
 

@@ -4,6 +4,7 @@
 #include "../physics/Ragdoll.h"
 #include "../game/Combat.h"
 #include <vector>
+#include <cmath>
 #include <algorithm>
 
 // ══════════════════════════════════════════════════════════
@@ -203,6 +204,20 @@ public:
     bool        infiniteStamina = false;   // Test Play
     bool        guarding = false;          // set by physics from the intent
     float       guardTime = 0.0f;          // s the guard has been up (a hit early on is parried)
+    // How its guard holds (CombatHits::land): a weapon's, or a
+    // shield's (items.toml shield = { … }) when one is in the off hand
+    struct GuardStyle {
+        bool  shield = false;                  // a shield is up: guarding needs no weapon
+        float keep   = combat::GUARD_KEEP;     // damage that gets through
+        float cost   = 1.0f;                   // × stamina per point blocked (GUARD_COST)
+        float facing = combat::GUARD_FACING;   // cos of the half-angle it covers
+        float parry  = combat::PARRY_WINDOW;   // s after raising it that a hit is parried
+    } guardStyle;
+    void setGuard(float keep, float cost, float arcDeg, float parry, bool shield) {
+        guardStyle.shield = shield; guardStyle.keep = keep; guardStyle.cost = cost;
+        guardStyle.facing = std::cos(arcDeg * 0.0174533f); guardStyle.parry = parry;
+    }
+    void weaponGuard() { guardStyle = GuardStyle(); }
     float       exposed = 0.0f;            // s left open to a riposte, after being parried
     bool        hasAirAttack = true;       // one per jump, back on landing
     AttackState attack;

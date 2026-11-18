@@ -85,10 +85,33 @@ public:
         moveset = w ? gMovesets.find(w->moveset) : nullptr;
         weaponWeight = w ? w->weight : 0.0f;
         infiniteStamina = (mode == GameMode::Dev);
+        // a shield in this loadout's off hand (combat stance): the
+        // guard is the shield's
+        const ItemDef* sh = shieldUp();
+        if (sh) setGuard(1.0f - sh->shieldBlock, sh->shieldCost, sh->shieldArc, sh->shieldParry, true);
+        else weaponGuard();
         if (!w) {                       // nothing to swing: no swing (a spell's cast needs no weapon)
             if (attack.kind != AttackKind::Cast) attack = AttackState();
-            guarding = false;
+            if (!sh) guarding = false;
         }
+    }
+    // The shield up in the off hand, if any: the drawn loadout's off
+    // hand (game/CombatKit.h), while it's still carried
+    const ItemDef* shieldUp() const {
+        if (!combatStance || mode != GameMode::Survival) return nullptr;
+        int set = std::clamp(inventory.activeWeapon, 0, CombatKit::SETS - 1);
+        uint16_t off = kit.sets[(size_t)set].off;
+        if (!off || inventory.find(off) < 0) return nullptr;
+        const ItemDef& d = gItems.get(off);
+        return d.shield ? &d : nullptr;
+    }
+    // What's in the left hand in combat: the loadout's off hand
+    // (a shield, a second weapon, a spellbook), if carried
+    uint16_t offhandInCombat() const {
+        if (!combatStance) return 0;
+        int set = std::clamp(inventory.activeWeapon, 0, CombatKit::SETS - 1);
+        uint16_t off = kit.sets[(size_t)set].off;
+        return off && inventory.find(off) >= 0 ? off : 0;
     }
     bool holdingAxe() const {
         const ItemDef& d = activeInventory().heldDef();

@@ -192,6 +192,36 @@ def dev_wand(name, gem, title):
     m.write(name, "Dev tool wand (Test Play only)")
 
 
+def round_shield(name, face, rim, title):
+    """A round shield held by a grip behind its middle: 24 inches across,
+    1 inch thick, the grip bar along i. Checked in game against the
+    guard_shield clip (Idle_Shield_Loop): raised, its boss faces out."""
+    m = Model(title, grip_back=12.0)
+    m.palette[8] = face
+    m.palette[9] = rim
+    R = 24.0                                   # radius in voxels (0.5 in)
+    ci, ck = 24.0, CK                          # the grip at its middle
+    for i in range(0, 49):
+        for k in range(int(ck - R) - 1, int(ck + R) + 2):
+            d = math.hypot(i - ci, k - ck)
+            if d > R:
+                continue
+            rimmed = d > R - 2.0
+            plank = int((k - ck + R) // 8) % 2  # boards across it, two shades
+            # the face is the plane of i and j (k here runs along j),
+            # its thickness along k, on the back of the hand (-k): the
+            # boss faces out, away from the body, when it's raised
+            jj = k - ck + CJ
+            for kk in (-1, -2):
+                m.put(i, jj, kk, 9 if rimmed else (8 if plank == 0 else DARKWOOD))
+            if d < 5.5:                        # the iron boss, standing out in front
+                m.put(i, jj, -3, IRON if d > 2.5 else BRIGHT)
+                if d < 3.5:
+                    m.put(i, jj, -4, IRON)
+    m.rod(18, 30, 1.0, LEATHER)                # the grip bar the fist closes on
+    m.write(name, "Shield: held by its grip; the face is in front of the knuckles")
+
+
 def spellbook(name, cover, gem, title):
     """A book held by its spine's foot: 8 x 6 inches, 1.5 thick. i runs up
     the spine, j across the cover, k through the pages."""
@@ -236,3 +266,4 @@ if __name__ == "__main__":
         dev_wand(name, gem, "Dev tool: " + name)
     spellbook("spellbook_wind", (70, 120, 140), (170, 235, 245), "Windburst spellbook")
     spellbook("spellbook_ice", (52, 78, 132), (150, 205, 255), "Ice spike spellbook")
+    round_shield("wooden_shield", (150, 104, 62), (96, 98, 104), "Wooden shield")

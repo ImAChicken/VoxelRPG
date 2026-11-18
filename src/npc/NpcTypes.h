@@ -42,6 +42,7 @@ struct NpcType {
     std::string faction;
     std::string look;
     std::string weapon;
+    std::string offhand;               // left hand: a shield (items.toml shield = …) it guards with
     float health = 100.0f, poise = 35.0f;
     float climb = 1.0f;                // how much slopes slow it (0: not at all; Human::climb)
     std::vector<std::string> states;
@@ -154,6 +155,7 @@ public:
                     d->faction = t["faction"].value_or(std::string());
                     d->look = t["look"].value_or(std::string());
                     d->weapon = t["weapon"].value_or(std::string());
+                    d->offhand = t["offhand"].value_or(std::string());
                     d->loot = t["loot"].value_or(std::string());
                     if (auto* w = t["wear"].as_array())
                         for (auto& x : *w) if (auto v = x.value<std::string>()) d->wear.push_back(*v);

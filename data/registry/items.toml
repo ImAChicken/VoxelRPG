@@ -379,6 +379,23 @@ weight = 9.0
 worn = "back"
 color = [0.45, 0.42, 0.30]
 
+# ── Shields (categories = ["shield"]) ─────────────────────
+# Put one in a loadout's off hand (inventory → Loadout): in combat
+# it's in the left hand and LT / Q guards with it, with or without a
+# weapon. shield = { block, cost, arc, parry }: how much of a hit it
+# stops (1 = all), × stamina per point stopped (a weapon's guard: 1),
+# the half-angle it covers (a weapon: 70), the parry window (s, a
+# weapon: 0.18). NPCs carry one with offhand = "..." (npcs.toml).
+[[item]]
+id = 1104
+name = "wooden_shield"
+display = "Wooden Shield"
+categories = ["shield"]
+held_model = "wooden_shield"
+weight = 3.5
+shield = { block = 1.0, cost = 0.6, arc = 100, parry = 0.22 }
+color = [0.55, 0.40, 0.25]
+
 # ── Spellbooks (categories = ["spellbook"]) ───────────────
 # A weapon type: put one in an X / Y / B slot (or the off hand) in
 # combat; using it plays its 'cast' attack (movesets.toml) with the

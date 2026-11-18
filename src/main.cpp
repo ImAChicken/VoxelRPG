@@ -220,6 +220,7 @@ int main() {
     // ── Input bindings ────────────────────────────────────
     // Edit data/controls/keyboard.toml to rebind anything
     gInput.loadKeyboard("data/controls/keyboard.toml");
+    gInput.loadPad("data/controls/pad.toml");          // the controller (written by the Controls screen)
 
     // Player preferences (Esc -> Settings)
     gSettings.load();
@@ -455,7 +456,7 @@ int main() {
     auto syncPuppets = [&](float dtFrame) {
         if (!remote) return;
         if (itemForModel.empty())
-            for (uint16_t id : gItems.inCategory(IC_TOOL | IC_WEAPON | IC_SPELLBOOK | IC_DEV)) {
+            for (uint16_t id : gItems.inCategory(IC_TOOL | IC_WEAPON | IC_SPELLBOOK | IC_SHIELD | IC_DEV)) {
                 const ItemDef& d = gItems.get(id);
                 if (!d.heldModel.empty() && !itemForModel.count(d.heldModel)) itemForModel[d.heldModel] = d.name;
             }
@@ -495,6 +496,11 @@ int main() {
             n->move = (Human::Move)st.move; n->moveTimer = st.moveTimer;
             auto im = itemForModel.find(st.held);
             n->weaponItem = im == itemForModel.end() ? std::string() : im->second;
+            n->offModel = st.off;                // the left hand (a shield: its guard pose)
+            {
+                auto om = itemForModel.find(st.off);
+                n->guardStyle.shield = om != itemForModel.end() && gItems.get(gItems.find(om->second)).shield;
+            }
             const AttackDef* ad = st.attack.empty() ? nullptr : gMovesets.attack(st.attack);
             n->attack = AttackState();
             if (ad) { n->attack.kind = AttackKind::Light; n->attack.d = ad; n->attack.t = st.attackT; n->attack.dir = st.attackDir; }
@@ -992,10 +998,8 @@ int main() {
                 playerBody->setHeldModel(held);
             }
             // the left hand: the active off-hand slot
-            {
-                const ItemStack& off = player.activeInventory().offhandItem();
-                playerBody->setOffhandModel(off.empty() ? std::string() : gItems.get(off.itemID).heldModel);
-            }
+            // (in combat: the loadout's off hand, a shield …)
+            playerBody->setOffhandModel(Simulation::offHandOf(player));
             playerBody->animate(in, frameDt);
 
             // Ragdoll: follows this pose (at the physics position);
@@ -1077,6 +1081,7 @@ int main() {
                 {
                     uint16_t wid = gItems.find(n.weaponItem);
                     ch->setHeldModel(wid ? gItems.get(wid).heldModel : std::string());
+                    ch->setOffhandModel(Simulation::offHandOf(n));
                 }
                 ch->animate(animFor(n, true, 0.0f), frameDt);
                 const CharacterModel& model = ch->getModel();
@@ -1133,6 +1138,12 @@ int main() {
             f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(1, 0, 0);
             float yaw = glm::degrees(std::atan2(f.z, f.x));
             float H = h * sy, W = w * sx;
+            // the outline first (the toon edge lines, like the characters')
+            const glm::vec3 LINE(0.03f, 0.04f, 0.03f);
+            const float T = 0.28f;
+            blobs.drawOutline(vp, at, { W, H * 0.55f, W }, yaw, LINE, T);
+            blobs.drawOutline(vp, at + glm::vec3(0, H * 0.55f, 0), { W * 0.78f, H * 0.3f, W * 0.78f }, yaw, LINE, T);
+            blobs.drawOutline(vp, at + glm::vec3(0, H * 0.85f, 0), { W * 0.45f, H * 0.15f, W * 0.45f }, yaw, LINE, T);
             blobs.draw(vp, at, { W, H * 0.55f, W }, yaw, col);
             blobs.draw(vp, at + glm::vec3(0, H * 0.55f, 0), { W * 0.78f, H * 0.3f, W * 0.78f }, yaw, col * 1.06f);
             blobs.draw(vp, at + glm::vec3(0, H * 0.85f, 0), { W * 0.45f, H * 0.15f, W * 0.45f }, yaw, col * 1.12f);

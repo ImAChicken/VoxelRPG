@@ -272,6 +272,12 @@ private:
             if (!r.ok()) return;
             if (proto::applyLoadout(c.player->inventory, m)) {
                 c.player->combatStance = m.combatStance;
+                // each loadout's off hand: only something carried that fits there
+                for (int i = 0; i < CombatKit::SETS; i++) {
+                    uint16_t off = m.kitOff[i];
+                    c.player->kit.sets[(size_t)i].off =
+                        off && c.player->inventory.find(off) >= 0 && CombatKit::fitsOff(off) ? off : 0;
+                }
                 c.invSent = invText(*c.player);
             } else {
                 c.invSent.clear();               // refused: it's sent what the server has
@@ -440,6 +446,7 @@ private:
         std::string held; bool combat = false;
         Simulation::handsOf(h, held, combat);
         b.held = held;
+        b.off = Simulation::offHandOf(h);
         b.flags = (h.grounded ? proto::BodyState::F_GROUNDED : 0) | (h.crouching ? proto::BodyState::F_CROUCH : 0) |
                   (h.sprinting ? proto::BodyState::F_SPRINT : 0) | (h.flying ? proto::BodyState::F_FLY : 0) |
                   (h.guarding ? proto::BodyState::F_GUARD : 0) | (h.dead() ? proto::BodyState::F_DEAD : 0) |

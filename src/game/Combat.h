@@ -117,6 +117,7 @@ constexpr float GUARD_COST      = 2.5f;    // stamina per point of damage blocke
 constexpr float HITSTOP         = 0.06f;   // s the attacker's swing pauses on a hit
 // parry: a hit that lands within PARRY_WINDOW of raising the guard
 constexpr float PARRY_WINDOW    = 0.18f;   // s after the guard goes up
+constexpr float GUARD_FACING    = 0.35f;   // cos: a weapon's guard covers ±70° in front
 constexpr float PARRY_KNOCK     = 20.0f;   // vox/s the parried attacker is thrown back
 constexpr float EXPOSED_TIME    = 1.1f;    // s the parried attacker is open (no attacks, no guard)
 constexpr float RIPOSTE_DAMAGE  = 2.5f;    // × damage of a hit on an exposed body (and it falls)

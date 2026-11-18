@@ -3,6 +3,7 @@
 #include "../entity/Human.h"
 #include "../chunk/Chunk.h"
 #include "../game/Inventory.h"
+#include "../game/CombatKit.h"
 #include "../game/WorldActions.h"
 #include <cmath>
 #include <cstdint>
@@ -42,7 +43,8 @@
 //     Loadout     how you've arranged your inventory: every slot,
 //                 what's equipped, the selected slots, weapon drawn.
 //                 The server accepts it only if it holds exactly
-//                 the items the server has for you (moved, not made)
+//                 the items the server has for you (moved, not made).
+//                 Also each loadout's off hand (a shield guards)
 //   server → client
 //     Welcome     your id, the world's settings (world.vxrp), the
 //                 server's tick, where you are, its names for
@@ -63,7 +65,7 @@
 //                 waits for their ChunkData instead of generating them
 namespace proto {
 
-constexpr uint32_t VERSION = 2;       // 2: Request, the names in Welcome
+constexpr uint32_t VERSION = 3;       // 2: Request, the names in Welcome; 3: off hands (Loadout, BodyState)
 constexpr int TICK_HZ = 60;            // the simulation
 constexpr int SNAPSHOT_EVERY = 3;      // ticks between snapshots (20 Hz)
 constexpr int INPUT_REDUNDANCY = 4;    // inputs repeated in each Input packet (loss)
@@ -367,6 +369,7 @@ struct BodyState {
     uint8_t     move = 0;            // Human::Move
     float       moveTimer = 0;
     std::string attack, held;        // attack id ("" = none), held model id
+    std::string off;                 // the left hand's model id (a shield …)
     float       attackT = 0;
     glm::vec3   attackDir{0, 0, -1};
     enum : uint16_t { F_GROUNDED = 1, F_CROUCH = 2, F_SPRINT = 4, F_FLY = 8, F_GUARD = 16, F_DEAD = 32, F_COMBAT = 64, F_LIMP = 128 };
@@ -375,14 +378,14 @@ inline void putBody(wire::Writer& w, const BodyState& b) {
     w.u64(b.id); w.vec3(b.pos); w.vec3(b.vel); w.vec3(b.facing);
     w.f32(b.health); w.f32(b.maxHealth); w.f32(b.stamina);
     w.u16(b.flags); w.u8(b.move); w.f32(b.moveTimer);
-    w.str(b.held); w.str(b.attack);
+    w.str(b.held); w.str(b.attack); w.str(b.off);
     if (!b.attack.empty()) { w.f32(b.attackT); w.vec3(b.attackDir); }
 }
 inline BodyState getBody(wire::Reader& r) {
     BodyState b; b.id = r.u64(); b.pos = r.vec3(); b.vel = r.vec3(); b.facing = r.vec3();
     b.health = r.f32(); b.maxHealth = r.f32(); b.stamina = r.f32();
     b.flags = r.u16(); b.move = r.u8(); b.moveTimer = r.f32();
-    b.held = r.str(64); b.attack = r.str(64);
+    b.held = r.str(64); b.attack = r.str(64); b.off = r.str(64);
     if (!b.attack.empty()) { b.attackT = r.f32(); b.attackDir = r.vec3(); }
     return b;
 }
@@ -414,12 +417,18 @@ struct LoadoutMsg {
     int  equip[EQUIP_SLOTS];
     int  selected = Inventory::FIRST_MAIN, offhand = -1, activeWeapon = 0;
     bool combatStance = false;
+    uint16_t kitOff[CombatKit::SETS] = {};   // each loadout's off hand (item ids)
 };
-inline std::vector<uint8_t> loadout(const Inventory& inv, bool combatStance, const IdMap* ids = nullptr) {
+inline std::vector<uint8_t> loadout(const Inventory& inv, bool combatStance, const IdMap* ids = nullptr,
+                                    const CombatKit* kit = nullptr) {
     wire::Writer w; w.u8((uint8_t)Msg::Loadout);
     for (const ItemStack& s : inv.slots) { w.u16(ids ? ids->itemToServer(s.itemID) : s.itemID); w.u16(s.count); }
     for (int e : inv.equip) w.u8((uint8_t)(int8_t)e);
     w.u8((uint8_t)inv.selected); w.u8((uint8_t)(int8_t)inv.offhand); w.u8((uint8_t)inv.activeWeapon); w.boolean(combatStance);
+    for (int i = 0; i < CombatKit::SETS; i++) {
+        uint16_t off = kit ? kit->sets[(size_t)i].off : 0;
+        w.u16(ids ? ids->itemToServer(off) : off);
+    }
     return w.buf;
 }
 inline LoadoutMsg readLoadout(wire::Reader& r) {
@@ -427,6 +436,7 @@ inline LoadoutMsg readLoadout(wire::Reader& r) {
     for (ItemStack& s : m.slots) { s.itemID = r.u16(); s.count = r.u16(); }
     for (int& e : m.equip) e = (int8_t)r.u8();
     m.selected = r.u8(); m.offhand = (int8_t)r.u8(); m.activeWeapon = r.u8() ? 1 : 0; m.combatStance = r.boolean();
+    for (uint16_t& o : m.kitOff) o = r.u16();
     return m;
 }
 // Does the arrangement hold exactly the items 'have' does, in

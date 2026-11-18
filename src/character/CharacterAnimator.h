@@ -46,6 +46,7 @@ struct AnimInput {
     float previewTime = 0.0f;          // … at this time (s)
     float attackT = 0.0f;              // seconds into it
     bool  guard   = false;             // guarding (held)
+    bool  shield  = false;             // … behind a shield (its own guard clip)
     float walkSpeed    = 30.0f;        // for scaling the stride
     float sprintSpeed  = 50.0f;
 };
@@ -273,7 +274,7 @@ public:
         guardW += ((in.guard ? 1.0f : 0.0f) - guardW) * (1.0f - std::exp(-dt * 16.0f));
         shown = pose;
         if (in.swing >= 0.0f) axeswing::apply(in.swing, shown.rot, in.lookPitchDeg);
-        int guardClip = gAnimMap.useClips ? gAnimMap.guard : -1;
+        int guardClip = !gAnimMap.useClips ? -1 : (in.shield && gAnimMap.guardShield >= 0) ? gAnimMap.guardShield : gAnimMap.guard;
         if (guardW > 0.01f && guardClip >= 0) {
             std::array<glm::vec3, BONE_COUNT> g = shown.rot; glm::vec3 ro(0.0f);
             gAnims.sample(guardClip, gAnims.info(guardClip).duration * 0.5f, model, g, ro);

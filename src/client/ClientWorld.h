@@ -177,7 +177,7 @@ public:
         conn->send(proto::input(std::vector<proto::InputFrame>(sentFrames.begin(), sentFrames.end()), &ids), net::Channel::Unreliable);
         // how the inventory is arranged, when it's changed
         std::string now = loadoutKey();
-        if (now != loadoutSent) { conn->send(proto::loadout(me.inventory, me.combatStance, &ids), net::Channel::Reliable); loadoutSent = now; }
+        if (now != loadoutSent) { conn->send(proto::loadout(me.inventory, me.combatStance, &ids, &me.kit), net::Channel::Reliable); loadoutSent = now; }
     }
     void afterPrediction() {
         predicted[tick] = me.position;
@@ -227,7 +227,10 @@ private:
     GameSession* session = nullptr;
     std::string loadoutSent;
     std::string loadoutKey() const {
-        return proto::kvText([&](std::ostream& o) { me.inventory.write(o, "inv"); }) + "stance=" + (me.combatStance ? "1" : "0") + "\n";
+        std::string offs;
+        for (const WeaponSet& w : me.kit.sets) offs += std::to_string(w.off) + " ";
+        return proto::kvText([&](std::ostream& o) { me.inventory.write(o, "inv"); }) + "stance=" + (me.combatStance ? "1" : "0") +
+               "\noffs=" + offs + "\n";
     }
     std::mutex m;
     std::set<std::pair<int, int>> modified;

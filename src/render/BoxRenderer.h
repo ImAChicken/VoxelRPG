@@ -118,7 +118,7 @@ public:
     //           +X side faces world +X
     //   color   red, green, blue, each 0..1
     void draw(const glm::mat4& viewProj, glm::vec3 base,
-              glm::vec3 size, float yawDeg, glm::vec3 color) {
+              glm::vec3 size, float yawDeg, glm::vec3 color, bool keepCull = false) {
         if (!program) return;
 
         glm::mat4 model(1.0f);
@@ -130,7 +130,7 @@ public:
         model = glm::scale(model, size);
 
         glEnable(GL_DEPTH_TEST);
-        glDisable(GL_CULL_FACE);
+        if (!keepCull) glDisable(GL_CULL_FACE);
         glUseProgram(program);
         glUniformMatrix4fv(locViewProj, 1, GL_FALSE,
                            glm::value_ptr(viewProj));
@@ -140,6 +140,20 @@ public:
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, 36);
         glBindVertexArray(0);
+    }
+
+    // The toon outline of a box (the characters' edge lines, for
+    // bodies drawn as boxes): its back faces only, grown by
+    // 'thick' voxels all round, in the line colour. Drawn before or
+    // after the box itself; the box's own faces hide the inside.
+    void drawOutline(const glm::mat4& viewProj, glm::vec3 base, glm::vec3 size, float yawDeg,
+                     glm::vec3 color, float thick) {
+        if (!program) return;
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_FRONT);                      // the faces turned away: a shell behind the box
+        draw(viewProj, base - glm::vec3(0.0f, thick, 0.0f), size + glm::vec3(thick * 2.0f), yawDeg, color, true);
+        glCullFace(GL_BACK);
+        glDisable(GL_CULL_FACE);
     }
 
     void cleanup() {

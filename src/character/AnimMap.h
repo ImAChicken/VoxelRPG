@@ -14,7 +14,7 @@
 struct AnimMap {
     bool useClips = true;
     int idle = -1, walk = -1, run = -1, sprint = -1, crouchIdle = -1, crouchWalk = -1,
-        combatIdle = -1, airUp = -1, airDown = -1, roll = -1, guard = -1;
+        combatIdle = -1, airUp = -1, airDown = -1, roll = -1, guard = -1, guardShield = -1;
     float walkSpeed = 9.6f, runSpeed = 52.7f, sprintSpeed = 81.2f, crouchSpeed = 7.4f;   // the clips' own speeds
     float walkToRun = 18.0f, runToSprint = 46.0f, blendWidth = 5.0f;                       // where they hand over
     std::unordered_map<std::string, int> attacks;      // moveset attack id → clip
@@ -37,7 +37,7 @@ struct AnimMap {
             };
             idle = clip("idle"); walk = clip("walk"); run = clip("run"); sprint = clip("sprint");
             crouchIdle = clip("crouch_idle"); crouchWalk = clip("crouch_walk"); combatIdle = clip("combat_idle");
-            airUp = clip("air_up"); airDown = clip("air_down"); roll = clip("roll"); guard = clip("guard");
+            airUp = clip("air_up"); airDown = clip("air_down"); roll = clip("roll"); guard = clip("guard"); guardShield = clip("guard_shield");
             walkSpeed = (float)t["speeds"]["walk"].value_or(9.6);
             runSpeed = (float)t["speeds"]["run"].value_or(52.7);
             sprintSpeed = (float)t["speeds"]["sprint"].value_or(81.2);

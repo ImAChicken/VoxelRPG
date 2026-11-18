@@ -3,6 +3,7 @@
 #include <string>
 #include "UIRenderer.h"
 #include "ItemIcon.h"
+#include "PadGlyphs.h"
 #include "../entity/Player.h"
 #include "../entity/PlayerController.h"
 #include "../game/DevTools.h"
@@ -464,14 +465,14 @@ private:
 
     // ── Combat: the controller layout (game/CombatKit.h) ─
     // Bottom centre: the weapon set. Bottom right: the face
-    // buttons (X / Y / B items, A jump) and the shoulders (LB, LT,
+    // buttons (X / Y / B items; at the bottom the weapon in hand, its
+    // button the next weapon set) and the shoulders (LB, LT,
     // RB, RT) with what each does now. Start held: the 8 quick
     // options. Button names follow what was used last: the pad's
     // (A, LB …) or the keys bound to the same actions.
-    std::string glyph(int padButton, InputAction keyAction) const {
-        if (gInput.padLastUsed()) return pad::buttonName(padButton);
-        return InputManager::bindingLabel(gInput.getBinding(keyAction));
-    }
+    // (ui/PadGlyphs.h: with the pad, its button's picture, from the
+    // layout in use; with the keys, the key's name)
+    static int padFor(InputAction a, pad::Layer l = pad::Layer::Combat) { return padglyph::buttonFor(a, l); }
     void drawWeaponPanel(UIRenderer& ui, const Player& player,
                          const PlayerController& controller, float sw, float sh) {
         const auto& theme = gResourcePacks.getTheme();
@@ -488,17 +489,23 @@ private:
         ui.drawBorder(x, y, w, h, COMBAT_RED, controller.guarding ? 3.0f : 1.0f);
         ui.drawTextCentered(controller.guarding ? "GUARDING" : name, x, y, w, h, controller.guarding ? WHITE : COMBAT_RED, 2);
         {
-            std::string n = "loadout " + std::to_string(kit.setAt + 1) + "   " +
-                            glyph(pad::Down, InputAction::SwapWeapon) + ": the other";
-            float nw = (float)ui.textWidth(n, 1);
-            ui.drawRect((sw - nw) * 0.5f - 4, y - 16.0f, nw + 8, 13, SHADOW);
-            ui.drawText(n, (sw - nw) * 0.5f, y - 14.0f, theme.text, 1);
+            std::string a = "loadout " + std::to_string(kit.setAt + 1) + "   ", b = ": the other";
+            float kw = padglyph::keyOrPadWidth(ui, InputAction::SwapWeapon, 14.0f);
+            float nw = (float)ui.textWidth(a, 1) + kw + (float)ui.textWidth(b, 1);
+            float nx = (sw - nw) * 0.5f;
+            ui.drawRect(nx - 4, y - 16.0f, nw + 8, 13, SHADOW);
+            ui.drawText(a, nx, y - 14.0f, theme.text, 1);
+            nx += (float)ui.textWidth(a, 1);
+            nx += padglyph::keyOrPad(ui, padFor(InputAction::SwapWeapon), InputAction::SwapWeapon, nx, y - 14.0f, 14.0f, theme.accent);
+            ui.drawText(b, nx, y - 14.0f, theme.text, 1);
         }
 
         // the buttons, bottom right
         const float cell = 58.0f;
         float cx = sw - cell * 2.0f - 30.0f, cy = sh - cell * 2.0f - 40.0f;     // centre of the diamond
-        auto button = [&](float bx, float by, const std::string& key, uint16_t item, const std::string& label, bool lit) {
+        // one cell: its item (or a word), and in its corner the button's
+        // picture (pad) or the key's name
+        auto button = [&](float bx, float by, int padButton, InputAction keyAction, uint16_t item, const std::string& label, bool lit) {
             float x0 = bx - cell * 0.5f, y0 = by - cell * 0.5f;
             ui.drawRect(x0, y0, cell, cell, lit ? theme.bgHover : SHADOW);
             ui.drawBorder(x0, y0, cell, cell, lit ? WHITE : theme.border, lit ? 2.0f : 1.0f);
@@ -507,6 +514,9 @@ private:
                 float lw = (float)ui.textWidth(label, 1);
                 ui.drawText(label, bx - lw * 0.5f, by - 4, theme.textDim, 1);
             }
+            if (gInput.padLastUsed() && padButton >= 0 && padglyph::draw(ui, padButton, x0, y0, 24.0f)) return;
+            std::string key = gInput.padLastUsed() ? std::string(padButton >= 0 ? pad::buttonName(padButton) : "?")
+                                                   : InputManager::bindingLabel(gInput.getBinding(keyAction));
             float kw = (float)ui.textWidth(key, 1);
             ui.drawRect(x0 + 2, y0 + 2, kw + 6, 12, SHADOW);
             ui.drawText(key, x0 + 5, y0 + 4, theme.accent, 1);
@@ -519,19 +529,21 @@ private:
             const glm::vec2 at[8] = { {-1, 0}, {0, -1}, {1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 0}, {0, 1} };
             for (int i = 0; i < CombatKit::QUICK; i++) {
                 float ox = i < 4 ? -cell * 3.4f : 0.0f;
-                std::string key = gInput.padLastUsed() ? std::string(pad::buttonName(pb[i]))
-                                                       : InputManager::bindingLabel(gInput.getBinding((InputAction)((int)InputAction::ToolbarSlot1 + i)));
-                button(cx + ox + at[i].x * cell, cy + at[i].y * cell, key, kit.quick[i], "empty",
-                       on((InputAction)((int)InputAction::ToolbarSlot1 + i)));
+                InputAction a = (InputAction)((int)InputAction::ToolbarSlot1 + i);
+                int b = pad::buttonOf(a, pad::Layer::Quick);
+                button(cx + ox + at[i].x * cell, cy + at[i].y * cell, b >= 0 ? b : pb[i], a, kit.quick[i], "empty", on(a));
             }
             std::string t = "QUICK";
             ui.drawText(t, cx - cell * 1.7f - ui.textWidth(t, 2) * 0.5f, cy - cell * 2.0f, theme.title, 2);
             return;
         }
-        button(cx - cell, cy, glyph(pad::X, InputAction::UseSlotX), kit.slotItem(0), "X", on(InputAction::UseSlotX));
-        button(cx, cy - cell, glyph(pad::Y, InputAction::UseSlotY), kit.slotItem(1), "Y", on(InputAction::UseSlotY));
-        button(cx + cell, cy, glyph(pad::B, InputAction::UseSlotB), kit.slotItem(2), "B", on(InputAction::UseSlotB));
-        button(cx, cy + cell, glyph(pad::A, InputAction::Jump), 0, "jump", on(InputAction::Jump));
+        button(cx - cell, cy, padFor(InputAction::UseSlotX), InputAction::UseSlotX, kit.slotItem(0), "X", on(InputAction::UseSlotX));
+        button(cx, cy - cell, padFor(InputAction::UseSlotY), InputAction::UseSlotY, kit.slotItem(1), "Y", on(InputAction::UseSlotY));
+        button(cx + cell, cy, padFor(InputAction::UseSlotB), InputAction::UseSlotB, kit.slotItem(2), "B", on(InputAction::UseSlotB));
+        // the bottom: the weapon in hand; its button (D-pad down / X)
+        // switches to the other loadout's
+        button(cx, cy + cell, padFor(InputAction::SwapWeapon), InputAction::SwapWeapon, wpn.itemID, "unarmed",
+               on(InputAction::SwapWeapon));
         // the item names of the three slots, beside the diamond
         for (int i = 0; i < 3; i++) {
             uint16_t it = kit.slotItem(i);
@@ -560,16 +572,18 @@ private:
         struct Sh { int b; InputAction a; std::string what; };
         // the shoulders: one line each above the diamond, right
         // aligned (key names can be long), LB LT then RB RT
-        Sh shoulders[4] = { { pad::LB, InputAction::Roll, "sprint / dodge" }, { pad::LT, InputAction::Block, lt },
-                            { pad::RB, InputAction::UseLeft, "light" }, { pad::RT, InputAction::UseRight, "heavy" } };
-        float right = sw - 24.0f, ty = cy - cell * 1.6f - 4 * 16.0f;
-        for (int i = 0; i < 4; i++, ty += 16.0f) {
+        Sh shoulders[4] = { { padFor(InputAction::Roll), InputAction::Roll, "sprint / dodge" }, { padFor(InputAction::Block), InputAction::Block, lt },
+                            { padFor(InputAction::UseLeft), InputAction::UseLeft, "light" }, { padFor(InputAction::UseRight), InputAction::UseRight, "heavy" } };
+        const float lineH = gInput.padLastUsed() ? 27.0f : 16.0f;
+        float right = sw - 24.0f, ty = cy - cell * 1.6f - 4 * lineH;
+        for (int i = 0; i < 4; i++, ty += lineH) {
             const Sh& q = shoulders[i];
-            std::string key = glyph(q.b, q.a), t = key + "  " + q.what;
-            float tw = (float)ui.textWidth(t, 1);
+            std::string what = "  " + q.what;
+            float kw = padglyph::keyOrPadWidth(ui, q.a, 16.0f);
+            float tw = kw + (float)ui.textWidth(what, 1);
             ui.drawRect(right - tw - 4, ty - 2, tw + 8, 13, SHADOW);
-            ui.drawText(key, right - tw, ty, theme.accent, 1);
-            ui.drawText("  " + q.what, right - tw + ui.textWidth(key, 1), ty, on(q.a) ? WHITE : theme.text, 1);
+            padglyph::keyOrPad(ui, q.b, q.a, right - tw, ty, 16.0f, theme.accent);
+            ui.drawText(what, right - tw + kw, ty, on(q.a) ? WHITE : theme.text, 1);
         }
     }
 

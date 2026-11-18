@@ -8,6 +8,8 @@
 #include "render/IconRaster.h"
 #include <cstdio>
 #include <fstream>
+#include <map>
+#include <toml++/toml.hpp>
 
 using namespace testworld;
 
@@ -20,7 +22,7 @@ int main() {
     const int N = 64;
     std::vector<std::pair<std::string, iconraster::Image>> pics;
     int noModel = 0;
-    for (uint16_t id : gItems.inCategory(IC_TOOL | IC_WEAPON | IC_DEV | IC_WORN)) {
+    for (uint16_t id : gItems.inCategory(IC_TOOL | IC_WEAPON | IC_SPELLBOOK | IC_SHIELD | IC_DEV | IC_WORN)) {
         const ItemDef& d = gItems.get(id);
         iconraster::Image im;
         if (!d.heldModel.empty()) {
@@ -82,6 +84,41 @@ int main() {
         CharacterModel bald = CharacterModel::build([&] { Appearance x = hairy; x.hairStyle = 18; return x; }());
         CharacterModel helmed = CharacterModel::build(hairy, HairMesh::Shards, &helm);
         check(helmed.parts[B_HEAD].size() < withHair + CharacterModel::gearParts(bald.fit, helm)[B_HEAD].size(), "under a helmet the hair is gone");
+    }
+
+    // Every pack's atlas: a tile a sprite spans (span = [w, h]: a
+    // plant drawn over several tiles) belongs to that sprite alone.
+    // A block given one of its tiles (its "blank" corner) draws over
+    // the plant: the ice tile once landed in a fern's corner.
+    std::printf("resource pack atlases\n");
+    for (const char* pack : { "jrpg", "default", "darktest" }) {
+        auto cfg = toml::parse_file(std::string("data/resourcepacks/") + pack + "/atlas_config.toml");
+        std::map<std::pair<int, int>, std::string> spanned;              // tile → the sprite spanning it
+        std::vector<std::pair<std::pair<int, int>, std::string>> single; // other face_maps' tiles
+        if (auto* fm = cfg["face_map"].as_array())
+            for (auto& n : *fm) {
+                auto* t = n.as_table();
+                if (!t) continue;
+                std::string name = (*t)["name"].value_or(std::string());
+                int w = 1, h = 1;
+                if (auto* sp = (*t)["span"].as_array(); sp && sp->size() == 2) { w = (int)sp->get(0)->value_or(1); h = (int)sp->get(1)->value_or(1); }
+                for (const char* face : { "top", "side", "bottom" })
+                    if (auto* c = (*t)[face].as_array(); c && c->size() == 2) {
+                        int x = (int)c->get(0)->value_or(0), y = (int)c->get(1)->value_or(0);
+                        for (int dx = 0; dx < w; dx++)
+                            for (int dy = 0; dy < h; dy++) {
+                                if (w > 1 || h > 1) spanned[{ x + dx, y + dy }] = name;
+                                else single.push_back({ { x, y }, name });
+                            }
+                    }
+            }
+        std::string clash;
+        for (auto& [tile, name] : single) {
+            auto it = spanned.find(tile);
+            if (it != spanned.end() && it->second != name && clash.empty())
+                clash = name + " uses a tile of " + it->second + " (" + std::to_string(tile.first) + ", " + std::to_string(tile.second) + ")";
+        }
+        check(clash.empty(), std::string(pack) + ": no block uses a tile a sprite spans" + (clash.empty() ? "" : ": " + clash));
     }
 
     std::printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);

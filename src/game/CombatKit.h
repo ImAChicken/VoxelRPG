@@ -98,6 +98,12 @@ struct CombatKit {
     }
     void makeDefaults(const Inventory& inv) {
         made = true;
+        // the first shield carried: both loadouts' off hand
+        for (const ItemStack& s : inv.slots)
+            if (!s.empty() && gItems.get(s.itemID).shield) {
+                for (WeaponSet& w : sets) if (!w.off) w.off = s.itemID;
+                break;
+            }
         int n = 0;
         for (const ItemStack& s : inv.slots) {
             if (s.empty() || !gItems.get(s.itemID).is(IC_SPELL) || n >= PER_SLOT) continue;
