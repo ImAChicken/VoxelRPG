@@ -107,6 +107,8 @@ struct Appearance {
     // ── Face ──────────────────────────────────────────────
     int eyeStyle   = 14;          // look::EYES
     int expression = 0;           // look::EXPRESSIONS (resting face)
+    int eyeHeight  = 0;           // where the eyes (and brows) sit on the face, in face pixels: - up, + down
+    static constexpr int EYE_SHIFT = 8;   // eyeHeight goes -EYE_SHIFT … +EYE_SHIFT
 
     // ── Hair and extras ───────────────────────────────────
     int hairStyle = 0;            // look::HAIRSTYLES
@@ -139,6 +141,7 @@ struct Appearance {
         face       = std::clamp(face,       0, look::count(look::FACES) - 1);
         eyeStyle   = std::clamp(eyeStyle,   0, look::count(look::EYES) - 1);
         expression = std::clamp(expression, 0, look::count(look::EXPRESSIONS) - 1);
+        eyeHeight  = std::clamp(eyeHeight, -EYE_SHIFT, EYE_SHIFT);
         hairStyle  = std::clamp(hairStyle,  0, look::count(look::HAIRSTYLES) - 1);
         extra      = std::clamp(extra,      0, look::count(look::EXTRAS) - 1);
         top        = std::clamp(top,        0, look::count(look::TOPS) - 1);
@@ -149,7 +152,7 @@ struct Appearance {
     bool operator==(const Appearance& o) const {
         return build == o.build && heightVoxels == o.heightVoxels && shoulders == o.shoulders &&
                chest == o.chest && hips == o.hips && limbs == o.limbs && head == o.head && face == o.face &&
-               eyeStyle == o.eyeStyle && expression == o.expression && hairStyle == o.hairStyle &&
+               eyeStyle == o.eyeStyle && expression == o.expression && eyeHeight == o.eyeHeight && hairStyle == o.hairStyle &&
                extra == o.extra && top == o.top && bottom == o.bottom && shoes == o.shoes &&
                skin == o.skin && eyes == o.eyes && hair == o.hair && topColor == o.topColor &&
                bottomColor == o.bottomColor;
@@ -190,8 +193,8 @@ struct Appearance {
         std::snprintf(b, sizeof(b), "look_v=2\nlook_body=%d %d %.3f %.3f %.3f %.3f %.3f %d\n",
                       build, heightVoxels, shoulders, chest, hips, limbs, head, face);
         out << b;
-        std::snprintf(b, sizeof(b), "look_face=%d %d\nlook_hair=%d %d\nlook_outfit=%d %d %d\n",
-                      eyeStyle, expression, hairStyle, extra, top, bottom, shoes);
+        std::snprintf(b, sizeof(b), "look_face=%d %d %d\nlook_hair=%d %d\nlook_outfit=%d %d %d\n",
+                      eyeStyle, expression, eyeHeight, hairStyle, extra, top, bottom, shoes);
         out << b;
         auto col = [&](const char* k, glm::u8vec3 c) {
             std::snprintf(b, sizeof(b), "look_%s=%d %d %d\n", k, c.r, c.g, c.b);
@@ -213,7 +216,7 @@ struct Appearance {
                                 &f[0], &f[1], &f[2], &f[3], &f[4], &face);
             if (n >= 8) { shoulders = f[0]; chest = f[1]; hips = f[2]; limbs = f[3]; head = f[4]; }
             else if (n >= 6) { shoulders = f[0]; hips = f[1]; limbs = f[2]; head = f[3]; }   // old: no chest
-        } else if (k == "face")   { std::sscanf(v, "%d %d", &eyeStyle, &expression);
+        } else if (k == "face")   { eyeHeight = 0; std::sscanf(v, "%d %d %d", &eyeStyle, &expression, &eyeHeight);
         } else if (k == "hair") {
             // new: "style extra"; old saves: the hair colour "r g b"
             int a = 0, b = 0, c = 0;

@@ -312,6 +312,7 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
         if (!a || !a->attack.active() || a->dead()) continue;
         AttackState& st = a->attack;
         if (st.kind == AttackKind::AirHeavy && !st.landed) continue;   // only the slam hits
+        if (!st.def().effect.empty()) continue;                         // a spell: its effect does the work (Simulation::castEffects)
         float t0 = st.prevT, t1 = st.t;
         // the blade: posed, with a weapon model (not the slam)
         hitshape::Posed pa;

@@ -56,13 +56,15 @@ public:
         if (modern) over(out, extras, 0, 0);
         over(out, mouths, ex, modern ? 1 : 0);
         // brows in the hair colour
-        overTint(out, brows, ex == 3 ? 1 : ex == 4 ? 2 : 0, st, glm::vec3(a.hair));
+        // the eyes and brows move together with the eye height slider
+        const int dy = a.eyeHeight;
+        overTint(out, brows, ex == 3 ? 1 : ex == 4 ? 2 : 0, st, glm::vec3(a.hair), dy);
         // eyes: shapes, then the iris in the eye colour
         for (int side = 0; side < 2; side++) {
             int state = blink ? 2 : ex == 3 ? 1 : (ex == 2 && side == 0) ? 3 : 0;
             int col = state * 2 + side;
-            over(out, eyes, col, st);
-            overTint(out, iris, col, st, glm::vec3(a.eyes));
+            over(out, eyes, col, st, dy);
+            overTint(out, iris, col, st, glm::vec3(a.eyes), dy);
         }
     }
 
@@ -97,18 +99,25 @@ private:
         if (px >= img.w || py >= img.h) return nullptr;
         return &img.px[((size_t)py * img.w + px) * 4];
     }
-    static void over(std::vector<uint8_t>& out, const Img& img, int col, int row) {
-        for (int y = 0; y < R; y++) for (int x = 0; x < R; x++)
+    // dy: drawn this many pixels lower (negative: higher)
+    static void over(std::vector<uint8_t>& out, const Img& img, int col, int row, int dy = 0) {
+        for (int y = 0; y < R; y++) for (int x = 0; x < R; x++) {
+            int ty = y + dy;
+            if (ty < 0 || ty >= R) continue;
             if (const uint8_t* s = cell(img, col, row, x, y))
-                blend(out, ((size_t)y * R + x) * 4, s, s[0], s[1], s[2]);
+                blend(out, ((size_t)ty * R + x) * 4, s, s[0], s[1], s[2]);
+        }
     }
     // Brightness map × colour (grey 127.5 = exactly the colour)
-    static void overTint(std::vector<uint8_t>& out, const Img& img, int col, int row, glm::vec3 c) {
-        for (int y = 0; y < R; y++) for (int x = 0; x < R; x++)
+    static void overTint(std::vector<uint8_t>& out, const Img& img, int col, int row, glm::vec3 c, int dy = 0) {
+        for (int y = 0; y < R; y++) for (int x = 0; x < R; x++) {
+            int ty = y + dy;
+            if (ty < 0 || ty >= R) continue;
             if (const uint8_t* s = cell(img, col, row, x, y)) {
                 float k = s[0] / 127.5f;
-                blend(out, ((size_t)y * R + x) * 4, s, std::min(255.0f, c.r * k), std::min(255.0f, c.g * k), std::min(255.0f, c.b * k));
+                blend(out, ((size_t)ty * R + x) * 4, s, std::min(255.0f, c.r * k), std::min(255.0f, c.g * k), std::min(255.0f, c.b * k));
             }
+        }
     }
 };
 

@@ -13,6 +13,7 @@
 #include <map>
 #include <queue>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -368,6 +369,16 @@ struct Blueprint {
         std::filesystem::create_directories(std::filesystem::path(path).parent_path());
         std::ofstream f(path);
         if (!f) return false;
+        write(f);
+        return (bool)f;
+    }
+    // As text (the file's contents: a server is sent this)
+    std::string text() const { std::ostringstream s; write(s); return s.str(); }
+    bool fromText(const std::string& t, std::string& why) {
+        try { readTable(toml::parse(t), "", why); return true; }
+        catch (const toml::parse_error& e) { why = std::string(e.description()); return false; }
+    }
+    void write(std::ostream& f) const {
         f << "# Blueprint: a building made of build pieces (game/Blueprint.h).\n"
              "# Saved by the hammer's Copy tab; placed from its Blueprints tab and\n"
              "# by the village generator. Each part: its structure type, the low\n"
@@ -393,13 +404,21 @@ struct Blueprint {
             if (!p.loot.empty())  f << "loot = \"" << p.loot << "\"\n";
             if (!p.label.empty()) f << "label = \"" << p.label << "\"\n";
         }
-        return true;
     }
 
     bool load(const std::string& path, std::string& why) {
         try {
-            auto tbl = toml::parse_file(path);
-            name    = tbl["name"].value_or(std::filesystem::path(path).stem().string());
+            readTable(toml::parse_file(path), std::filesystem::path(path).stem().string(), why);
+            return true;
+        } catch (const toml::parse_error& e) {
+            why = std::string(e.description());
+            return false;
+        }
+    }
+    void readTable(const toml::table& tbl, const std::string& stem, std::string& why) {
+        (void)why;
+        {
+            name    = tbl["name"].value_or(stem);
             display = tbl["display"].value_or(name);
             tags.clear();
             if (auto* a = tbl["tags"].as_array())
@@ -431,10 +450,6 @@ struct Blueprint {
                     if (const StructureType* t = gStructures.get(gStructures.find(p.type)))
                         size = glm::max(size, p.at + t->shape(0, p.rot).size);
             }
-            return true;
-        } catch (const toml::parse_error& e) {
-            why = std::string(e.description());
-            return false;
         }
     }
 };

@@ -16,15 +16,23 @@ sprint        = "LEFT_SHIFT"
 roll          = "LEFT_SHIFT"        # tap = roll, hold = sprint
 
 [actions]
-use_left        = "MOUSE_LEFT"      # primary action / attack / place
-use_right       = "MOUSE_RIGHT"     # secondary action / remove
-block           = "Q"               # hold = guard, tap = timed block
-draw_weapon     = "R"               # toggle draw/sheathe
-                                    # switches survival <-> combat mode
+use_left        = "MOUSE_LEFT"      # place / use; combat: light attack (pad RB)
+use_right       = "MOUSE_RIGHT"     # break; combat: heavy attack (pad RT)
+block           = "Q"               # combat special (pad LT): guard / parry with no off hand,
+                                    # else the off hand's: a spell casts, "heavy" a heavy attack
+draw_weapon     = "R"               # combat mode on / off (pad Select)
 interact        = "E"               # use / open / talk
 ledge_grab      = "F"               # burst to face, hang, press again = lift
 inventory       = "I"               # open the inventory (50 slots + equipment)
-swap_weapon     = "X"               # switch between weapon 1 and weapon 2
+swap_weapon     = "X"               # combat: the other loadout (pad D-pad down)
+use_slot_x      = "1"               # combat: use the item up in X (pad X)
+use_slot_y      = "2"               # combat: use the item up in Y (pad Y)
+use_slot_b      = "3"               # combat: use the item up in B (pad B)
+cycle_slot_x    = "4"               # combat: next item in X (pad D-pad left)
+cycle_slot_y    = "5"               # combat: next item in Y (pad D-pad up)
+cycle_slot_b    = "6"               # combat: next item in B (pad D-pad right)
+quick_layer     = "LEFT_ALT"        # combat, held: 1-8 pick the 8 quick options (pad Start held)
+                                    # (1-6 are the hotbar's out of combat: sharing is fine)
 lock_on         = "TAB"             # hold the camera on an enemy; flick the mouse sideways to switch
 toolbar_next    = "MOUSE_SCROLL_DOWN"   # main-hand hotbar slots 3..10
 toolbar_prev    = "MOUSE_SCROLL_UP"

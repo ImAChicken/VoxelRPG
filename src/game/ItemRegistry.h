@@ -41,13 +41,15 @@ constexpr uint32_t IC_WEAPON = 1 << 2;
 constexpr uint32_t IC_DEV    = 1 << 3;
 constexpr uint32_t IC_DECOR  = 1 << 4;   // a decoration from decorations.toml: places it
 constexpr uint32_t IC_WORN   = 1 << 5;   // gear worn on the body (helmet, armour, pack)
+constexpr uint32_t IC_CHARM  = 1 << 7;   // a charm: goes in a loadout's charm slots (game/CombatKit.h)
+constexpr uint32_t IC_SPELL  = 1 << 6;   // a spell: used from an X / Y / B slot or the off hand, casts 'cast'
 
 // IDs below this belong to block items
 constexpr uint16_t FIRST_NON_BLOCK_ITEM = 1000;
 constexpr uint16_t FIRST_DECOR_ITEM     = 3000;   // one per decoration, in registry order
 
 // What a digging tool is for
-enum class ToolKind : uint8_t { None, Pickaxe, Shovel, Axe, Hoe, Hammer };
+enum class ToolKind : uint8_t { None, Pickaxe, Shovel, Axe, Hoe, Hammer, Blast };
 
 // Which behaviour a dev tool has (see game/DevTools.h)
 enum class DevToolKind : uint8_t {
@@ -83,6 +85,11 @@ struct ItemDef {
     float       poiseDamage = 0.0f;         // tools that hit bodies (the axe): poise damage of a full-speed hit
 
     DevToolKind devTool     = DevToolKind::None;
+
+    // Combat layout (game/CombatKit.h)
+    std::string cast;                       // used (X / Y / B, or LT in the off hand): the attack it plays (movesets.toml), e.g. a spell's cast
+    std::string special;                    // LT with this in hand: "guard" (block, timed = parry), "heavy", or "" (weapons: guard)
+    bool        shield      = false;        // an off-hand item that guards (LT: block and parry)
 
     int         decor       = -1;           // decoration items: index in decor::Set
 
@@ -168,6 +175,9 @@ public:
         return n;
     }
 
+    // Every slot, indexed by ID (gaps are invalid: !valid())
+    const std::vector<ItemDef>& all() const { return items; }
+
 private:
     std::vector<ItemDef> items;   // indexed by ID; gaps are invalid
     std::unordered_map<std::string, uint16_t> nameIndex;
@@ -239,6 +249,8 @@ private:
                         std::string s = c.value_or("");
                         if      (s == "block")  d.categories |= IC_BLOCK;
                         else if (s == "tool")   d.categories |= IC_TOOL;
+                        else if (s == "spell")  d.categories |= IC_SPELL;
+                        else if (s == "charm")  d.categories |= IC_CHARM;
                         else if (s == "weapon") d.categories |= IC_WEAPON;
                         else if (s == "dev")    d.categories |= IC_DEV;
                         else if (s == "worn")   d.categories |= IC_WORN;
@@ -250,7 +262,11 @@ private:
                 else if (tool == "axe")     d.tool = ToolKind::Axe;
                 else if (tool == "hoe")     d.tool = ToolKind::Hoe;
                 else if (tool == "hammer")  d.tool = ToolKind::Hammer;
+                else if (tool == "blast")   d.tool = ToolKind::Blast;
                 d.toolPower = (float)(*t)["tool_power"].value_or(1.0);
+                d.cast    = (*t)["cast"].value_or(std::string());
+                d.special = (*t)["special"].value_or(std::string());
+                d.shield  = (*t)["shield"].value_or(false);
                 d.cubeSize  = (int)(*t)["cube"].value_or((int64_t)0);
 
                 d.weaponClass = (*t)["weapon_class"].value_or(std::string());

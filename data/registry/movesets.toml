@@ -386,3 +386,24 @@ lunge = 6
 lunge_time = [0.40, 0.64]
 cancel_from = 0.82
 armor_from = 0.30
+
+# ── Spells: an item's own attack (items.toml: cast = "...") ─
+# effect   what happens as the active window opens, instead of a
+#          blade hit (sim/Simulation.h castEffects):
+#            windburst  a cone of wind: bodies in it are thrown
+#                       back, harder the closer; it hits poise
+#                       too, so a body low on poise is knocked down
+# effect_range  voxels;  effect_arc  half-angle, degrees
+[[attack]]
+id = "windburst_cast"
+pose = "sword_heavy"
+duration = 0.80
+active = [0.32, 0.40]
+damage = 0
+poise = 0
+stamina = 25
+reach = 0
+effect = "windburst"
+effect_range = 24
+effect_arc = 50
+cancel_from = 0.60

@@ -78,7 +78,7 @@ int main() {
         CharacterModel model = CharacterModel::build(Appearance{});
         for (const auto& [id, st] : gAnimMap.strikes) {
             const AttackDef* a = gMovesets.attack(id);
-            if (!a) continue;
+            if (!a || !a->effect.empty()) continue;      // a spell: no blade to sweep
             uint16_t item = 0;
             for (const char* w : { "iron_sword", "iron_axe", "wooden_club", "spear", "quarterstaff" }) {
                 uint16_t i = gItems.find(w);

@@ -112,10 +112,23 @@ public:
         if (gInput.isHeld(InputAction::StrafeRight))  side  += 1.0f;
         if (gInput.isHeld(InputAction::StrafeLeft))   side  -= 1.0f;
 
+        // the controller's left stick: a gentle tilt walks slower
+        float tilt = 1.0f;
+        glm::vec2 stick = gInput.padMove();
+        if (glm::length(stick) > 0.0f && ahead == 0.0f && side == 0.0f) {
+            ahead = stick.y; side = stick.x;
+            tilt = std::clamp(glm::length(stick), 0.35f, 1.0f);
+        }
+
         intent.move   = forward * ahead + right * side;
-        intent.crouch = gInput.isHeld(InputAction::Crouch);
+        // L3 (crouch) is a toggle on the controller; the key is held
+        bool l3 = gInput.padConnected() && gInput.padNow().down[pad::L3];
+        if (l3 && !padCrouchWas) padCrouch = !padCrouch;
+        padCrouchWas = l3;
+        if (!gInput.padConnected()) padCrouch = false;
+        intent.crouch = gInput.isHeld(InputAction::Crouch) || padCrouch;
         // Swinging an axe: a slow walk (game/AxeSwing.h)
-        intent.speedScale = player.swing.active() ? AxeSwing::MOVE_FACTOR : 1.0f;
+        intent.speedScale = (player.swing.active() ? AxeSwing::MOVE_FACTOR : 1.0f) * tilt;
 
         // One-shots stay set until a physics tick has used
         // them (afterTick clears), so a press is never lost
@@ -162,6 +175,9 @@ public:
         // the view does not jump, then let it ease back.
         stepOffset     -= player.stepJolt;
         player.stepJolt = 0.0f;
+        // a server correction: the same, in all three directions
+        netOffset          += player.renderOffset;
+        player.renderOffset = glm::vec3(0.0f);
 
         // A teleport (respawn, popped out of the ground):
         // do not glide the camera across the gap
@@ -181,9 +197,11 @@ public:
         // Ease the step offset back to zero
         stepOffset *= std::exp(-14.0f * frameDt);
         if (std::fabs(stepOffset) < 0.01f) stepOffset = 0.0f;
+        netOffset *= std::exp(-20.0f * frameDt);             // about a tenth of a second
+        if (glm::length(netOffset) < 0.01f) netOffset = glm::vec3(0.0f);
 
         glm::vec3 pos = glm::mix(prevPosition,
-                                 player.position, alpha);
+                                 player.position, alpha) + netOffset;
         float eye = glm::mix(prevEye, player.eyeHeight, alpha);
 
         renderPosition = pos;
@@ -243,6 +261,7 @@ public:
         prevPosition = player.position;
         prevEye      = player.eyeHeight;
         stepOffset   = 0.0f;
+        netOffset    = glm::vec3(0.0f);
     }
 
     void reset(const Player& player) {
@@ -260,10 +279,12 @@ public:
 
 private:
     glm::vec3 prevPosition = {0, 0, 0};
+    glm::vec3 netOffset    = {0, 0, 0};    // eases a server's correction (Human::renderOffset)
     float     prevEye      = Human::eyeStand;
     float     stepOffset   = 0.0f;
     float     cameraBack   = 0.0f;   // current third-person distance
 
+    bool  padCrouch = false, padCrouchWas = false;   // L3 toggles sneaking
     bool  rollArmed = false;   // a press is waiting to become a tap
     float rollHeld  = 0.0f;    // how long the button has been down
 
@@ -282,8 +303,10 @@ private:
         // a combat stance, so the button does nothing
         // elsewhere.
         if (player.mode == GameMode::Survival &&
-            gInput.isPressed(InputAction::DrawWeapon))
+            gInput.isPressed(InputAction::DrawWeapon)) {
             player.combatStance = !player.combatStance;
+            if (player.combatStance) player.kit.tidy(player.inventory);   // the loadouts, up to date
+        }
 
         // F5 — first / third person. Remembered while combat
         // forces third person, and restored on sheathing.
@@ -307,9 +330,7 @@ private:
                 note(PlayerAction::HeavyAttack);
                 intent.attackHeavy = true;
             }
-            if (gInput.isPressed(InputAction::Block))
-                note(PlayerAction::Guard);
-            guarding = gInput.isHeld(InputAction::Block);
+            combatKitButtons(player);
         }
         intent.guard = guarding;
 
@@ -335,6 +356,47 @@ private:
                 inv.selectNext();
             if (gInput.isPressed(InputAction::ToolbarPrev))
                 inv.selectPrev();
+        }
+    }
+
+    // ── The combat layout (game/CombatKit.h) ──────────────
+    // LT (key Q): the special — guard, a heavy, or a cast — from
+    // the off-hand item or the weapon. X / Y / B (1 / 2 / 3) use
+    // the item up in that slot; the D-pad (4 / 5 / 6) cycles it.
+    // Start held (Left Alt): the 8 quick options instead.
+    void combatKitButtons(Player& player) {
+        // A weapon held in the toolbar (not drawn with R): Q guards,
+        // the number keys stay the hotbar's
+        if (!player.combatStance) {
+            if (gInput.isPressed(InputAction::Block)) note(PlayerAction::Guard);
+            guarding = gInput.isHeld(InputAction::Block);
+            return;
+        }
+        CombatKit& kit = player.kit;
+        kit.follow(player.inventory);                    // loadout 1 / 2: the drawn weapon
+        auto use = [&](uint16_t item) {
+            if (!item) return;
+            const ItemDef& d = gItems.get(item);
+            if (!d.cast.empty()) { intent.useItem = item; note(PlayerAction::UseItem); }
+        };
+        if (gInput.isHeld(InputAction::QuickLayer)) {
+            for (int i = 0; i < CombatKit::QUICK; i++)
+                if (gInput.isPressed((InputAction)((int)InputAction::ToolbarSlot1 + i))) use(kit.quick[i]);
+            return;                                      // the slot buttons mean the quick options now
+        }
+        uint16_t castItem = 0;
+        CombatKit::Special sp = kit.special(player.inventory.weapon().itemID, &castItem);
+        if (gInput.isPressed(InputAction::Block)) {
+            if (sp == CombatKit::Special::Heavy) { intent.attackHeavy = true; note(PlayerAction::HeavyAttack); }
+            else if (sp == CombatKit::Special::Cast) use(castItem);
+            else note(PlayerAction::Guard);
+        }
+        guarding = sp == CombatKit::Special::Guard && gInput.isHeld(InputAction::Block);
+        const InputAction useKeys[3] = { InputAction::UseSlotX, InputAction::UseSlotY, InputAction::UseSlotB };
+        const InputAction cycleKeys[3] = { InputAction::CycleSlotX, InputAction::CycleSlotY, InputAction::CycleSlotB };
+        for (int i = 0; i < 3; i++) {
+            if (gInput.isPressed(useKeys[i])) use(kit.slotItem(i));
+            if (gInput.isPressed(cycleKeys[i])) kit.cycleSlot(i);
         }
     }
 

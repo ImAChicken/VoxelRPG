@@ -26,7 +26,7 @@ what's next, Eddie's design direction) and, if you need history, `HANDOFF.md`.
 
 ```
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVOXELRPG_TESTS=ON
-cmake --build build -j8          # Windows: .\build.bat
+cmake --build build -j8          # Windows: .\build.bat (game + server), .\build.bat tests (everything)
 ```
 On Linux add `-DGLFW_BUILD_WAYLAND=OFF` if wayland-scanner is missing.
 Binaries: `build/bin/[Release/]VoxelRPG`, `VoxelRPG-Server`, `*_test`.
@@ -68,7 +68,7 @@ DISPLAY=:99 import -window root shot.png                    # then view shot.png
 ## Units and conventions
 
 - **1 voxel = 4 inches.** 3 voxels = 1 ft; the 8 ft foundation is 24 voxels.
-  A person is about 17 voxels tall (eye height set in Settings, default 16).
+  A person is 16-18 voxels tall (Appearance::heightVoxels); the first-person eyes sit 1 voxel below that.
 - Chunks: 128 × 128 × 1024 tall, in 8 sections of 128³. `Chunk::index(x,y,z) = (y*128 + x)*128 + z`.
   Sea level is 160.
 - World edits go **only** through `world/WorldEditor.h` (batched, tagged with
@@ -124,6 +124,13 @@ sections, then read only the range you need.
   - `world/TerrainOps.h`: `terrain::flatten`, `flattenDisc`, `levelColumn` (every terrain tool should use these)
   - tests: `tests/blueprint_test.cpp` (builds the village buildings; `--write` remakes `data/blueprints`; `VOXELRPG_DUMP=<dir>` writes voxel dumps for pictures)
   - console: `blueprint`, `village`, `flatten`; New World → Flat → Village builds one at the start
+- **Changing the world (local and server):** `game/WorldActions.h`: `WorldRequest` (one change: break, cube, place, door, piece, blueprint, hoe, blast, axe hit) and `act()`, the only code that does them. `game/PlayerInteraction.h` (keys, aim, previews) builds a request and calls `submit()`: done at once in your own world, sent to the server when `hands.remote` is set. The server checks it in `ServerHost::allowed` (item carried, reach, rate, cooldowns) then runs the same `act()`. A new player tool: add an `Op`, handle it in `act()`, check it in `allowed()`, write it in `proto::request` if it needs new fields (and bump `proto::VERSION`)
+- **Block and item numbers on the wire:** never assume both sides number them alike. The Welcome carries the server's names (`proto::Names`); the client's `proto::IdMap` translates. Anything new that sends a block or item id must go through it (`ids.block()` in, `ids.itemToServer()` out); prefer sending names in text
+- **Movement and networking:** `physics/VoxelPhysics.h` (`moveHuman`, slopes: `updateGrade` / `slopeFactor`), `sim/Simulation.h` (`setInputs`: one step per client input), `server/ServerHost.h` (`beforeStep`: the input queue), `client/ClientWorld.h` (`reconcile`); tests: `net_test`, `slope_test`
+- **NPC fights:** `npc/Encounters.h` (slots, attack tokens, breadcrumbs), `npc/ContextSteering.h` (the last stretch to a slot), `npc/States.h` (`fight()`), `npc/Pathfinder.h`; `debug steering` / `debug ai` draw them (`game/DebugView.h`); tests: `npc_test`, `steer_test`
+- **Controls:** keys `input/InputManager.h` (action table, `keyboard.toml`), controller `input/PadLayout.h` (the layout table, layers: combat / quick / explore), combat buttons `game/CombatKit.h` (2 loadouts: off hand, X/Y/B 3 each, charms; quick 8; edited in `ui/InventoryScreen.h` `drawLoadouts`) used in `PlayerController::combatKitButtons`, combat HUD `ui/HudScreen.h` (`drawWeaponPanel`, `drawPadDebug`); test: `controls_test`
+- **Spells:** an item with `cast = "<attack>"` (items.toml) whose attack has an `effect` (movesets.toml); effects run in `Simulation::castEffects` (windburst)
+- **Starting kits:** `data/registry/kits.toml`, `game/Kits.h`
 - **Chests and loot:** `world/Chests.h` (`ChestStore`), `game/Container.h`, `game/LootTables.h` (`loot.toml`), `game/DevKit.h`
 - **Editing tools:**
   - `game/DevTools.h`: fill, brush, copy/paste operations, shared by tools and commands
@@ -160,6 +167,7 @@ sections, then read only the range you need.
 - **New screen:** subclass `UIScreen`, add a `GameState`/`ScreenResult`, wire it in `main.cpp` "Screens".
 - **New key:** add it to `InputAction.h`, the bindings table in `InputManager.h`, and `keyboard.toml`.
 - **New test:** add `tests/x_test.cpp` and the CMake lines; reuse `TestWorld.h`.
+- **New player tool:** an item in `items.toml` with `tool = "..."`, a `ToolKind` in `game/ItemRegistry.h`, its keys in `PlayerInteraction::update` (see the hoe and blast wand) ending in `submit(request(...))`, what it does in `WorldActions::act`, its check in `ServerHost::allowed`, and add it to `kits.toml` to hand it out. Then it works on servers too.
 
 ## Saving tokens
 

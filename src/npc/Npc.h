@@ -2,6 +2,7 @@
 #include "../entity/Human.h"
 #include "../character/Appearance.h"
 #include "NpcTypes.h"
+#include "ContextSteering.h"
 #include "../game/Container.h"
 #include <glm/glm.hpp>
 #include <cmath>
@@ -82,6 +83,12 @@ public:
     // whether it may close in to attack (holds a token)
     virtual bool slotSpot(Npc& who, const Human& target, glm::vec3& out, bool& engage, float dt) = 0;
     virtual bool requestAttack(Npc& who) = 0;          // may it swing now?
+    // The last stretch to 'goal' in a fight (npc/ContextSteering.h):
+    // a direction times strength for intent.move, avoiding the
+    // others in the fight, walls and drops and the target's swing.
+    // strafe -1 / +1: the way it likes to circle once there
+    virtual glm::vec2 contextSteer(Npc& who, glm::vec3 goal, const Human& target, bool engage, float strike,
+                                   float strafe) = 0;
     virtual void releaseAttack(Npc& who) = 0;
     // Breadcrumbs: where a player was (false: none / not a player)
     virtual bool latestCrumb(EntityId player, glm::vec3& at) = 0;
@@ -145,6 +152,12 @@ public:
     glm::vec3   stuckFrom{0.0f};
     float       stuckFor = 0.0f;
     bool        untouchable = false;   // in a protected menu: hits don't land
+
+    // ── Context steering in a fight (npc/ContextSteering.h) ─
+    steer::Map  steerMap;              // the last answer (shown by 'debug steering')
+    glm::vec3   steerGoal{0.0f};
+    float       steerAt = -99.0f;      // world time it was worked out
+    int         steerTick = 0;
 
     // ── The brain ─────────────────────────────────────────
     std::unique_ptr<NpcState> state;

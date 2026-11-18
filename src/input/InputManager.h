@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -13,6 +14,7 @@
 #include <vector>
 #include <toml++/toml.hpp>
 #include "InputAction.h"
+#include "PadLayout.h"
 
 // A single bindable input source
 struct InputBinding {
@@ -77,12 +79,19 @@ public:
             // actions
             {InputAction::UseLeft,      "actions", "use_left",       "Use / place / attack", "MOUSE_LEFT"},
             {InputAction::UseRight,     "actions", "use_right",      "Break / heavy attack", "MOUSE_RIGHT"},
-            {InputAction::Block,        "actions", "block",          "Guard",          "Q"},
+            {InputAction::Block,        "actions", "block",          "Special: guard / off hand", "Q"},
             {InputAction::DrawWeapon,   "actions", "draw_weapon",    "Draw weapon",    "R"},
             {InputAction::Interact,     "actions", "interact",       "Interact",       "E"},
             {InputAction::LedgeGrab,    "actions", "ledge_grab",     "Ledge grab",     "F"},
             {InputAction::Inventory,    "actions", "inventory",      "Inventory",      "I"},
-            {InputAction::SwapWeapon,   "actions", "swap_weapon",    "Swap weapon 1 / 2", "X"},
+            {InputAction::SwapWeapon,   "actions", "swap_weapon",    "Next weapon set", "X"},
+            {InputAction::UseSlotX,     "actions", "use_slot_x",      "Use X item",     "1"},
+            {InputAction::UseSlotY,     "actions", "use_slot_y",      "Use Y item",     "2"},
+            {InputAction::UseSlotB,     "actions", "use_slot_b",      "Use B item",     "3"},
+            {InputAction::CycleSlotX,   "actions", "cycle_slot_x",    "Next X item",    "4"},
+            {InputAction::CycleSlotY,   "actions", "cycle_slot_y",    "Next Y item",    "5"},
+            {InputAction::CycleSlotB,   "actions", "cycle_slot_b",    "Next B item",    "6"},
+            {InputAction::QuickLayer,   "actions", "quick_layer",     "Quick options (hold)", "LEFT_ALT"},
             {InputAction::LockOn,       "actions", "lock_on",        "Lock on",        "TAB"},
             {InputAction::ToolbarNext,  "actions", "toolbar_next",   "Next tool",      "MOUSE_SCROLL_DOWN"},
             {InputAction::ToolbarPrev,  "actions", "toolbar_prev",   "Previous tool",  "MOUSE_SCROLL_UP"},
@@ -131,7 +140,12 @@ public:
         auto pair = [&](InputAction x, InputAction y) {
             return (a == x && b == y) || (a == y && b == x);
         };
-        return pair(InputAction::Sprint, InputAction::Roll);
+        if (pair(InputAction::Sprint, InputAction::Roll)) return true;
+        // the combat slot keys reuse the hotbar's number keys (the
+        // hotbar is put away in combat)
+        auto combat = [](InputAction x) { return x >= InputAction::UseSlotX && x <= InputAction::CycleSlotB; };
+        auto hotbar = [](InputAction x) { return x >= InputAction::ToolbarSlot1 && x <= InputAction::ToolbarSlot10; };
+        return (combat(a) && hotbar(b)) || (combat(b) && hotbar(a));
     }
 
     bool loadKeyboard(const std::filesystem::path& path) {
@@ -206,6 +220,7 @@ public:
     // Call once per frame, after glfwPollEvents()
     void poll(GLFWwindow* window) {
         prevState = currState;
+        currState.fill(false);           // the keyboard and the pad each set what they hold
 
         // Scroll arrives through the callback during
         // glfwPollEvents(). Take this frame's total, then
@@ -247,7 +262,62 @@ public:
         mouseDelta.y = (float)(my - lastMouseY);
         lastMouseX = mx;
         lastMouseY = my;
+
+        // which was used last, for the HUD's button names
+        bool keysUsed = std::fabs(mouseDelta.x) + std::fabs(mouseDelta.y) > 0.5f || frameScroll != 0.0f;
+        for (int i = 0; i < (int)InputAction::COUNT && !keysUsed; i++) keysUsed = currState[i];
+
+        // ── The controller (input/PadLayout.h) ────────────
+        double now = glfwGetTime();
+        float frame = padTime > 0.0 ? (float)(now - padTime) : 0.0f;
+        padTime = now;
+        padState = readPad();
+        // A: a tap (released before HOLD_A) jumps, a hold interacts
+        bool aDown = padState.connected && padState.down[pad::A];
+        bool aTap = !aDown && aHeld > 0.0f && aHeld < pad::HOLD_A;
+        if (aDown) aHeld += frame;
+        padLayer = pad::layerFor(combatLayer, padState.connected && padState.down[pad::Start]);
+        pad::apply(padState, padLayer, aHeld, aTap, currState);
+        if (!aDown) aHeld = 0.0f;
+        if (padState.any) padLast = true;
+        else if (keysUsed) padLast = false;
     }
+
+    // The first connected gamepad (GLFW's mapping database)
+    static pad::State readPad() {
+        pad::State s;
+        for (int j = GLFW_JOYSTICK_1; j <= GLFW_JOYSTICK_LAST; j++) {
+            if (!glfwJoystickIsGamepad(j)) continue;
+            GLFWgamepadstate g;
+            if (!glfwGetGamepadState(j, &g)) continue;
+            s.connected = true;
+            for (int b = 0; b <= GLFW_GAMEPAD_BUTTON_LAST && b < pad::LT; b++) s.down[b] = g.buttons[b] == GLFW_PRESS;
+            s.down[pad::LT] = g.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] > pad::TRIGGER_DOWN * 2.0f - 1.0f;    // triggers rest at -1
+            s.down[pad::RT] = g.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] > pad::TRIGGER_DOWN * 2.0f - 1.0f;
+            s.left  = { pad::dead(g.axes[GLFW_GAMEPAD_AXIS_LEFT_X]),  pad::dead(g.axes[GLFW_GAMEPAD_AXIS_LEFT_Y]) };
+            s.right = { pad::dead(g.axes[GLFW_GAMEPAD_AXIS_RIGHT_X]), pad::dead(g.axes[GLFW_GAMEPAD_AXIS_RIGHT_Y]) };
+            for (bool d : s.down) s.any = s.any || d;
+            s.any = s.any || glm::length(s.left) > 0.0f || glm::length(s.right) > 0.0f;
+            break;
+        }
+        return s;
+    }
+
+
+    // ── Controller ────────────────────────────────────────
+    // Set each frame by the game: is the player in combat mode
+    // (the pad's buttons mean other things there)
+    void setCombatLayer(bool on) { combatLayer = on; }
+    const pad::State& padNow() const { return padState; }
+    pad::Layer layerNow() const { return padLayer; }
+    bool padConnected() const { return padState.connected; }
+    bool padLastUsed() const { return padLast && padState.connected; }   // the HUD shows pad buttons
+    // Left stick: x right, y forward (0 when none)
+    glm::vec2 padMove() const { return { padState.left.x, -padState.left.y }; }
+    // Right stick: how far to turn the camera this frame, degrees
+    glm::vec2 padLook(float dt) const { return padState.right * PAD_LOOK_SPEED * dt; }
+    static constexpr float PAD_LOOK_SPEED = 200.0f;     // degrees a second at full tilt
+    const std::array<bool, (int)InputAction::COUNT>& heldStates() const { return currState; }
 
     bool isHeld(InputAction action) const {
         int idx = (int)action;
@@ -376,6 +446,12 @@ private:
 
     unsigned int lastChar = 0;
     bool         hasChar  = false;
+
+    pad::State padState;
+    pad::Layer padLayer = pad::Layer::Explore;
+    bool   combatLayer = false, padLast = false;
+    float  aHeld = 0.0f;
+    double padTime = 0.0;
 
     static const std::vector<std::pair<std::string, int>>& namedKeys() {
         static const std::vector<std::pair<std::string, int>> keys = {

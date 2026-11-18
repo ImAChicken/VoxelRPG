@@ -3,6 +3,7 @@
 #include "Human.h"
 #include "../game/GameMode.h"
 #include "../game/Inventory.h"
+#include "../game/CombatKit.h"
 #include "../character/Appearance.h"
 #include "../game/AxeSwing.h"
 #include <cstdio>
@@ -33,6 +34,9 @@ public:
     // Weapon drawn. Only means anything in Survival, where
     // it switches the controls, HUD and camera to combat.
     bool combatStance = false;
+    // What the combat buttons hold: weapon sets, X / Y / B lists,
+    // the 8 quick options (game/CombatKit.h)
+    CombatKit kit;
 
     // ── Two inventories ───────────────────────────────────
     // The player inventory is the real one: used in Survival
@@ -81,7 +85,10 @@ public:
         moveset = w ? gMovesets.find(w->moveset) : nullptr;
         weaponWeight = w ? w->weight : 0.0f;
         infiniteStamina = (mode == GameMode::Dev);
-        if (!w) { attack = AttackState(); guarding = false; }
+        if (!w) {                       // nothing to swing: no swing (a spell's cast needs no weapon)
+            if (attack.kind != AttackKind::Cast) attack = AttackState();
+            guarding = false;
+        }
     }
     bool holdingAxe() const {
         const ItemDef& d = activeInventory().heldDef();
@@ -164,6 +171,7 @@ public:
         inventory.write(out, "inv");
         devInventory.write(out, "dev");
         appearance.write(out);
+        kit.write(out);
         for (const auto& [f, v] : reputation) out << "rep." << f << "=" << v << "\n";
     }
 
@@ -181,7 +189,7 @@ public:
         } else if (key.rfind("rep.", 0) == 0) {
             reputation[key.substr(4)] = (float)std::atof(value.c_str());
         } else {
-            return appearance.read(key, value) ||
+            return appearance.read(key, value) || kit.read(key, value) ||
                    inventory.read(key, value, "inv") ||
                    devInventory.read(key, value, "dev");
         }

@@ -42,6 +42,7 @@ struct NpcType {
     std::string look;
     std::string weapon;
     float health = 100.0f, poise = 35.0f;
+    float climb = 1.0f;                // how much slopes slow it (0: not at all; Human::climb)
     std::vector<std::string> states;
     std::string start;
     bool  wander = false;
@@ -139,6 +140,7 @@ public:
                         for (auto& x : *w) if (auto v = x.value<std::string>()) d->wear.push_back(*v);
                     d->pack = std::clamp((int)t["pack"].value_or((int64_t)(d->loot.empty() ? 0 : 20)), 0, 50);
                     d->health = (float)t["health"].value_or(100.0);
+                    d->climb = (float)t["climb"].value_or(1.0);
                     d->poise = (float)t["poise"].value_or(35.0);
                     if (auto s = t["states"].as_array())
                         for (auto& x : *s) if (auto v = x.value<std::string>()) d->states.push_back(*v);

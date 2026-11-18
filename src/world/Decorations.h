@@ -382,7 +382,6 @@ private:
         // boughs: out and up from the top of the trunk
         int boughs = 5 + (int)(rnd() * 3);
         float reach = (7.0f + rnd() * 2.0f) * S, rise = (5.0f + rnd() * 2.0f) * S;
-        float crownY = trunkH + rise * 0.8f;
         for (int b = 0; b < boughs; b++) {
             float a = b * 6.283f / boughs + rnd() * 0.6f;
             float len = reach * (0.75f + rnd() * 0.3f);

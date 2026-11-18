@@ -51,10 +51,12 @@
 // Angles: degrees around the attacker's facing, positive to its
 // left. Heights: voxels above its feet. Knock: vox/s given to the
 // target's ragdoll.
-enum class AttackKind : uint8_t { None, Light, Heavy, AirLight, AirHeavy };
+enum class AttackKind : uint8_t { None, Light, Heavy, AirLight, AirHeavy, Cast };   // Cast: an item's (a spell's) own attack
 
 struct AttackDef {
     std::string id, pose;
+    std::string effect;                  // what happens when the active window opens instead of a blade hit ("windburst")
+    float effectRange = 20.0f, effectArc = 60.0f;   // effect: voxels, half-angle in degrees
     float duration = 0.5f;               // s, wind-up + active + recovery
     float activeStart = 0.2f, activeEnd = 0.3f;   // s: the hit window
     float damage = 1.0f;                 // × the weapon's damage
@@ -149,6 +151,7 @@ inline const char* kindName(AttackKind k) {
     case AttackKind::Heavy:    return "heavy";
     case AttackKind::AirLight: return "air light";
     case AttackKind::AirHeavy: return "plunge";
+    case AttackKind::Cast:     return "cast";
     default:                   return "none";
     }
 }
@@ -190,6 +193,9 @@ public:
                     d->cancelFrom = (float)v["cancel_from"].value_or((double)d->duration);
                     d->armorFrom = (float)v["armor_from"].value_or(-1.0);
                     d->thrust = v["grip"].value_or(std::string()) == "thrust";
+                    d->effect = v["effect"].value_or(std::string());
+                    d->effectRange = (float)v["effect_range"].value_or(20.0);
+                    d->effectArc = (float)v["effect_arc"].value_or(60.0);
                     if (d->id.empty()) { std::cerr << path << ": an attack without an id\n"; continue; }
                     atk[d->id] = std::move(d);
                 }

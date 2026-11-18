@@ -1,4 +1,6 @@
 #pragma once
+#include <cstdio>
+#include <cstdlib>
 #include "../chunk/ChunkManager.h"
 #include "../entity/Player.h"
 #include "../net/Protocol.h"
@@ -50,6 +52,7 @@ public:
     enum class State { Connecting, Joined, Refused, Closed };
     static constexpr int INTERP_TICKS = 6;        // 100 ms behind the newest snapshot
     static constexpr float SNAP_ERROR = 0.05f;    // voxels of misprediction worth correcting
+    static constexpr float BIG_ERROR  = 6.0f;     // past this a correction is a jump (a teleport), not eased
 
     struct Remote {
         proto::SpawnMsg info;
@@ -84,6 +87,12 @@ public:
     std::string refusedWhy;
     std::vector<std::string> notices;
     std::vector<proto::EventMsg> events;      // the game takes these
+    proto::IdMap ids;                         // the server's block / item numbers ↔ ours (from the Welcome)
+
+    // A change to the world, for the server to do (game/WorldActions.h)
+    void request(const WorldRequest& q) {
+        if (state == State::Joined) conn->send(proto::request(q, &ids), net::Channel::Reliable);
+    }
 
     Player& me;
     uint64_t myId = 0;
@@ -137,9 +146,18 @@ public:
     }
     bool isModified(int cx, int cz) { std::lock_guard<std::mutex> g(m); return modified.count({ cx, cz }) > 0; }
 
+    // Has the server placed you, and is the ground under you here
+    // yet? Until both, no input is
+    // sent or predicted (you'd fall through it here while the
+    // server has you standing): both sides wait together.
+    bool groundReady() const {
+        return placed && world && world->isLoaded(ChunkManager::chunkCoord((int)std::floor(me.position.x)),
+                                        ChunkManager::chunkCoord((int)std::floor(me.position.z)));
+    }
+
     // One tick of your own: sent, and predicted here
     void step(const HumanIntent& in, glm::vec3 facing, float pitch, float dt) {
-        if (state != State::Joined || !physics) return;
+        if (state != State::Joined || !physics || !groundReady()) return;
         sendInput(in, facing, pitch);
         glm::vec3 fl(facing.x, 0.0f, facing.z);
         if (glm::length(fl) > 1e-3f) me.facing = glm::normalize(fl);
@@ -156,13 +174,15 @@ public:
         f.viewTick = (uint32_t)std::max(0.0f, renderTick - (float)INTERP_TICKS);    // what it's showing of others
         sentFrames.push_back(f);
         while (sentFrames.size() > (size_t)proto::INPUT_REDUNDANCY) sentFrames.pop_front();
-        conn->send(proto::input(std::vector<proto::InputFrame>(sentFrames.begin(), sentFrames.end())), net::Channel::Unreliable);
+        conn->send(proto::input(std::vector<proto::InputFrame>(sentFrames.begin(), sentFrames.end()), &ids), net::Channel::Unreliable);
         // how the inventory is arranged, when it's changed
         std::string now = loadoutKey();
-        if (now != loadoutSent) { conn->send(proto::loadout(me.inventory, me.combatStance), net::Channel::Reliable); loadoutSent = now; }
+        if (now != loadoutSent) { conn->send(proto::loadout(me.inventory, me.combatStance, &ids), net::Channel::Reliable); loadoutSent = now; }
     }
     void afterPrediction() {
         predicted[tick] = me.position;
+        predictedVel[tick] = me.velocity;
+        while (predictedVel.size() > 240) predictedVel.erase(predictedVel.begin());
         while (predicted.size() > 240) predicted.erase(predicted.begin());
         renderTick += 1.0f;
     }
@@ -215,6 +235,7 @@ private:
     std::string pendingStructures;
     std::deque<proto::InputFrame> sentFrames;
     std::map<uint32_t, glm::vec3> predicted;
+    std::map<uint32_t, glm::vec3> predictedVel;            // and how fast you were going then
     float renderTick = 0.0f;                               // in server ticks, for sampling bodies
     size_t chunksIn = 0;
 
@@ -227,6 +248,18 @@ private:
             if (!r.ok()) return;
             myId = w.you;
             me.uuid = w.you;
+            // its numbers for blocks and items → ours; what we lack, said once
+            ids.build(w.names);
+            auto listOf = [](const std::vector<std::string>& v) {
+                std::string out;
+                for (size_t i = 0; i < v.size() && i < 6; i++) out += (i ? ", " : "") + v[i];
+                if (v.size() > 6) out += " and " + std::to_string(v.size() - 6) + " more";
+                return out;
+            };
+            if (!ids.missingBlocks.empty())
+                notices.push_back("this server has blocks your game doesn't: " + listOf(ids.missingBlocks) + " (shown as stone or air)");
+            if (!ids.missingItems.empty())
+                notices.push_back("this server has items your game doesn't: " + listOf(ids.missingItems) + " - update to use them");
             proto::kvRead(w.player, [&](const std::string& k, const std::string& v) { me.read(k, v); });
             me.inventory.finishLoad();
             me.devInventory.finishLoad();
@@ -268,7 +301,7 @@ private:
         case proto::Msg::ChunkData: {
             int cx, cz;
             ChunkPtr ch = makeChunk();
-            if (!proto::readChunkData(r, cx, cz, *ch) || !ChunkManager::inWorld(cx, cz)) return;
+            if (!proto::readChunkData(r, cx, cz, *ch, &ids) || !ChunkManager::inWorld(cx, cz)) return;
             { std::lock_guard<std::mutex> g(m); modified.insert({ cx, cz }); }
             chunksIn++;
             if (world) { world->setChunk(cx, cz, std::move(ch)); world->markDirty(cx, cz); world->clearDirty(cx, cz); }
@@ -276,7 +309,7 @@ private:
             break;
         }
         case proto::Msg::Edits: {
-            for (const proto::VoxelEdit& e : proto::readEdits(r)) {
+            for (const proto::VoxelEdit& e : proto::readEdits(r, &ids)) {
                 if (!world) continue;
                 int cx = ChunkManager::chunkCoord(e.p.x), cz = ChunkManager::chunkCoord(e.p.z);
                 Chunk* c = world->getChunk(cx, cz);
@@ -333,19 +366,35 @@ private:
         me.stamina = s.you.stamina;
         auto it = predicted.find(s.ackTick);
         if (it == predicted.end()) {
-            if (s.ackTick == 0 || predicted.empty()) { me.position = s.you.pos; me.velocity = s.you.vel; }
+            if (s.ackTick == 0 || predicted.empty()) { me.position = s.you.pos; me.velocity = s.you.vel; placed = true; }
             return;
         }
         glm::vec3 err = s.you.pos - it->second;
+        worstError = std::max(worstError, glm::length(err));
         if (glm::length(err) > SNAP_ERROR) {
+            // where you are, and how fast you're going: put right by
+            // the same difference (a fall or a jump otherwise keeps
+            // drifting). The game eases the camera over the jump
+            // (renderOffset), so a small correction isn't seen as one.
             me.position += err;
+            auto v = predictedVel.find(s.ackTick);
+            if (v != predictedVel.end()) {
+                glm::vec3 verr = s.you.vel - v->second;
+                me.velocity += verr;
+                for (auto jt = v; jt != predictedVel.end(); ++jt) jt->second += verr;
+            }
             for (auto jt = it; jt != predicted.end(); ++jt) jt->second += err;
+            if (glm::length(err) < BIG_ERROR) me.renderOffset -= err;
             corrections++;
+            if (std::getenv("VRPG_NETDEBUG")) std::fprintf(stderr, "correction tick %u err %.3f (%.2f %.2f %.2f) server pos %.2f %.2f %.2f vel %.2f %.2f %.2f\n", s.ackTick, glm::length(err), err.x, err.y, err.z, s.you.pos.x, s.you.pos.y, s.you.pos.z, s.you.vel.x, s.you.vel.y, s.you.vel.z);
         }
+        predictedVel.erase(predictedVel.begin(), predictedVel.lower_bound(s.ackTick));
         predicted.erase(predicted.begin(), it);
     }
 public:
     int corrections = 0;                       // how often the prediction was put right (tests, the debug overlay)
+    float worstError = 0.0f;                   // the largest misprediction seen (voxels)
+    bool  placed = false;                      // the server has said where you are (nothing is predicted before)
 private:
     static std::string ServerSafe(const std::string& n) {
         std::string out;

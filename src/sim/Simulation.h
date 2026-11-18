@@ -146,6 +146,14 @@ public:
         mine.jump |= j; mine.dodge |= d; mine.attackLight |= l; mine.attackHeavy |= h;
     }
 
+    // A server player's inputs for this tick, exactly as many as
+    // arrived: none (its frames are late: it waits where it is),
+    // one, or several (catching up after a stall). One body step
+    // per input, the same as the client predicted, so a hitch on
+    // either side doesn't put the two out of step. Players not
+    // given a list this tick step once with setIntent's intent.
+    void setInputs(EntityId player, std::vector<HumanIntent> list) { queued[player] = std::move(list); }
+
     // ── One fixed tick ────────────────────────────────────
     void step(float dt) {
         if (!physics) return;
@@ -156,7 +164,18 @@ public:
             if (!p.rules().hasBody) continue;
             p.refreshMass();
             p.refreshWeapon();
+            auto q = queued.find(p.uuid);
+            // an item used must be one it carries
+            auto carried = [&](HumanIntent& in) { if (in.useItem && p.inventory.find(in.useItem) < 0) in.useItem = 0; };
+            if (q != queued.end()) {
+                for (HumanIntent& in : q->second) { carried(in); physics->moveHuman(p, in, dt); }
+                queued.erase(q);
+                intents[p.uuid].clearOneShots();
+                physics->stepRagdoll(p, dt);
+                continue;
+            }
             HumanIntent& in = intents[p.uuid];
+            carried(in);
             physics->moveHuman(p, in, dt);
             physics->stepRagdoll(p, dt);
             in.clearOneShots();
@@ -185,6 +204,7 @@ public:
         std::vector<combat::HitEvent> hits;
         for (auto& r : sight) r.age += dt;
         sight.erase(std::remove_if(sight.begin(), sight.end(), [](const SightRay& r) { return r.age > 2.0f; }), sight.end());
+        castEffects(all);
         combat::resolveHits(all, [&](glm::vec3 a, glm::vec3 b) {
             bool c = clearLine(a, b);
             if (sight.size() < 64) sight.push_back({ a, b, c, 0.0f });   // for the debug overlay
@@ -342,6 +362,54 @@ public:
         if (ev.killed) { SimEvent k; k.kind = SimEvent::Kind::Killed; k.a = attacker; k.b = target; events.push_back(k); }
     }
 
+    // ── Spells (an attack with an 'effect', movesets.toml) ─
+    // When a cast's active window opens, its effect happens once.
+    //   windburst  a cone of wind from the caster: everyone in it
+    //              (that the caster may hit) is thrown back, harder
+    //              the closer; poise damage the same way, so a body
+    //              with little poise left is knocked down (ragdoll)
+    static constexpr float WINDBURST_POISE = 40.0f;    // at point blank; falls to a quarter at the edge
+    static constexpr float WINDBURST_KNOCK = 46.0f;    // vox/s at point blank
+    void castEffects(const std::vector<Human*>& all) {
+        for (Human* c : all) {
+            if (!c->attack.active() || c->dead()) continue;
+            const AttackDef& d = c->attack.def();
+            if (d.effect.empty() || !(c->attack.prevT < d.activeStart && c->attack.t >= d.activeStart)) continue;
+            if (d.effect == "windburst") windburst(*c, d, all);
+        }
+    }
+    void windburst(Human& c, const AttackDef& d, const std::vector<Human*>& all) {
+        glm::vec3 f = c.attack.dir;
+        f.y = 0.0f;
+        f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(0, 0, 1);
+        float cosArc = std::cos(glm::radians(d.effectArc));
+        glm::vec3 from = c.position + glm::vec3(0, c.height * 0.6f, 0);
+        for (Human* b : all) {
+            if (b == &c || b->dead()) continue;
+            if (!c.isPlayer() && !hostile(static_cast<const Npc&>(c), *b)) continue;
+            glm::vec3 to = b->position - c.position;
+            to.y = 0.0f;
+            float dist = glm::length(to);
+            if (dist > d.effectRange || dist < 1e-3f) continue;
+            glm::vec3 dir = to / dist;
+            if (glm::dot(dir, f) < cosArc) continue;
+            if (!clearLine(from, b->position + glm::vec3(0, b->height * 0.6f, 0))) continue;
+            float k = 1.0f - dist / d.effectRange;                  // 1 at the caster, 0 at the edge
+            combat::HitEvent ev;
+            ev.attacker = c.uuid; ev.target = b->uuid; ev.point = b->bodyPoint(0.6f);
+            b->sinceHurt = 0.0f;
+            b->lastHitBy = c.uuid;
+            hitConsequences(c.uuid, b->uuid, ev.point);
+            float knock = combat::poiseHit(*b, WINDBURST_POISE * (0.25f + 0.75f * k), WINDBURST_KNOCK * (0.4f + 0.6f * k), true, ev);
+            knock = std::max(knock, WINDBURST_KNOCK * (0.4f + 0.6f * k) * (ev.poiseBroken ? 1.0f : 0.6f));   // the wind moves everyone
+            combat::knockBody(*b, ev.point, dir, 0.25f, knock);
+            SimEvent e;
+            e.kind = SimEvent::Kind::Hit; e.a = c.uuid; e.b = b->uuid; e.attack = AttackKind::Cast; e.amount = 0.0f;
+            e.poiseBroken = ev.poiseBroken; e.knockedDown = ev.knockedDown;
+            events.push_back(e);
+        }
+    }
+
     // The last line-of-sight checks of attacks (debug overlay)
     struct SightRay { glm::vec3 a, b; bool clear; float age; };
     const std::vector<SightRay>& sightLog() const { return sight; }
@@ -392,6 +460,44 @@ public:
         return fights.slotSpot(n.uuid, t.position, t.facing, n.position, out, engage, s, dt);
     }
     bool requestAttack(Npc& n) override { return fights.requestAttack(n.uuid); }
+
+    // Context steering (npc/ContextSteering.h): worked out every
+    // STEER_EVERY ticks per NPC (staggered by id); between, the
+    // last answer stands. The others to avoid are the NPCs in the
+    // same fight; walls and drops are one voxel probe each way.
+    glm::vec2 contextSteer(Npc& n, glm::vec3 goal, const Human& t, bool engage, float strike, float strafe) override {
+        if (!physics) return glm::vec2(0.0f);
+        bool due = (n.steerTick++ + (int)(n.uuid % steer::STEER_EVERY)) % steer::STEER_EVERY == 0;
+        if (!due && clock - n.steerAt < 0.2f && glm::length(goal - n.steerGoal) < 2.0f) return n.steerMap.move;
+        steer::Inputs in;
+        in.self = glm::vec2(n.position.x, n.position.z);
+        in.goal = glm::vec2(goal.x, goal.z);
+        in.target = glm::vec2(t.position.x, t.position.z);
+        in.strike = strike;
+        in.engage = engage;
+        in.targetSwinging = t.attack.active();
+        in.strafe = strafe;
+        if (const encounter::Encounter* e = fights.of(n.uuid))
+            for (EntityId id : e->npcs)
+                if (id != n.uuid)
+                    if (Human* o = find(id); o && !o->dead())
+                        in.others.push_back(glm::vec2(o->position.x, o->position.z));
+        nav::Pathfinder pf(*physics);
+        const int feet = (int)std::floor(n.position.y + 0.01f);
+        auto blocked = [&](glm::vec2 d) -> float {
+            glm::vec2 p = in.self + d * steer::LOOK_AHEAD;
+            int y = 0;
+            if (!pf.standAt((int)std::floor(p.x), (int)std::floor(p.y), feet, y)) return 1.0f;   // a wall, or a long drop
+            int dy = y - feet;
+            if (dy > (int)nav::STEP_UP) return 1.0f;              // too high to walk up
+            if (dy < -6) return 0.8f;                             // a drop
+            return 0.0f;
+        };
+        n.steerMap = steer::compute(in, blocked);
+        n.steerGoal = goal;
+        n.steerAt = clock;
+        return n.steerMap.move;
+    }
     void releaseAttack(Npc& n) override { fights.releaseAttack(n.uuid); }
     bool latestCrumb(EntityId p, glm::vec3& at) override {
         const encounter::Crumb* c = fights.latestCrumb(p);
@@ -435,6 +541,7 @@ public:
         if (replan && replansLeft > 0) {
             replansLeft--;
             nav::Pathfinder pf(*physics);
+            pf.climbCost = n.climb * Human::CLIMB_COST;
             nav::Result r = pf.find(n.position, goal);
             n.path = std::move(r.points);
             n.pathAt = 0;
@@ -579,6 +686,7 @@ private:
     std::vector<std::unique_ptr<Player>> playerList;
     NpcManager   npcList;
     std::unordered_map<EntityId, HumanIntent> intents;
+    std::unordered_map<EntityId, std::vector<HumanIntent>> queued;   // setInputs
     std::vector<SimEvent> events;
     std::vector<SightRay> sight;
     std::vector<Noise> noises;        // made this tick, heard next tick

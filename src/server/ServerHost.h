@@ -1,6 +1,7 @@
 #pragma once
 #include "GameSession.h"
 #include "SaveStaging.h"
+#include "../game/Kits.h"
 #include "../net/Protocol.h"
 #include "../net/Transport.h"
 #include <algorithm>
@@ -24,7 +25,9 @@
 //
 //   poll()        new connections, and what clients sent: Hello
 //                 (a player joins), Input (queued by the client's
-//                 tick), Bye
+//                 tick), Request (a change to the world: checked,
+//                 then done with game/WorldActions.h, the same code
+//                 single player runs), Loadout, Bye
 //   beforeStep()  each player's next input becomes its intent
 //   (the host steps the simulation)
 //   afterStep()   events out; voxel edits out; every
@@ -54,12 +57,25 @@ public:
         std::set<std::pair<int, int>> chunks;           // modified columns it's been sent
         std::string structuresSent;                     // the text last sent
         std::string invSent;                            // its inventory as it last knew it
+        WorldActions hands;                             // does its requests (what it says goes back as Notice)
+        float       requestBudget = REQUEST_BURST;      // requests it may still make now
+        uint32_t    lastRequestTick = 0;
+        uint32_t    lastHoe = 0, lastBlast = 0;         // ticks (their cooldowns)
     };
+
+    // Requests: at most REQUESTS_PER_SECOND, in bursts of
+    // REQUEST_BURST; aimed no further than the hands reach (plus
+    // REACH_SLACK: the third-person camera, and the body having
+    // moved since the client aimed)
+    static constexpr float REQUESTS_PER_SECOND = 20.0f, REQUEST_BURST = 30.0f;
+    static constexpr float REACH_SLACK = 20.0f;
+    static constexpr float BUILD_SLACK = 64.0f;          // a hammer's locked, nudged spot
+    size_t requestsDone = 0, requestsRefused = 0;       // (tests read these)
 
     int chunkRadius = 8;           // columns around a player it may need (its view)
     int chunksPerTick = 2;         // whole columns sent to one client a tick, at most
     int maxPlayers = 20;
-    std::vector<std::string> starterKit;   // items a new player starts with (server.toml)
+    std::vector<std::string> starterKit;   // items a new player starts with (server.toml; empty: kits.toml)
     std::string hostName = "host";         // a player not from a connection (the game hosting)
     std::function<void(const std::string&)> log = [](const std::string& s) { std::cout << s << "\n"; };
 
@@ -103,16 +119,39 @@ public:
         }
     }
 
-    // Each joined player's next input becomes its intent
+    // Each joined player's inputs for this tick. One body step per
+    // input the client sent, never one it didn't (Simulation::
+    // setInputs): a client whose frames are late waits a tick
+    // where it is; one that's behind (a hitch, then a burst) gets
+    // two steps a tick until it's caught up. Its prediction made
+    // exactly those steps, so hitches no longer pull it back.
+    // Only a long stall (over a second queued) drops inputs.
+    static constexpr size_t INPUT_SLACK = 3;     // queued beyond this: catch up, two a tick
+    static constexpr size_t INPUT_STALL = 60;    // queued beyond this: skip to the newest
+
     void beforeStep() {
         for (auto& cp : list) {
             Client& c = *cp;
             if (!c.joined || !c.player) continue;
-            HumanIntent in = c.held;
-            in.clearOneShots();
-            auto it = c.inputs.begin();
-            if (it != c.inputs.end()) {
-                in = it->second.intent;
+            while (c.inputs.size() > INPUT_STALL) { c.lastUsed = c.inputs.begin()->first; c.inputs.erase(c.inputs.begin()); }
+            size_t take = c.inputs.empty() ? 0 : c.inputs.size() > INPUT_SLACK ? 2 : 1;
+            // the next one missing: wait for it, unless enough came after
+            // it that it's surely lost
+            if (take && c.lastUsed != 0 && c.inputs.begin()->first > c.lastUsed + 1 && c.inputs.size() <= INPUT_SLACK)
+                take = 0;
+            std::vector<HumanIntent> steps;
+            for (size_t k = 0; k < take; k++) {
+                auto it = c.inputs.begin();
+                // a gap in the ticks (a lost packet the redundancy
+                // didn't cover): the held intent stands in for it
+                if (it->first > c.lastUsed + 1 && c.lastUsed != 0) {
+                    HumanIntent in = c.held;
+                    in.clearOneShots();
+                    steps.push_back(in);
+                    c.lastUsed++;
+                    continue;
+                }
+                HumanIntent in = it->second.intent;
                 glm::vec3 f = it->second.facing;
                 f.y = 0.0f;
                 if (glm::length(f) > 1e-3f) c.player->facing = glm::normalize(f);
@@ -121,11 +160,11 @@ public:
                 if (it->second.viewTick)
                     session.sim.setViewDelay(c.player->uuid, (int)serverTick - (int)it->second.viewTick);
                 c.inputs.erase(it);
-                // a client far behind (a stall): skip to its newest
-                while (c.inputs.size() > 6) { c.lastUsed = c.inputs.begin()->first; c.inputs.erase(c.inputs.begin()); }
+                c.held = in;
+                steps.push_back(in);
             }
-            c.held = in;
-            session.sim.setIntent(c.player->uuid, in);
+            if (!steps.empty()) session.sim.setIntent(c.player->uuid, steps.back());
+            session.sim.setInputs(c.player->uuid, std::move(steps));
         }
     }
 
@@ -239,9 +278,71 @@ private:
             }
             break;
         }
+        case proto::Msg::Request: {
+            if (!c.joined || !c.player) return;
+            WorldRequest q;
+            if (!proto::readRequest(r, q)) return;
+            std::string why = allowed(c, q);
+            if (!why.empty()) {
+                requestsRefused++;
+                c.conn->send(proto::text(proto::Msg::Notice, why), net::Channel::Reliable);
+                return;
+            }
+            requestsDone++;
+            c.hands.act(q, *c.player, *session.editor, *session.structs);
+            break;
+        }
         case proto::Msg::Bye: c.conn->close(); break;
         default: break;          // unknown: ignored
         }
+    }
+
+    // May this player do this? "" if so, else why not (sent back)
+    std::string allowed(Client& c, const WorldRequest& q) {
+        Player& p = *c.player;
+        // the budget fills with time
+        float since = (float)(serverTick - c.lastRequestTick) / (float)proto::TICK_HZ;
+        c.lastRequestTick = serverTick;
+        c.requestBudget = std::min(REQUEST_BURST, c.requestBudget + since * REQUESTS_PER_SECOND);
+        if (c.requestBudget < 1.0f) return "";                          // too fast: dropped quietly
+        c.requestBudget -= 1.0f;
+        if (!p.rules().hasBody || p.dead()) return "you can't do that now";
+        using Op = WorldRequest::Op;
+        // the item used: carried (the server's inventory), and the
+        // right kind for what's asked
+        const Inventory& inv = p.activeInventory();
+        const ItemDef& d = gItems.get(q.item);
+        if (q.item && !inv.infinite && inv.count(q.item) <= 0) return "you don't have that";
+        if (q.item && !d.valid()) return "unknown item";
+        bool hammer = d.is(IC_TOOL) && d.tool == ToolKind::Hammer;
+        switch (q.op) {
+        case Op::Place:     if (!d.is(IC_BLOCK) && !d.is(IC_DECOR)) return "nothing to place"; break;
+        case Op::Piece:
+        case Op::Blueprint: if (!hammer) return "that needs the hammer"; break;
+        case Op::Hoe:       if (d.tool != ToolKind::Hoe) return "that needs the hoe"; break;
+        case Op::Blast:     if (d.tool != ToolKind::Blast) return "that needs the blast wand"; break;
+        case Op::AxeHit:    if (d.tool != ToolKind::Axe) return "that needs an axe"; break;
+        case Op::BreakCube: if (d.tool != ToolKind::Pickaxe || d.cubeSize <= 0) return "that needs a pickaxe"; break;
+        default: break;
+        }
+        // cooldowns the client keeps too
+        auto cool = [&](uint32_t& last, float s) {
+            if (last && serverTick - last < (uint32_t)(s * proto::TICK_HZ) - 2) return false;
+            last = serverTick;
+            return true;
+        };
+        if (q.op == Op::Hoe && !cool(c.lastHoe, WorldActions::HOE_EVERY)) return "";
+        if (q.op == Op::Blast && !cool(c.lastBlast, WorldActions::BLAST_COOLDOWN)) return "";
+        // in reach of the eyes
+        bool survival = p.mode == GameMode::Survival;
+        float reach = (survival ? WorldActions::SURVIVAL_REACH : WorldActions::DEV_REACH) + REACH_SLACK;
+        glm::vec3 eye = p.position + glm::vec3(0.0f, p.height * 0.9f, 0.0f);
+        auto far = [&](glm::vec3 at, float limit) { return glm::length(at - eye) > limit; };
+        if (q.op == Op::AxeHit ? far(q.point, reach) : far(glm::vec3(q.pos) + 0.5f, reach)) return "too far away";
+        if ((q.op == Op::Piece || q.op == Op::Blueprint) && far(glm::vec3(q.lo), reach + BUILD_SLACK)) return "too far away";
+        if (q.op == Op::BreakCube && (far(glm::vec3(q.lo), reach + d.cubeSize) || far(glm::vec3(q.hi), reach + 2.0f * d.cubeSize)))
+            return "too far away";
+        return "";
     }
 
     std::string playerPath(const Client& c, bool forWrite, const std::string& stage = "") const {
@@ -272,23 +373,25 @@ private:
             p.devInventory.finishLoad();
         } else {
             proto::kvRead(look, [&](const std::string& k, const std::string& v) { p.appearance.read(k, v); });
-            for (const std::string& item : starterKit)
-                if (uint16_t id = gItems.find(item)) {
-                    p.inventory.add(id, 1);
-                    const ItemDef& d = gItems.get(id);
-                    int slot = p.inventory.find(id);
-                    if (d.canFight() && p.inventory.equip[(int)EquipSlot::Weapon1] < 0) p.inventory.equipFrom(slot, EquipSlot::Weapon1);
-                    else if (d.worn >= 0) p.inventory.equipFrom(slot, equipForWorn((WornSlot)d.worn));
-                }
+            // server.toml's starter_kit, or the game's kit (kits.toml)
+            std::vector<KitEntry> kit;
+            for (const std::string& item : starterKit) kit.push_back({ item, 1 });
+            Kits::give(p.inventory, kit.empty() ? gKits.player : kit, true);
         }
         c.invSent = invText(p);
         c.joined = true;
+        // its requests: done for it, what's said sent back
+        c.hands.chests = &session.chests;
+        c.hands.wood = nullptr;                    // (clients don't see falling logs yet: the wood goes to the player)
+        auto conn = c.conn;
+        c.hands.onSay = [conn](const std::string& s) { conn->send(proto::text(proto::Msg::Notice, s), net::Channel::Reliable); };
         proto::Welcome w;
         w.you = p.uuid;
         w.worldName = gWorldSave.getName();
         { std::ifstream wf(session.folder() + "/world.vxrp"); std::stringstream ss; ss << wf.rdbuf(); w.worldInfo = ss.str(); }
         w.player = proto::kvText([&](std::ostream& o) { p.write(o); });
         w.serverTick = serverTick;
+        w.names = proto::localNames();
         c.conn->send(proto::welcome(w), net::Channel::Reliable);
         // the columns that differ from the seed: the client waits for these
         c.conn->send(proto::modified(std::vector<std::pair<int, int>>(modified.begin(), modified.end())), net::Channel::Reliable);

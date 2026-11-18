@@ -3,11 +3,14 @@
 #include "../entity/Human.h"
 #include "../chunk/Chunk.h"
 #include "../game/Inventory.h"
+#include "../game/WorldActions.h"
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -16,21 +19,34 @@
 // ══════════════════════════════════════════════════════════
 // Every message is one packet: a Msg byte, then its fields
 // (net/Wire.h). The server is the authority; a client sends only
-// what its player wants (Input) and asks for things (later:
-// Request). VERSION goes up whenever a message changes shape: a
-// client with another version is refused at Hello.
+// what its player wants (Input) and asks for changes to the
+// world (Request). VERSION goes up whenever a message changes
+// shape: a client with another version is refused at Hello.
+//
+// Blocks and items travel as numbers, but two builds can number
+// them differently (a block added to blocks.toml, an item moved
+// in items.toml). So the Welcome carries the server's names for
+// its numbers, and the client turns every number it's sent, and
+// every one it sends, into the other side's (IdMap). Only a
+// block or item one side has never heard of is lost: a block
+// becomes stone if it was solid, else air, and the client is
+// told which names it's missing.
 //
 //   client → server
 //     Hello       version, name, look            (reliable, once)
 //     Input       the last few ticks' intents     (unreliable, every tick)
 //     Bye                                        (reliable)
+//     Request     a change to the world: break, place, build,
+//                 hoe, blast, door … (game/WorldActions.h). The
+//                 server checks it and does it        (reliable)
 //     Loadout     how you've arranged your inventory: every slot,
 //                 what's equipped, the selected slots, weapon drawn.
 //                 The server accepts it only if it holds exactly
 //                 the items the server has for you (moved, not made)
 //   server → client
 //     Welcome     your id, the world's settings (world.vxrp), the
-//                 server's tick, where you are    (reliable, once)
+//                 server's tick, where you are, its names for
+//                 block and item numbers           (reliable, once)
 //     Refused     why                             (reliable, then closed)
 //     ChunkData   a column that differs from what the seed makes
 //     Edits       voxels changed (x, y, z, block)
@@ -47,14 +63,14 @@
 //                 waits for their ChunkData instead of generating them
 namespace proto {
 
-constexpr uint32_t VERSION = 1;
+constexpr uint32_t VERSION = 2;       // 2: Request, the names in Welcome
 constexpr int TICK_HZ = 60;            // the simulation
 constexpr int SNAPSHOT_EVERY = 3;      // ticks between snapshots (20 Hz)
 constexpr int INPUT_REDUNDANCY = 4;    // inputs repeated in each Input packet (loss)
 constexpr float VIEW_RANGE = 220.0f;   // voxels: bodies further away aren't sent
 
 enum class Msg : uint8_t {
-    Hello = 1, Input = 2, Bye = 3, Loadout = 4,
+    Hello = 1, Input = 2, Bye = 3, Loadout = 4, Request = 5,
     Welcome = 20, Refused = 21, ChunkData = 22, Edits = 23, Structures = 24,
     Spawn = 25, Despawn = 26, Snapshot = 27, Event = 28, Notice = 29, Modified = 30, PlayerState = 31,
 };
@@ -73,14 +89,101 @@ inline void kvRead(const std::string& text, const std::function<void(const std::
     }
 }
 
+// ── Names for numbers ─────────────────────────────────────
+struct Names {
+    struct Block { uint16_t id; std::string name; bool solid; };
+    struct Item  { uint16_t id; std::string name; };
+    std::vector<Block> blocks;
+    std::vector<Item>  items;
+};
+// This build's (the server sends its own)
+inline Names localNames() {
+    Names n;
+    for (size_t i = 1; i < gRegistry.size(); i++) {
+        const VoxelTypeDef& d = gRegistry.get((uint16_t)i);
+        if (d.id == i && !d.name.empty()) n.blocks.push_back({ (uint16_t)i, d.name, d.isSolid() });
+    }
+    for (const ItemDef& d : gItems.all())
+        if (d.valid()) n.items.push_back({ d.id, d.name });
+    return n;
+}
+inline void putNames(wire::Writer& w, const Names& n) {
+    w.var(n.blocks.size());
+    for (const auto& b : n.blocks) { w.u16(b.id); w.str(b.name); w.boolean(b.solid); }
+    w.var(n.items.size());
+    for (const auto& it : n.items) { w.u16(it.id); w.str(it.name); }
+}
+inline Names getNames(wire::Reader& r) {
+    Names n;
+    uint64_t nb = r.var();
+    for (uint64_t i = 0; i < nb && i < 65536 && r.ok(); i++) { Names::Block b; b.id = r.u16(); b.name = r.str(128); b.solid = r.boolean(); n.blocks.push_back(b); }
+    uint64_t ni = r.var();
+    for (uint64_t i = 0; i < ni && i < 65536 && r.ok(); i++) { Names::Item it; it.id = r.u16(); it.name = r.str(128); n.items.push_back(it); }
+    return n;
+}
+
+// The client's: server numbers ↔ its own. Empty (before the
+// Welcome, or the server's own side): numbers pass unchanged.
+struct IdMap {
+    std::vector<uint16_t> blockIn, itemIn;                // server id → ours (0: none)
+    std::unordered_map<uint16_t, uint16_t> itemOut;       // ours → the server's
+    std::vector<std::string> missingBlocks, missingItems; // names the server has and we don't
+    std::vector<std::string> extraItems;                  // ours the server doesn't have
+    bool active = false;
+    int  renumbered = 0;                                  // known to both, under another number
+
+    void build(const Names& server) {
+        *this = IdMap();
+        active = true;
+        uint16_t top = 0;
+        for (const auto& b : server.blocks) top = std::max(top, b.id);
+        blockIn.assign((size_t)top + 1, 0);
+        for (const auto& b : server.blocks) {
+            uint16_t ours = gRegistry.getIDByName(b.name);
+            if (!ours && b.name != "air") { missingBlocks.push_back(b.name); ours = b.solid ? BLOCK_STONE : BLOCK_AIR; }
+            else if (ours != b.id) renumbered++;
+            blockIn[b.id] = ours;
+        }
+        top = 0;
+        for (const auto& it : server.items) top = std::max(top, it.id);
+        itemIn.assign((size_t)top + 1, 0);
+        for (const auto& it : server.items) {
+            uint16_t ours = gItems.find(it.name);
+            if (!ours) { missingItems.push_back(it.name); continue; }
+            if (ours != it.id) renumbered++;
+            itemIn[it.id] = ours;
+            itemOut[ours] = it.id;
+        }
+        for (const ItemDef& d : gItems.all())
+            if (d.valid() && !itemOut.count(d.id)) extraItems.push_back(d.name);
+    }
+    uint16_t block(uint16_t s) const {
+        if (!active) return s < gRegistry.size() ? s : (uint16_t)BLOCK_AIR;
+        return s < blockIn.size() ? blockIn[s] : (uint16_t)BLOCK_AIR;
+    }
+    uint16_t item(uint16_t s) const {
+        if (!active) return s;
+        return s < itemIn.size() ? itemIn[s] : 0;
+    }
+    uint16_t itemToServer(uint16_t ours) const {
+        if (!active || !ours) return ours;
+        auto it = itemOut.find(ours);
+        return it == itemOut.end() ? 0 : it->second;
+    }
+};
+
 // ── Intents ───────────────────────────────────────────────
-inline void putIntent(wire::Writer& w, const HumanIntent& in) {
+//   ids   the client's IdMap: the item used, as the server numbers it
+inline void putIntent(wire::Writer& w, const HumanIntent& in, const IdMap* ids = nullptr) {
+    uint16_t use = ids ? ids->itemToServer(in.useItem) : in.useItem;
     uint16_t f = (in.sprint ? 1 : 0) | (in.crouch ? 2 : 0) | (in.jump ? 4 : 0) | (in.dodge ? 8 : 0) | (in.fly ? 16 : 0) |
-                 (in.flyFast ? 32 : 0) | (in.attackLight ? 64 : 0) | (in.attackHeavy ? 128 : 0) | (in.guard ? 256 : 0);
+                 (in.flyFast ? 32 : 0) | (in.attackLight ? 64 : 0) | (in.attackHeavy ? 128 : 0) | (in.guard ? 256 : 0) |
+                 (use ? 512 : 0);
     w.u16(f);
     w.vec2(in.move);
     w.f32(in.speedScale);
     if (in.fly) w.vec3(in.flyMove);
+    if (use) w.u16(use);
 }
 inline HumanIntent getIntent(wire::Reader& r) {
     HumanIntent in;
@@ -91,6 +194,7 @@ inline HumanIntent getIntent(wire::Reader& r) {
     if (glm::length(in.move) > 1.001f) in.move = glm::normalize(in.move);        // no faster than walking allows
     in.speedScale = std::clamp(r.f32(), 0.0f, 1.0f);
     if (in.fly) in.flyMove = r.vec3();
+    if (f & 512) in.useItem = r.u16();
     return in;
 }
 
@@ -101,10 +205,10 @@ struct InputFrame {
     float       pitch = 0.0f;       // degrees (aim)
     uint32_t    viewTick = 0;       // the server tick the client was showing others at (lag compensation)
 };
-inline std::vector<uint8_t> input(const std::vector<InputFrame>& frames) {
+inline std::vector<uint8_t> input(const std::vector<InputFrame>& frames, const IdMap* ids = nullptr) {
     wire::Writer w; w.u8((uint8_t)Msg::Input);
     w.u8((uint8_t)frames.size());
-    for (const InputFrame& f : frames) { w.u32(f.tick); putIntent(w, f.intent); w.vec3(f.facing); w.f32(f.pitch); w.u32(f.viewTick); }
+    for (const InputFrame& f : frames) { w.u32(f.tick); putIntent(w, f.intent, ids); w.vec3(f.facing); w.f32(f.pitch); w.u32(f.viewTick); }
     return w.buf;
 }
 inline std::vector<InputFrame> readInput(wire::Reader& r) {
@@ -129,13 +233,49 @@ struct Welcome {
     std::string worldName, worldInfo;   // world.vxrp text: the client builds the same generator
     std::string player;                  // your player file (key=value): position, inventory, mode …
     uint32_t    serverTick = 0;
+    Names       names;                   // the server's block and item numbers
 };
 inline std::vector<uint8_t> welcome(const Welcome& m) {
     wire::Writer w; w.u8((uint8_t)Msg::Welcome); w.u64(m.you); w.str(m.worldName); w.str(m.worldInfo); w.str(m.player); w.u32(m.serverTick);
+    putNames(w, m.names);
     return w.buf;
 }
 inline Welcome readWelcome(wire::Reader& r) {
-    Welcome m; m.you = r.u64(); m.worldName = r.str(256); m.worldInfo = r.str(1 << 16); m.player = r.str(1 << 16); m.serverTick = r.u32(); return m;
+    Welcome m; m.you = r.u64(); m.worldName = r.str(256); m.worldInfo = r.str(1 << 16); m.player = r.str(1 << 16); m.serverTick = r.u32();
+    m.names = getNames(r);
+    return m;
+}
+
+// ── Requests (game/WorldActions.h) ────────────────────────
+// Items as the server numbers them; a piece by its name; a
+// blueprint as its text (a player's copies are only on their
+// computer)
+inline std::vector<uint8_t> request(const WorldRequest& q, const IdMap* ids = nullptr) {
+    wire::Writer w; w.u8((uint8_t)Msg::Request);
+    w.u8((uint8_t)q.op); w.u16(ids ? ids->itemToServer(q.item) : q.item);
+    w.ivec3(q.pos); w.ivec3(q.normal); w.ivec3(q.lo); w.ivec3(q.hi);
+    w.u8((uint8_t)(q.rot & 3)); w.u8((uint8_t)q.mode);
+    w.str(q.name);
+    w.boolean(q.style.rollLoot); w.boolean(q.style.sitePrep); w.u8((uint8_t)std::clamp(q.style.sink, 0, 255));
+    w.var(q.style.materials.size());
+    for (auto& [k, v] : q.style.materials) { w.str(k); w.str(v); }
+    w.vec3(q.point); w.vec3(q.dir); w.f32(q.speed);
+    return w.buf;
+}
+inline bool readRequest(wire::Reader& r, WorldRequest& q) {
+    uint8_t op = r.u8();
+    if (op == 0 || op >= (uint8_t)WorldRequest::Op::COUNT) return false;
+    q.op = (WorldRequest::Op)op; q.item = r.u16();
+    q.pos = r.ivec3(); q.normal = glm::clamp(r.ivec3(), glm::ivec3(-1), glm::ivec3(1)); q.lo = r.ivec3(); q.hi = r.ivec3();
+    q.rot = r.u8() & 3; q.mode = r.u8();
+    q.name = r.str(1 << 20);
+    q.style.rollLoot = r.boolean(); q.style.sitePrep = r.boolean(); q.style.sink = std::min<int>(r.u8(), 24);
+    uint64_t n = r.var();
+    for (uint64_t i = 0; i < n && i < 64 && r.ok(); i++) { std::string k = r.str(64); q.style.materials[k] = r.str(64); }
+    q.point = r.vec3(); q.dir = r.vec3(); q.speed = r.f32();
+    if (!std::isfinite(q.speed) || !std::isfinite(q.point.x + q.point.y + q.point.z) || !std::isfinite(q.dir.x + q.dir.y + q.dir.z)) return false;
+    q.speed = std::clamp(q.speed, 0.0f, 400.0f);
+    return r.ok();
 }
 
 inline std::vector<uint8_t> text(Msg kind, const std::string& s) {
@@ -154,7 +294,7 @@ inline std::vector<uint8_t> chunkData(int cx, int cz, Chunk& ch) {
     }
     return w.buf;
 }
-inline bool readChunkData(wire::Reader& r, int& cx, int& cz, Chunk& out) {
+inline bool readChunkData(wire::Reader& r, int& cx, int& cz, Chunk& out, const IdMap* ids = nullptr) {
     cx = (int)r.u32(); cz = (int)r.u32();
     if (r.u8() != (uint8_t)SECTIONS) return false;
     for (int sct = 0; sct < SECTIONS; sct++) {
@@ -166,7 +306,8 @@ inline bool readChunkData(wire::Reader& r, int& cx, int& cz, Chunk& out) {
         for (size_t i = 0; i < n; i++) {
             rle->ends[i] = (uint32_t)r.var(); rle->types[i] = r.u16();
             if (i > 0 && rle->ends[i] <= last) return false;      // runs only go forward
-            if (rle->types[i] >= gRegistry.size()) rle->types[i] = BLOCK_AIR;   // a block this client doesn't know
+            rle->types[i] = ids ? ids->block(rle->types[i])                        // the server's number → ours
+                          : rle->types[i] < gRegistry.size() ? rle->types[i] : (uint16_t)BLOCK_AIR;
             last = rle->ends[i];
         }
         if (!r.ok() || last > (uint32_t)VOXEL_COUNT) return false;
@@ -181,11 +322,11 @@ inline std::vector<uint8_t> edits(const std::vector<VoxelEdit>& e) {
     for (const VoxelEdit& v : e) { w.ivec3(v.p); w.u16(v.block); }
     return w.buf;
 }
-inline std::vector<VoxelEdit> readEdits(wire::Reader& r) {
+inline std::vector<VoxelEdit> readEdits(wire::Reader& r, const IdMap* ids = nullptr) {
     std::vector<VoxelEdit> out;
     uint64_t n = r.var();
     if (n > (1u << 22)) return out;
-    for (uint64_t i = 0; i < n && r.ok(); i++) { VoxelEdit v; v.p = r.ivec3(); v.block = r.u16(); out.push_back(v); }
+    for (uint64_t i = 0; i < n && r.ok(); i++) { VoxelEdit v; v.p = r.ivec3(); v.block = r.u16(); if (ids) v.block = ids->block(v.block); out.push_back(v); }
     return out;
 }
 
@@ -274,9 +415,9 @@ struct LoadoutMsg {
     int  selected = Inventory::FIRST_MAIN, offhand = -1, activeWeapon = 0;
     bool combatStance = false;
 };
-inline std::vector<uint8_t> loadout(const Inventory& inv, bool combatStance) {
+inline std::vector<uint8_t> loadout(const Inventory& inv, bool combatStance, const IdMap* ids = nullptr) {
     wire::Writer w; w.u8((uint8_t)Msg::Loadout);
-    for (const ItemStack& s : inv.slots) { w.u16(s.itemID); w.u16(s.count); }
+    for (const ItemStack& s : inv.slots) { w.u16(ids ? ids->itemToServer(s.itemID) : s.itemID); w.u16(s.count); }
     for (int e : inv.equip) w.u8((uint8_t)(int8_t)e);
     w.u8((uint8_t)inv.selected); w.u8((uint8_t)(int8_t)inv.offhand); w.u8((uint8_t)inv.activeWeapon); w.boolean(combatStance);
     return w.buf;

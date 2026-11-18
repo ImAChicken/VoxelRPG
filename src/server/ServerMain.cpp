@@ -55,7 +55,7 @@ struct ServerConfig {
     int         maxPlayers = 20;
     float       checkpointSeconds = 300.0f;     // autosave into staging this often
     std::string defaultTrust = "standard";      // full | standard | thin (phase 4)
-    std::vector<std::string> starterKit = { "iron_sword", "iron_axe", "builders_hammer", "leather_jerkin" };
+    std::vector<std::string> starterKit;         // empty: the game's kit (data/registry/kits.toml)
     std::string newWorld = "flat";              // made if the world isn't there: flat | classic | island | none
     uint64_t    newSeed = 0;                    // 0: from the clock
 
@@ -91,7 +91,7 @@ struct ServerConfig {
           << "default_trust = \"" << defaultTrust << "\"   # full | standard | thin\n"
           << "starter_kit = [";
         for (size_t i = 0; i < starterKit.size(); i++) f << (i ? ", " : "") << "\"" << starterKit[i] << "\"";
-        f << "]   # what a new player starts with\n"
+        f << "]   # what a new player starts with (empty: the game's kit, data/registry/kits.toml)\n"
           << "new_world = \"" << newWorld << "\"        # if the world isn't there, make one: flat | classic | island | none\n"
           << "new_world_seed = " << newSeed << "         # 0: a new seed each time\n";
     }
@@ -122,6 +122,7 @@ bool loadData() {
     gHeldModels.loadDir("data/models/held");
     gFactions.load("data/registry/factions.toml");
     gLoot.load("data/registry/loot.toml");
+    gKits.load("data/registry/kits.toml");
     gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
     gAnims.load("data/animations", "data/animations/retarget.toml");     // poses for hits (sim/BodyPoses.h)
     gAnimMap.load("data/animations/anim_map.toml");

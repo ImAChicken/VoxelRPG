@@ -248,6 +248,13 @@ private:
         pickGrid(ui, look::EXPRESSIONS, look::count(look::EXPRESSIONS), edit.expression, 3);
         label(ui, "Eye colour");
         swatches(ui, gPalettes.eyes, edit.eyes);
+        // Where the eyes sit on the face (the brows move with them)
+        label(ui, "Eye height");
+        {
+            float v = (float)-edit.eyeHeight;          // right = higher
+            slider(ui, 90, &v, -(float)Appearance::EYE_SHIFT, (float)Appearance::EYE_SHIFT);
+            edit.eyeHeight = -(int)std::lround(v);
+        }
     }
 
     void hairTab(UIRenderer& ui) {

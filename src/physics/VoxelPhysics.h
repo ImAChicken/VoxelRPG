@@ -40,6 +40,31 @@ public:
     void setWorld(ChunkManager& w) override { world = &w; }
 
     // ── One tick of movement ──────────────────────────────
+    // ── Slopes ────────────────────────────────────────────
+    // Walking uphill is slower, for every body (players and NPCs
+    // alike). The grade is how much it has risen per voxel walked
+    // over the last ~0.4 s, measured only while on the ground (a
+    // jump up a ledge isn't a climb; steps up are). Each body's
+    // 'climb' scales it: a goat could have 0.2, a heavy brute 1.5.
+    static void updateGrade(Human& h, float dt) {
+        glm::vec3 d = h.position - h.gradeFrom;
+        float run = glm::length(glm::vec2(d.x, d.z));
+        bool both = h.grounded && h.gradeGrounded;
+        h.gradeFrom = h.position;
+        h.gradeGrounded = h.grounded;
+        if (run > 6.0f || std::fabs(d.y) > 8.0f) { h.gradeRise = h.gradeRun = h.grade = 0.0f; return; }   // a teleport
+        if (!both) return;
+        float k = std::min(1.0f, dt / 0.4f);
+        h.gradeRise += (d.y - h.gradeRise) * k;
+        h.gradeRun  += (run - h.gradeRun) * k;
+        h.grade = h.gradeRun > 0.02f ? h.gradeRise / h.gradeRun : 0.0f;
+    }
+    static float slopeFactor(const Human& h) {
+        if (h.grade > 0.0f)
+            return std::max(Human::MIN_CLIMB_SPEED, 1.0f / (1.0f + h.grade * h.climb * Human::CLIMB_COST));
+        return 1.0f + std::min(-h.grade, 1.0f) * Human::DOWNHILL_BONUS;
+    }
+
     void moveHuman(Human& h, const HumanIntent& intent,
                    float dt) override {
         if (!world) return;
@@ -163,10 +188,12 @@ public:
         // ── Horizontal velocity ───────────────────────────
         glm::vec2 wish  = wishDir(in);
         bool moving     = (wish.x != 0.0f || wish.y != 0.0f);
+        updateGrade(h, dt);
         float speed     = (h.crouching ? Human::CROUCH_SPEED
                         : in.sprint   ? Human::SPRINT_SPEED
                                       : Human::WALK_SPEED) * in.speedScale
-                          * (h.guarding ? combat::GUARD_SPEED : 1.0f);
+                          * (h.guarding ? combat::GUARD_SPEED : 1.0f)
+                          * slopeFactor(h);
         h.sprinting = in.sprint && moving && !h.crouching && in.speedScale >= 1.0f;
 
         glm::vec2 vh(h.velocity.x, h.velocity.z);

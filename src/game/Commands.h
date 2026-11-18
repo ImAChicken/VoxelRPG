@@ -394,6 +394,49 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
                   std::to_string(b.roads) + " roads" + (b.failed ? ", " + std::to_string(b.failed) + " didn't fit" : ""));
         });
 
+    // ── The combat layout (game/CombatKit.h) ─────────────
+    reg.add("kit", "kit [show | off <1|2> <item> | slot <1|2> <x|y|b> <1-3> <item> | charm <1|2> <1-2> <item> | quick <1-8> <item> | reset]",
+        "the two loadouts (off hand, X / Y / B, charms) and the 8 quick options; - clears. The inventory screen does the same by dragging",
+        [](C& c, const Args& a) {
+            CombatKit& k = c.player.kit;
+            Inventory& inv = c.player.inventory;
+            auto item = [&](const std::string& n) -> uint16_t {
+                if (n == "-") return 0;
+                uint16_t id = gItems.find(n);
+                if (!id) { c.log("no item " + n); return 0; }
+                if (inv.find(id) < 0) { c.log("you don't carry " + n + " (give it first)"); return 0; }
+                return id;
+            };
+            auto num = [](const std::string& s, int hi) { int v = std::atoi(s.c_str()) - 1; return v >= 0 && v < hi ? v : -1; };
+            std::string sub = a.empty() ? "show" : a[0];
+            if (sub == "reset") { k = CombatKit(); }
+            else if (sub == "off" && a.size() >= 3) { int s = num(a[1], 2); if (s >= 0) k.sets[s].off = item(a[2]); }
+            else if (sub == "slot" && a.size() >= 5) {
+                int s = num(a[1], 2), i = num(a[3], 3), b = a[2] == "x" ? 0 : a[2] == "y" ? 1 : a[2] == "b" ? 2 : -1;
+                if (s >= 0 && i >= 0 && b >= 0) k.sets[s].slots[b][i] = item(a[4]);
+            } else if (sub == "charm" && a.size() >= 4) {
+                int s = num(a[1], 2), i = num(a[2], 2);
+                if (s >= 0 && i >= 0) k.sets[s].charms[i] = item(a[3]);
+            } else if (sub == "quick" && a.size() >= 3) { int i = num(a[1], 8); if (i >= 0) k.quick[i] = item(a[2]); }
+            else if (sub != "show") { c.log("usage: kit [show | off <1|2> <item> | slot <1|2> <x|y|b> <1-3> <item> | charm <1|2> <1-2> <item> | quick <1-8> <item> | reset]"); return; }
+            k.tidy(inv);
+            auto nm = [](uint16_t id) { return id ? gItems.get(id).name : std::string("-"); };
+            for (int i = 0; i < CombatKit::SETS; i++) {
+                const WeaponSet& w = k.sets[i];
+                std::string line = (i == k.setAt ? "> " : "  ") + std::to_string(i + 1) + ": " + nm(k.primary(inv, i)) + " + " + nm(w.off);
+                const char* sl[3] = { "  X ", "  Y ", "  B " };
+                for (int j = 0; j < 3; j++) {
+                    line += sl[j];
+                    for (int n = 0; n < CombatKit::PER_SLOT; n++) line += (n ? "," : "") + nm(w.slots[j][n]);
+                }
+                line += "  charms " + nm(w.charms[0]) + "," + nm(w.charms[1]);
+                c.log(line);
+            }
+            std::string q = "  quick:";
+            for (uint16_t id : k.quick) q += " " + nm(id);
+            c.log(q);
+        });
+
     // ── Settings ──────────────────────────────────────────
     reg.add("material", "material <block>", "block used by fill, brush and replace tools",
         [badBlock](C& c, const Args& a) {

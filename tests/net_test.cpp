@@ -112,6 +112,7 @@ int main() {
     std::printf("moving\n");
     Player* sa = sim.findPlayer(A.w->myId);
     glm::vec3 start = sa->position;
+    const int joinCorrections = A.w->corrections;     // settling in at the spawn
     A.intent.move = glm::vec2(0.0f, -1.0f);
     tickAll(120);
     A.intent.move = glm::vec2(0.0f);
@@ -120,7 +121,8 @@ int main() {
     check(moved > 30.0f, "alice walks on the server (" + std::to_string((int)moved) + " voxels)");
     float off = glm::length(A.w->me.position - sa->position);
     check(off < 0.5f, "her predicted position matches the server's (" + std::to_string(off) + " voxels off)");
-    check(A.w->corrections < 10, "with few corrections (" + std::to_string(A.w->corrections) + ")");
+    check(A.w->corrections - joinCorrections < 4, "with few corrections while walking (" + std::to_string(A.w->corrections - joinCorrections) +
+          "; " + std::to_string(joinCorrections) + " settling in at the spawn)");
     proto::BodyState seen;
     check(B.w->sample(A.w->myId, seen) && glm::length(seen.pos - sa->position) < 3.0f, "bob sees her where she is, despite the loss");
     check(B.w->bodies.count(A.w->myId) && B.w->bodies[A.w->myId].look.hairStyle == 3 && B.w->bodies[A.w->myId].info.name == "alice",
@@ -139,6 +141,55 @@ int main() {
     A.intent.move = glm::vec2(0.0f);
     tickAll(20);
     check(samples == 60 && worstJump < 2.0f, "no jumps between frames (largest step " + std::to_string(worstJump) + " voxels; walking is 0.5 a tick)");
+
+    std::printf("sprint jumping\n");
+    {
+        int c0 = A.w->corrections;
+        A.w->worstError = 0.0f;
+        A.intent.move = glm::vec2(0.0f, 1.0f);
+        A.intent.sprint = true;
+        for (int i = 0; i < 300; i++) {
+            if (i % 35 == 0) A.intent.jump = true;
+            tickAll(1);
+        }
+        A.intent = HumanIntent();
+        tickAll(30);
+        float off = glm::length(A.w->me.position - sa->position);
+        std::printf("    corrections %d, worst error %.2f voxels, off at the end %.2f\n", A.w->corrections - c0, A.w->worstError, off);
+        check(A.w->corrections - c0 < 6, "sprint jumping with 50 ms lag: few corrections (" + std::to_string(A.w->corrections - c0) + ")");
+        check(off < 0.5f, "and she ends where the server has her");
+
+        // the same with her frames hitching: some ticks she sends
+        // nothing, then several at once (chunk loading, a slow frame)
+        c0 = A.w->corrections;
+        A.w->worstError = 0.0f;
+        A.intent.move = glm::vec2(0.0f, -1.0f);
+        A.intent.sprint = true;
+        int owed = 0;
+        for (int i = 0; i < 300; i++) {
+            if (i % 35 == 0) A.intent.jump = true;
+            bool hitch = (i % 23) == 5 || (i % 23) == 6;
+            gNow += DT;
+            host.poll();
+            host.beforeStep();
+            std::vector<glm::vec3> pts{ spawn };
+            for (auto& p : sim.players()) pts.push_back(p->position);
+            keeper.update(pts);
+            session.updateEdits();
+            sim.step(DT);
+            host.afterStep();
+            B.frame();
+            if (hitch) { owed++; continue; }
+            for (int k = 0; k <= owed; k++) A.frame();
+            owed = 0;
+        }
+        A.intent = HumanIntent();
+        tickAll(40);
+        off = glm::length(A.w->me.position - sa->position);
+        std::printf("    hitching: corrections %d, worst error %.2f voxels, off at the end %.2f\n", A.w->corrections - c0, A.w->worstError, off);
+        check(A.w->corrections - c0 < 6, "with her frames hitching: still few corrections (" + std::to_string(A.w->corrections - c0) + ")");
+        check(off < 0.5f, "  and she ends where the server has her");
+    }
 
     std::printf("edits\n");
     glm::ivec3 near((int)sa->position.x + 3, (int)spawn.y + 2, (int)sa->position.z);
@@ -175,6 +226,137 @@ int main() {
         tickAll(20);
         check(mine.count(PL) == 6, "what the server adds shows up in the client's inventory");
         check(B.w->bodies[A.w->myId].info.gear.empty(), "bob is told what alice wears (nothing yet)");
+    }
+
+    std::printf("changing the world by request\n");
+    {
+        // alice's tools, given on the server (it owns her inventory)
+        const uint16_t PL = gItems.find("planks"), STONE_IT = gItems.find("stone"), HAMMER = gItems.find("builders_hammer"),
+                       HOE = gItems.find("hoe"), BLAST = gItems.find("blast_wand");
+        sa->inventory.add(HAMMER, 1); sa->inventory.add(HOE, 1); sa->inventory.add(BLAST, 1); sa->inventory.add(STONE_IT, 99);
+        tickAll(20);
+        const int ground = (int)std::floor(sa->position.y) - 1;          // the top voxel of the flat ground
+        const glm::ivec3 me((int)std::floor(sa->position.x), ground, (int)std::floor(sa->position.z));
+        auto ask = [&](WorldRequest::Op op, uint16_t item, glm::ivec3 pos, glm::ivec3 normal = glm::ivec3(0, 1, 0)) {
+            WorldRequest q; q.op = op; q.item = item; q.pos = pos; q.normal = normal;
+            return q;
+        };
+        auto both = [&](glm::ivec3 p) { return std::make_pair(session.world->typeAtVoxel(p.x, p.y, p.z), A.w->world->typeAtVoxel(p.x, p.y, p.z)); };
+        size_t done0 = host.requestsDone, refused0 = host.requestsRefused;
+
+        // place a plank on the ground beside her, then break it
+        glm::ivec3 at = me + glm::ivec3(6, 0, 0);
+        int planks = sa->inventory.count(PL);
+        A.w->request(ask(WorldRequest::Op::Place, PL, at));
+        tickAll(20);
+        check(both(at + glm::ivec3(0, 1, 0)) == std::make_pair(PLANKS, PLANKS) && sa->inventory.count(PL) == planks - 1 &&
+              A.w->me.inventory.count(PL) == planks - 1, "a plank placed: on the server, on her screen, one fewer in her pack");
+        A.w->request(ask(WorldRequest::Op::Break, PL, at + glm::ivec3(0, 1, 0)));
+        tickAll(20);
+        check(both(at + glm::ivec3(0, 1, 0)).first == BLOCK_AIR && A.w->me.inventory.count(PL) == planks,
+              "  broken again: gone, and back in her pack");
+
+        // the server says no
+        A.w->notices.clear();
+        A.w->request(ask(WorldRequest::Op::Place, PL, me + glm::ivec3(200, 0, 0)));
+        A.w->request(ask(WorldRequest::Op::Place, gItems.find("glass"), at));
+        A.w->request(ask(WorldRequest::Op::Hoe, PL, at));
+        tickAll(20);
+        check(host.requestsRefused - refused0 == 3 && both(at + glm::ivec3(0, 1, 0)).first == BLOCK_AIR,
+              "too far, an item she doesn't carry, the wrong tool: refused");
+        check(A.w->notices.size() >= 3 && A.w->notices[0] == "too far away", "  and she's told why (\"" + (A.w->notices.empty() ? std::string() : A.w->notices[0]) + "\")");
+
+        // the hammer: a foundation, paid for from her pack
+        uint16_t F = gStructures.find("stone_foundation_2");
+        glm::ivec3 spot = me + glm::ivec3(-14, 0, 6);
+        bool found = false;
+        for (int dy = -4; dy <= 4 && !found; dy++)
+            if (session.structs->checkPlace(F, spot + glm::ivec3(0, dy, 0), 0, true).empty()) { spot.y += dy; found = true; }
+        size_t n0 = session.structs->count();
+        const bool costsWere = gStructures.costsEnabled;
+        gStructures.costsEnabled = true;                                     // (data/registry has building free)
+        int stone = sa->inventory.count(STONE_IT);
+        WorldRequest piece = ask(WorldRequest::Op::Piece, HAMMER, spot);
+        piece.name = "stone_foundation_2"; piece.lo = spot;
+        A.w->request(piece);
+        A.w->notices.clear();
+        tickAll(30);
+        const int price = gStructures.charges(*gStructures.get(F)) ? 6 : 0;        // (structures.toml: costs = false makes building free)
+        check(found && session.structs->count() == n0 + 1 && sa->inventory.count(STONE_IT) == stone - price,
+              "a foundation built with the hammer, " + std::to_string(price) + " stone paid");
+        gStructures.costsEnabled = costsWere;
+        A.w->request(piece);
+        tickAll(20);
+        check(session.structs->count() == n0 + 1, "  the same again, on top of it: refused by the same check as single player");
+
+        // a blueprint, sent as its text
+        Blueprint bp; std::string why;
+        check(bp.load("data/blueprints/hut_workshop.toml", why), "a blueprint loads (hut_workshop)");
+        for (auto& [item, n] : bp.cost(nullptr)) sa->inventory.add(item, n);
+        tickAll(20);
+        WorldRequest paste = ask(WorldRequest::Op::Blueprint, HAMMER, me + glm::ivec3(10, 0, -20));
+        paste.name = bp.text(); paste.lo = me + glm::ivec3(10, 1, -40); paste.style.sitePrep = true;
+        size_t n1 = session.structs->count();
+        A.w->request(paste);
+        tickAll(40);
+        check(session.structs->count() >= n1 + bp.parts.size(), "  pasted on the server: " + std::to_string(session.structs->count() - n1) + " pieces");
+        glm::ivec3 blo, bhi;
+        bool onClient = false;
+        if (const StructureInstance* f = session.structs->instanceAt(paste.lo + glm::ivec3(2, 0, 2))) {
+            session.structs->bounds(*f, blo, bhi);
+            onClient = A.w->world->typeAtVoxel(blo.x + 1, bhi.y, blo.z + 1) == session.world->typeAtVoxel(blo.x + 1, bhi.y, blo.z + 1);
+        }
+        check(onClient, "  and its voxels reach her");
+
+        // the hoe raises the ground; the blast wand digs a crater
+        glm::ivec3 h = me + glm::ivec3(0, 0, 14);
+        WorldRequest hoe = ask(WorldRequest::Op::Hoe, HOE, h);
+        hoe.mode = (int)WorldActions::HoeMode::Raise;
+        A.w->request(hoe);
+        tickAll(30);
+        check(both(h + glm::ivec3(0, 1, 0)).first != BLOCK_AIR && both(h + glm::ivec3(0, 1, 0)).second == both(h + glm::ivec3(0, 1, 0)).first,
+              "the hoe raises the ground, for both");
+        glm::ivec3 crater = me + glm::ivec3(-8, 0, -10);
+        WorldRequest boom = ask(WorldRequest::Op::Blast, BLAST, crater);
+        A.w->request(boom);
+        tickAll(30);
+        check(both(crater).first == BLOCK_AIR && both(crater).second == BLOCK_AIR, "the blast wand leaves a crater, for both");
+        check(host.requestsDone - done0 >= 7, "requests done: " + std::to_string(host.requestsDone - done0));
+    }
+
+    std::printf("the server's numbers for blocks and items\n");
+    {
+        // a server whose numbering differs: two items swapped, a block
+        // and an item this game has never heard of
+        proto::Names theirs = proto::localNames();
+        const uint16_t SWORD = gItems.find("iron_sword"), PL = gItems.find("planks");
+        for (auto& it : theirs.items) {
+            if (it.id == SWORD) it.id = PL; else if (it.id == PL) it.id = SWORD;
+        }
+        theirs.items.push_back({ 3999, "moon_staff" });
+        theirs.blocks.push_back({ 999, "moon_rock", true });
+        theirs.blocks.push_back({ 998, "moon_mist", false });
+        for (auto& b : theirs.blocks) if (b.name == "planks") b.id = 997;
+        proto::IdMap m;
+        m.build(theirs);
+        check(m.item(PL) == SWORD && m.item(SWORD) == PL && m.itemToServer(SWORD) == PL, "items: the same name, whatever the number");
+        check(m.block(997) == PLANKS && m.block(999) == STONE && m.block(998) == BLOCK_AIR, "blocks: renumbered found; unknown solid → stone, other → air");
+        check(m.missingItems.size() == 1 && m.missingItems[0] == "moon_staff" && m.missingBlocks.size() == 2, "  and what's missing is listed");
+        // through the wire
+        std::vector<proto::VoxelEdit> e{ { glm::ivec3(1, 2, 3), 997 }, { glm::ivec3(4, 5, 6), 999 } };
+        auto bytes = proto::edits(e);
+        wire::Reader rd(bytes); rd.u8();
+        auto back = proto::readEdits(rd, &m);
+        check(back.size() == 2 && back[0].block == PLANKS && back[1].block == STONE, "an Edits message read with the map");
+        Inventory inv; inv.add(SWORD, 1);
+        auto lb = proto::loadout(inv, false, &m);
+        wire::Reader lr(lb); lr.u8();
+        proto::LoadoutMsg lm = proto::readLoadout(lr);
+        check(lm.slots[inv.find(SWORD)].itemID == PL, "a Loadout sent in the server's numbers");
+        HumanIntent in; in.useItem = SWORD;
+        wire::Writer iw; proto::putIntent(iw, in, &m);
+        wire::Reader ir(iw.buf);
+        check(proto::getIntent(ir).useItem == PL, "  and the item used");
     }
 
     std::printf("fighting\n");

@@ -1,0 +1,34 @@
+# Starting kits: what a new player has on their first spawn.
+# Items go into the hotbar in order, then the pack. Change these
+# freely while testing (F6 reloads; it applies to NEW players only).
+#
+#   player   the player's own inventory (Survival and Test Play),
+#            also what a server gives a new player unless its
+#            server.toml has its own starter_kit
+#   dev      the Test Play dev inventory (dev tools)
+#
+# Each entry is an item name, or { item = "name", count = n }.
+# Weapons equip into the first weapon slot, armour is worn.
+
+[player]
+items = [
+  "builders_hammer",
+  "hoe",              # terrain: level, raise, lower, path (T changes mode)
+  "blast_wand",       # explosions, for testing destruction
+  "windburst",        # a spell: in combat, the X slot (1) casts it
+  "iron_sword",
+  "iron_axe",
+  "spear",
+  "quarterstaff",
+  "wooden_club",
+  "stone_pickaxe",
+  "iron_shovel",
+  "leather_jerkin",
+  { item = "torch", count = 16 },
+]
+
+[dev]
+items = [
+  "dev_wand", "dev_fill", "dev_brush", "dev_copy",
+  "dev_paste", "dev_cube", "dev_explode", "builders_hammer",
+]

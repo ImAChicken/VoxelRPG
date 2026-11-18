@@ -3,6 +3,8 @@
 #include "ItemIcon.h"
 #include "../entity/Player.h"
 #include "../game/Inventory.h"
+#include "../game/CombatKit.h"
+#include "../input/InputManager.h"
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cstdio>
@@ -16,16 +18,22 @@
 //           a chest, a trade …)
 //   middle  the 50 slots: the hotbar on top (slots 1 and 2
 //           are the off-hand), then the pack
-//   right   equipment: Weapon 1 and 2, armour, rings and an
-//           amulet. An equipped item stays in its inventory
-//           slot; the slot is marked E and the equipment slot
-//           shows it.
+//   right   equipment (Survival): armour and amulet (and the other
+//           worn gear, small), then the two LOADOUTS side by side
+//           (game/CombatKit.h) — primary weapon, off hand (empty:
+//           the primary blocks and parries), 3 items each for X,
+//           Y and B, 2 charms — and at the bottom the 8 quick
+//           options (Start held). Nothing placed here leaves the
+//           inventory: equipment and loadouts only point at items,
+//           so one item can sit in several places. In Test Play,
+//           the plain equipment list.
 //
 // Mouse:
 //   drag              move or swap items (equipment follows)
 //   right drag        move half a stack
-//   drag onto equip   equip it there; drag an equipment slot
-//                     away to take it off
+//   drag onto equip   equip it there (or set that loadout slot);
+//                     drag one away, or right / shift click it,
+//                     to clear it
 //   shift click       equip / take off
 //   click a hotbar    select it (off-hand: in hand / out)
 //   1..0 over a slot  swap it with that hotbar slot
@@ -47,7 +55,7 @@ public:
     void onEnter() override {
         mouseDown = mousePrev = true;      // ignore the opening click
         rightDown = rightPrev = true;
-        drag = -1; dragEquip = -1; dragChest = false;
+        drag = -1; dragEquip = -1; dragChest = false; dragRef = nullptr;
     }
 
     ScreenResult update(UIRenderer& ui, float dt) override {
@@ -68,18 +76,20 @@ public:
 
         // ── Layout ────────────────────────────────────────
         const float gap = 4.0f, pad = 16.0f, sideW = 250.0f, between = 12.0f;
-        slot = std::clamp((sw - 2 * sideW - 2 * between - 2 * pad - 9 * gap - 40.0f) / 10.0f, 30.0f, 52.0f);
+        const bool loadouts = player->mode == GameMode::Survival;      // the kit is the player's own inventory
+        const float rightW = loadouts ? 300.0f : sideW;
+        slot = std::clamp((sw - sideW - rightW - 2 * between - 2 * pad - 9 * gap - 40.0f) / 10.0f, 30.0f, 52.0f);
         float gridW = 10 * slot + 9 * gap;
         float midW = gridW + 2 * pad;
         float es = std::clamp((sh - 20.0f - 46.0f - 16.0f - 44.0f) / EQUIP_SLOTS - 4.0f, 22.0f, 32.0f);   // equipment slot size
         float needGrid = 52.0f + slot + 22.0f + 4 * slot + 3 * gap + 90.0f;
         float needEquip = 46.0f + EQUIP_SLOTS * (es + 4.0f) + 16.0f + 44.0f;
         float ph = std::min(sh - 20.0f, std::max(needGrid, needEquip));
-        float total = sideW + between + midW + between + sideW;
+        float total = sideW + between + midW + between + rightW;
         float x0 = std::max(10.0f, (sw - total) * 0.5f), py = std::max(10.0f, (sh - ph) * 0.5f);
         float lx = x0, mxp = lx + sideW + between, rx = mxp + midW + between;
 
-        hoverSlot = -1; hoverEquip = -1; hoverChest = -1;
+        hoverSlot = -1; hoverEquip = -1; hoverChest = -1; hoverRef = nullptr;
 
         // ── Left: an open chest, or room for another menu ─
         drawPanel(ui, lx, py, sideW, ph);
@@ -127,15 +137,18 @@ public:
         float infoY = py2 + 4 * (slot + gap) + 8;
 
         // ── Right: equipment ──────────────────────────────
-        drawPanel(ui, rx, py, sideW, ph);
+        drawPanel(ui, rx, py, rightW, ph);
         ui.drawText("Equipment", rx + pad, py + 14, theme.title, 2);
-        float ey = py + 46, rowH = es + 4;
-        for (int e = 0; e < EQUIP_SLOTS; e++) {
-            if (e == EQUIP_WORN_FIRST || e == (int)EquipSlot::Ring1) ey += 8;     // groups
-            drawEquip(ui, inv, e, rx + pad, ey, es);
-            ey += rowH;
+        if (loadouts) drawLoadouts(ui, inv, rx, py, rightW, ph);
+        else {
+            float ey = py + 46, rowH = es + 4;
+            for (int e = 0; e < EQUIP_SLOTS; e++) {
+                if (e == EQUIP_WORN_FIRST || e == (int)EquipSlot::Ring1) ey += 8;     // groups
+                drawEquip(ui, inv, e, rx + pad, ey, es);
+                ey += rowH;
+            }
+            if (button(ui, "Swap weapons  X", rx + pad, ey + 6, rightW - 2 * pad, 26)) inv.swapWeapons();
         }
-        if (button(ui, "Swap weapons  X", rx + pad, ey + 6, sideW - 2 * pad, 26)) inv.swapWeapons();
 
         // ── Info line: what's under the mouse ─────────────
         const ItemStack* hs = nullptr;
@@ -143,7 +156,11 @@ public:
         if (hoverSlot >= 0 && !inv.slots[hoverSlot].empty()) { hs = &inv.slots[hoverSlot]; hsEquip = inv.equippedAs(hoverSlot); }
         if (hoverEquip >= 0 && !inv.equipped((EquipSlot)hoverEquip).empty()) { hs = &inv.equipped((EquipSlot)hoverEquip); hsEquip = hoverEquip; }
         if (hoverChest >= 0 && !chest->slots[hoverChest].empty()) hs = &chest->slots[hoverChest];
-        if (hs && drag < 0 && dragEquip < 0) {
+        if (hoverRef && *hoverRef) { int k = inv.find(*hoverRef); if (k >= 0) hs = &inv.slots[k]; }
+        if (hoverRef && !*hoverRef && drag < 0 && !dragRef) {
+            ui.drawText(refHint(hoverRefKind), gx, infoY, theme.textHover, 2);
+            hs = nullptr;
+        } else if (hs && drag < 0 && dragEquip < 0 && !dragRef) {
             const ItemDef& d = gItems.get(hs->itemID);
             std::string t = d.displayName;
             if (hs->count > 1) t += "  x" + std::to_string(hs->count);
@@ -172,13 +189,16 @@ public:
         // ── Mouse ─────────────────────────────────────────
         bool press = mouseDown && !mousePrev, rpress = rightDown && !rightPrev;
         bool release = !mouseDown && mousePrev, rrelease = !rightDown && rightPrev;
-        if ((press || rpress) && drag < 0 && dragEquip < 0) {
+        if ((press || rpress) && drag < 0 && dragEquip < 0 && !dragRef) {
             if (hoverChest >= 0 && !chest->slots[hoverChest].empty()) {
                 if (shift && press) Inventory::sendAcross(*chest, hoverChest, inv);
                 else { drag = hoverChest; dragChest = true; dragHalf = rpress; dragX = mx; dragY = my; }
             } else if (hoverSlot >= 0 && !inv.slots[hoverSlot].empty()) {
                 if (shift && press) { if (chest) Inventory::sendAcross(inv, hoverSlot, *chest); else inv.toggleEquip(hoverSlot); }
                 else { drag = hoverSlot; dragChest = false; dragHalf = rpress; dragX = mx; dragY = my; }
+            } else if (hoverRef && *hoverRef) {
+                if (rpress || shift) *hoverRef = 0;          // right / shift click: clear it
+                else { dragRef = hoverRef; dragRefKind = hoverRefKind; dragX = mx; dragY = my; }
             } else if (hoverEquip >= 0 && !inv.equipped((EquipSlot)hoverEquip).empty()) {
                 if (shift && press) inv.unequip((EquipSlot)hoverEquip);
                 else { dragEquip = hoverEquip; dragX = mx; dragY = my; }
@@ -192,6 +212,7 @@ public:
             if (hoverSlot >= 0 && (dragChest || hoverSlot != drag)) Inventory::moveAcross(from, drag, inv, hoverSlot, dragHalf);
             else if (hoverChest >= 0 && (!dragChest || hoverChest != drag)) Inventory::moveAcross(from, drag, *chest, hoverChest, dragHalf);
             else if (hoverEquip >= 0 && !dragChest) inv.equipFrom(drag, (EquipSlot)hoverEquip);
+            else if (hoverRef && !dragChest && refFits(hoverRefKind, inv.slots[drag].itemID)) *hoverRef = inv.slots[drag].itemID;
             else if (!moved && !dragChest && hoverSlot == drag && drag < Inventory::HOTBAR) inv.pressHotbarKey(drag);
             drag = -1; dragChest = false;
         }
@@ -209,6 +230,17 @@ public:
             }
             dragEquip = -1;
         }
+        // a loadout slot dragged: onto another (swap, if each fits
+        // the other's place), or away (cleared)
+        if (dragRef && release) {
+            uint16_t mine = *dragRef;
+            if (hoverRef && hoverRef != dragRef) {
+                uint16_t theirs = *hoverRef;
+                if (refFits(hoverRefKind, mine) && (!theirs || refFits(dragRefKind, theirs))) { *hoverRef = mine; *dragRef = theirs; }
+            } else if (!hoverRef) *dragRef = 0;
+            dragRef = nullptr;
+        }
+
         // 1..0 over a slot (yours or the chest's): swap it with that hotbar slot
         if ((hoverSlot >= 0 || hoverChest >= 0) && drag < 0) {
             for (int k = 0; k < Inventory::HOTBAR; k++) {
@@ -226,7 +258,7 @@ public:
         }
 
         // the dragged item follows the mouse
-        int dragging = drag >= 0 ? drag : (dragEquip >= 0 ? inv.equip[dragEquip] : -1);
+        int dragging = drag >= 0 ? drag : (dragEquip >= 0 ? inv.equip[dragEquip] : (dragRef ? inv.find(*dragRef) : -1));
         const Inventory& dragInv = (drag >= 0 && dragChest) ? *chest : inv;
         if (dragging >= 0 && !dragInv.slots[dragging].empty())
             swatch(ui, gItems.get(dragInv.slots[dragging].itemID), (float)mx - slot * 0.35f, (float)my - slot * 0.35f, slot * 0.7f);
@@ -245,6 +277,11 @@ private:
     int    hoverSlot = -1, hoverEquip = -1, hoverChest = -1;
     bool   delPrev = false;
     int    drag = -1, dragEquip = -1;
+    // loadout slots (CombatKit): they hold an item id, not an item
+    enum RefKind { RefOff, RefButton, RefCharm, RefQuick };
+    uint16_t* hoverRef = nullptr;
+    uint16_t* dragRef = nullptr;
+    RefKind   hoverRefKind = RefButton, dragRefKind = RefButton;
     bool   dragHalf = false, dragChest = false;
     Inventory* chest = nullptr;          // an open chest's contents
     std::string chestName;
@@ -312,6 +349,143 @@ private:
                                       : gItems.get(st.itemID).displayName;
         ui.drawText(item.size() > 22 ? item.substr(0, 21) + "." : item, x + s + 8, y + s - 12,
                     st.empty() ? theme.textDim : theme.text, 1);
+    }
+
+    // ── Loadouts (game/CombatKit.h) ───────────────────────
+    static bool refFits(RefKind k, uint16_t id) {
+        if (!id) return false;
+        switch (k) {
+        case RefOff:   return CombatKit::fitsOff(id);
+        case RefCharm: return CombatKit::fitsCharm(id);
+        default:       return CombatKit::fitsButton(id);
+        }
+    }
+    static const char* refHint(RefKind k) {
+        switch (k) {
+        case RefOff:    return "off hand: a shield, a weapon or a spell";
+        case RefCharm:  return "charm: none in the game yet";
+        case RefQuick:  return gInput.padLastUsed() ? "quick: hold Start and press its button"
+                                                    : "quick: hold its key with the quick key";
+        default:        return gInput.padLastUsed() ? "drag an item here: the D-pad steps through them"
+                                                    : "drag an item here: the next-item key steps through them";
+        }
+    }
+    // One loadout slot: the item it names, or 'empty' (a word)
+    void refSlot(UIRenderer& ui, uint16_t& id, RefKind kind, float x, float y, float s, const char* empty = nullptr) {
+        const auto& theme = gResourcePacks.getTheme();
+        bool hov = hovered(x, y, s, s);
+        if (hov) { hoverRef = &id; hoverRefKind = kind; }
+        int dragging = drag >= 0 && !dragChest ? drag : -1;
+        uint16_t dragId = dragging >= 0 ? player->activeInventory().slots[dragging].itemID : (dragRef ? *dragRef : 0);
+        bool fits = dragId && refFits(kind, dragId);
+        ui.drawRect(x, y, s, s, hov ? theme.bgHover : theme.bg);
+        ui.drawBorder(x, y, s, s, fits ? theme.textHover : theme.border, fits ? 2.0f : 1.0f);
+        if (id && dragRef != &id) swatch(ui, gItems.get(id), x + 3, y + 3, s - 6);
+        else if (!id && empty) {
+            float w = (float)ui.textWidth(empty, 1);
+            ui.drawText(empty, x + (s - w) * 0.5f, y + (s - 8) * 0.5f, theme.textDim, 1);
+        }
+    }
+    void drawLoadouts(UIRenderer& ui, Inventory& inv, float rx, float py, float rw, float ph) {
+        const auto& theme = gResourcePacks.getTheme();
+        CombatKit& kit = player->kit;
+        kit.tidy(inv);
+        const float pad = 16.0f, g = 3.0f;
+        const float labelW = 64.0f;
+        float colW = (rw - 2 * pad - labelW - 12.0f) * 0.5f;
+        float ks = std::clamp((colW - 2 * g) / 3.0f, 20.0f, 30.0f);
+        // the height it needs, shrunk to fit
+        float need = 46 + (ks + 8) + (ks * 0.7f + 14) + 16 + 6 * (ks + 6) + 14 + (ks + 14) + 14 + 2 * (ks + 18) + 10;
+        if (need > ph) ks = std::max(18.0f, ks - (need - ph) / 10.0f);
+        float x0 = rx + pad, y = py + 44;
+        auto label = [&](const std::string& t, float yy, float h) { ui.drawText(t, x0, yy + (h - 8) * 0.5f, theme.textDim, 1); };
+
+        // armour and amulet
+        drawEquipBox(ui, inv, (int)EquipSlot::Torso, x0, y, ks, "Armour");
+        drawEquipBox(ui, inv, (int)EquipSlot::Amulet, x0 + rw * 0.5f - pad, y, ks, "Amulet");
+        y += ks + 8;
+        // the other worn gear, small
+        {
+            float ss = ks * 0.7f;
+            label("worn", y, ss);
+            const int other[] = { (int)EquipSlot::Head, (int)EquipSlot::Hands, (int)EquipSlot::Legs, (int)EquipSlot::Feet,
+                                  (int)EquipSlot::Back, (int)EquipSlot::Ring1, (int)EquipSlot::Ring2 };
+            for (int i = 0; i < 7; i++) drawEquipBox(ui, inv, other[i], x0 + labelW - 24 + i * (ss + g), y, ss, nullptr);
+            y += ss + 14;
+        }
+
+        // the two loadouts, side by side
+        float cx[2] = { x0 + labelW, x0 + labelW + colW + 12.0f };
+        for (int k = 0; k < 2; k++) {
+            bool inHand = inv.activeWeapon == k;
+            std::string h = "Loadout " + std::to_string(k + 1) + (inHand ? " *" : "");
+            ui.drawText(h, cx[k], y, inHand ? theme.accent : theme.text, 1);
+        }
+        y += 16;
+        // primary: the Weapon 1 / 2 equipment slots
+        label("Primary", y, ks);
+        for (int k = 0; k < 2; k++) drawEquipBox(ui, inv, k == 0 ? (int)EquipSlot::Weapon1 : (int)EquipSlot::Weapon2, cx[k], y, ks, nullptr);
+        y += ks + 6;
+        // off hand: empty means the primary blocks and parries
+        label("Off hand", y, ks);
+        bool anyEmpty = false;
+        for (int k = 0; k < 2; k++) {
+            refSlot(ui, kit.sets[k].off, RefOff, cx[k], y, ks);
+            anyEmpty = anyEmpty || !kit.sets[k].off;
+        }
+        y += ks + 2;
+        if (anyEmpty) { ui.drawText("empty: block and parry", cx[0], y, theme.textDim, 1); }
+        y += 12;
+        // the pad's button, or (keyboard last used) the keys: use / next
+        const bool padNames = gInput.padLastUsed();
+        auto key = [](InputAction a) { return InputManager::bindingLabel(gInput.getBinding(a)); };
+        const char* names[3] = { "X", "Y", "B" };
+        for (int b = 0; b < 3; b++) {
+            label(padNames ? std::string(names[b])
+                           : key((InputAction)((int)InputAction::UseSlotX + b)) + " " + key((InputAction)((int)InputAction::CycleSlotX + b)),
+                  y, ks);
+            for (int k = 0; k < 2; k++)
+                for (int i = 0; i < CombatKit::PER_SLOT; i++)
+                    refSlot(ui, kit.sets[k].slots[b][i], RefButton, cx[k] + i * (ks + g), y, ks);
+            y += ks + 6;
+        }
+        label("Charms", y, ks);
+        for (int k = 0; k < 2; k++)
+            for (int i = 0; i < CombatKit::CHARMS; i++) refSlot(ui, kit.sets[k].charms[i], RefCharm, cx[k] + i * (ks + g), y, ks);
+        y += ks + 14;
+
+        // the 8 quick options (Start held), the pad's buttons as names
+        ui.drawText(padNames ? std::string("Quick - hold Start") : "Quick - hold " + key(InputAction::QuickLayer), x0, y, theme.text, 1);
+        y += 14;
+        const char* padQn[8] = { "Left", "Up", "Right", "Down", "X", "Y", "B", "A" };
+        std::string keyQn[8];
+        for (int i = 0; i < 8; i++) keyQn[i] = key((InputAction)((int)InputAction::ToolbarSlot1 + i));
+        float cell = (rw - 2 * pad) / 4.0f, qs = ks;
+        for (int i = 0; i < CombatKit::QUICK; i++) {
+            float qx = x0 + (i % 4) * cell + (cell - qs) * 0.5f, qy = y + (i / 4) * (qs + 18);
+            std::string qn = padNames ? std::string(padQn[i]) : keyQn[i];
+            ui.drawText(qn, qx + (qs - ui.textWidth(qn, 1)) * 0.5f, qy, theme.textDim, 1);   // the button, above
+            refSlot(ui, kit.quick[i], RefQuick, qx, qy + 11, qs);
+        }
+    }
+    // An equipment slot in the loadout layout: a box and, if given,
+    // its name under it
+    void drawEquipBox(UIRenderer& ui, const Inventory& inv, int e, float x, float y, float s, const char* name) {
+        const auto& theme = gResourcePacks.getTheme();
+        bool hov = hovered(x, y, s, s);
+        if (hov) hoverEquip = e;
+        const ItemStack& st = inv.equipped((EquipSlot)e);
+        bool fits = drag >= 0 && !dragChest && !inv.slots[drag].empty() && Inventory::fits(inv.slots[drag].itemID, (EquipSlot)e);
+        ui.drawRect(x, y, s, s, hov ? theme.bgHover : theme.bg);
+        ui.drawBorder(x, y, s, s, fits ? theme.textHover : theme.border, fits ? 2.0f : 1.0f);
+        if (!st.empty() && dragEquip != e) swatch(ui, gItems.get(st.itemID), x + 3, y + 3, s - 6);
+        if (name) {
+            ui.drawText(name, x + s + 6, y + 2, theme.textDim, 1);
+            std::string item = st.empty() ? "empty" : gItems.get(st.itemID).displayName;
+            const float room = 82.0f;                      // to the next box
+            while (item.size() > 2 && ui.textWidth(item, 1) > room) item = item.substr(0, item.size() - 2) + ".";
+            ui.drawText(item, x + s + 6, y + s - 11, st.empty() ? theme.textDim : theme.text, 1);
+        }
     }
 
     // The item's icon (ui/ItemIcon.h: blocks in their textures)

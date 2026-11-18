@@ -46,13 +46,20 @@
 //            spawner structures: where they spawn (green: awake,
 //            grey: asleep), how near a player must be (dim), and
 //            a label with their count and next spawn
+//   steering context steering in fights (npc/ContextSteering.h):
+//            16 rays round each NPC — green out to its interest,
+//            red out to its danger — the way it chose (yellow,
+//            long) and a line to the spot it steers for (white)
+//   pad      the controller, bottom left of the screen: its
+//            buttons lit while held — or while the key bound to the
+//            same action is (input/PadLayout.h) — sticks, layer
 //
 // Colours of a capsule: cyan player, white NPC, orange
 // attacking, blue guarding, green invulnerable, grey dead.
 struct DebugLayers {
     bool on = false;
     bool bodies = true, ragdoll = true, combat = true, labels = true,
-         props = true, sight = true, world = true, ai = true;
+         props = true, sight = true, world = true, ai = true, steering = true, pad = true;
 
     bool* find(const std::string& n) {
         if (n == "bodies") return &bodies;
@@ -63,13 +70,15 @@ struct DebugLayers {
         if (n == "sight") return &sight;
         if (n == "world") return &world;
         if (n == "ai") return &ai;
+        if (n == "steering") return &steering;
+        if (n == "pad") return &pad;
         return nullptr;
     }
     std::string list() const {
         auto f = [](const char* n, bool b) { return std::string(n) + (b ? " on" : " off"); };
         return f("bodies", bodies) + ", " + f("ragdoll", ragdoll) + ", " + f("combat", combat) + ", " +
                f("labels", labels) + ", " + f("props", props) + ", " + f("sight", sight) + ", " + f("world", world) + ", " +
-               f("ai", ai);
+               f("ai", ai) + ", " + f("steering", steering) + ", " + f("pad", pad);
     }
 };
 inline DebugLayers gDebug;
@@ -282,6 +291,26 @@ inline void build(DebugDraw& dd, Simulation& sim, const Woodcutting* wood, const
             }
         }
     }
+
+    if (gDebug.steering)
+        for (const auto& n : sim.npcs().all()) {
+            if (n->dead() || sim.now() - n->steerAt > 0.5f) continue;       // not steering just now
+            const steer::Map& m = n->steerMap;
+            glm::vec3 o = n->position + glm::vec3(0, 1.0f, 0);
+            const float R = 8.0f;                                            // a full ray: 8 voxels
+            for (int i = 0; i < steer::DIRS; i++) {
+                glm::vec2 d = steer::dirOf(i);
+                glm::vec3 d3(d.x, 0, d.y);
+                if (m.interest[i] > 0.01f) dd.line(o, o + d3 * (R * m.interest[i]), GREEN, 0.9f);
+                if (m.danger[i] > 0.01f) dd.line(o + glm::vec3(0, 0.6f, 0), o + glm::vec3(0, 0.6f, 0) + d3 * (R * m.danger[i]), RED, 0.9f);
+            }
+            if (m.chosen >= 0) {
+                glm::vec3 c(m.move.x, 0, m.move.y);
+                if (glm::length(c) > 1e-3f) dd.line(o + glm::vec3(0, 1.2f, 0), o + glm::vec3(0, 1.2f, 0) + glm::normalize(c) * (R * 1.5f), YELLOW, 1.0f);
+            }
+            dd.line(o, n->steerGoal + glm::vec3(0, 1.0f, 0), WHITE, 0.35f);
+            dd.cross(n->steerGoal + glm::vec3(0, 0.5f, 0), 1.0f, WHITE, 0.7f);
+        }
 
     if (gDebug.ai) {
         // breadcrumbs (npc/Encounters.h): the truth of where players went

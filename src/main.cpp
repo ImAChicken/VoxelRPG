@@ -68,6 +68,7 @@
 #include "ui/BuildMenuScreen.h"
 #include "ui/StationScreen.h"
 #include "game/Blueprint.h"
+#include "game/Kits.h"
 #include "game/Village.h"
 #include "ui/InventoryScreen.h"
 #include "world/StructureManager.h"
@@ -220,7 +221,7 @@ int main() {
     gInput.loadKeyboard("data/controls/keyboard.toml");
 
     // Player preferences (Esc -> Settings)
-    gSettings.load(); Human::eyeStand = gSettings.eyeHeight;
+    gSettings.load();
 
     // ── Data — must load BEFORE the renderer ──────────────
     // The renderer needs the resource pack to find its font
@@ -236,6 +237,7 @@ int main() {
     gHeldModels.loadDir("data/models/held");
     gFactions.load("data/registry/factions.toml");
     gLoot.load("data/registry/loot.toml");
+    gKits.load("data/registry/kits.toml");
     gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
     gAnims.load("data/animations", "data/animations/retarget.toml");
     gAnimMap.load("data/animations/anim_map.toml");
@@ -508,6 +510,7 @@ int main() {
     // One tick on a server: this tick's input goes out, the local
     // simulation predicts it, the fallen bodies' ragdolls move
     auto remoteTick = [&](const HumanIntent& in) {
+        if (!remote->groundReady()) return;      // wait with the server until the ground is here
         remote->sendInput(in, player.facing, camera.pitch);
         sim.setIntent(player.uuid, in);
         sim.step(PHYSICS_STEP);
@@ -552,6 +555,7 @@ int main() {
         farView.reset();
         dev.attach(nullptr);
         hands.wood = nullptr;
+        hands.remote = nullptr;
         dropWoodMeshes();
         npcBodies.clear();
         if (remote) {
@@ -731,19 +735,10 @@ int main() {
                         ? Human::eyeStand + 3.0f : 105.0f;
             camera.position = glm::vec3(
                 (float)spawnX, (float)ground + above, (float)spawnZ);
-            // A starter kit in the dev inventory
-            const char* kit[] = { "dev_wand", "dev_fill", "dev_brush",
-                                  "dev_copy", "dev_paste", "dev_cube",
-                                  "stone", "builders_hammer" };
-            for (int i = 0; i < 8; i++)
-                if (uint16_t id = gItems.find(kit[i]))
-                    player.devInventory.setSlot(Inventory::FIRST_MAIN + i, id, 1);
-            // Every player starts with a Builder's Hammer
-            if (uint16_t h = gItems.find("builders_hammer"))
-                player.inventory.setSlot(Inventory::FIRST_MAIN, h, 1);
-            // …and a pickaxe
-            if (uint16_t pk = gItems.find("stone_pickaxe"))
-                player.inventory.setSlot(Inventory::FIRST_MAIN + 1, pk, 1);
+            // The starting kits (data/registry/kits.toml): the
+            // player's own, and the dev tools for Test Play
+            Kits::give(player.inventory, gKits.player, true);
+            Kits::give(player.devInventory, gKits.dev, false);
         }
         changeMode(mode);
 
@@ -780,6 +775,7 @@ int main() {
         localUuid = player.uuid;
         remote = std::make_unique<ClientWorld>(conn, "servercache", &player, &session);
         remote->join(name, player.appearance);
+        hands.remote = [&remote](const WorldRequest& q) { if (remote) remote->request(q); };
         auto screen = [&](const std::string& title, const std::string& line, float bar) {
             glfwPollEvents();
             gRenderer->beginFrame();
@@ -1013,7 +1009,7 @@ int main() {
                 // Axe: trace the blade's edge from last frame to this
                 // one; the first solid voxel it passes is the hit
                 AxeSwing& sw = player.swing;
-                if (sw.active() && editor && structs && !remote) {    // (on a server the axe waits for requests)
+                if (sw.active() && editor && structs) {    // (on a server, what it hits is a request: hands.axeHit)
                     const ItemDef& tool = player.activeInventory().heldDef();
                     const HeldModelDef* hm = gHeldModels.find(tool.heldModel);
                     std::vector<glm::vec3> bp = hm ? hm->edgePoints(model) : std::vector<glm::vec3>();
@@ -1392,6 +1388,7 @@ int main() {
         // Events first, then input — poll() must run before
         // any isPressed / isHeld check this frame
         glfwPollEvents();
+        gInput.setCombatLayer(player.combatStance);   // the pad's combat buttons (input/PadLayout.h)
         gInput.poll(window);
 
         // ── On a server: what it sent, every frame ────────
@@ -1444,6 +1441,9 @@ int main() {
 
             // I — the inventory; X — swap weapon 1 / 2
             if (rulesFor(player.mode, false).hasBody) {
+                // The pad has no inventory button in combat (Select out
+                // of it first: input/PadLayout.h); the keyboard's I
+                // still opens it there
                 if (gInput.isPressed(InputAction::Inventory)) {
                     inventoryScreen.setContext(&player);
                     inventoryScreen.onEnter();
@@ -1451,7 +1451,14 @@ int main() {
                     gState = GameState::Inventory;
                     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
                 }
-                if (gInput.isPressed(InputAction::SwapWeapon)) {
+                if (gInput.isPressed(InputAction::SwapWeapon) && player.combatStance) {
+                    // combat: the other loadout (game/CombatKit.h)
+                    player.inventory.swapWeapons();
+                    player.kit.tidy(player.inventory);
+                    const ItemStack& w = player.inventory.weapon();
+                    say("loadout " + std::to_string(player.kit.setAt + 1) + ": " +
+                        (w.empty() ? "empty" : gItems.get(w.itemID).displayName));
+                } else if (gInput.isPressed(InputAction::SwapWeapon)) {
                     Inventory& inv = player.activeInventory();
                     inv.swapWeapons();
                     const ItemStack& w = inv.weapon();
@@ -1486,6 +1493,7 @@ int main() {
                 gHeldModels.bump();
                 gFactions.load("data/registry/factions.toml");
                 gLoot.load("data/registry/loot.toml");
+                gKits.load("data/registry/kits.toml");
                 gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
                 gAnims.load("data/animations", "data/animations/retarget.toml");
                 gAnimMap.load("data/animations/anim_map.toml");
@@ -1539,7 +1547,8 @@ int main() {
             // while the game runs: the streamer and the far view
             // simply adjust)
             MESH_DISTANCE = gSettings.chunkDistanceInt();
-            Human::eyeStand = gSettings.eyeHeight;
+            // the first-person eyes follow the character's height
+            Human::eyeStand = player.appearance.heightVoxels - 1.0f;
             {
                 float farVox = gSettings.renderAll() ? 0.0f : gSettings.renderDistance * VOXEL_DIM;
                 if (farView) farView->setMaxDistance(farVox);
@@ -1618,14 +1627,16 @@ int main() {
 
             camera.sensitivity = gSettings.mouseSensitivity;
             glm::vec2 mouseDelta = gInput.getMouseDelta();
+            // the controller's right stick turns the camera the same way
+            // (and flicks to the next target while locked on)
+            mouseDelta += gInput.padLook(dt) / std::max(0.01f, camera.sensitivity);     // degrees → mouse pixels
 
             // What this player's mode allows. Every mode
             // with a body shares the same physics path;
             // only the free camera is different.
             GameModeRules rules = player.rules();
-            // on a server the world is changed by asking the server
-            // (building, chests and tools there: not yet)
-            if (remote) rules.worldInteraction = false;
+            // on a server the world is changed by asking the server:
+            // hands.remote sends each change as a request (game/WorldActions.h)
 
             if (!rules.hasBody) {
                 // Free fly camera — no physics, no collision
@@ -1809,6 +1820,7 @@ int main() {
                 }
 
                 hud.frameDt = dt;
+                hud.padDebug = gDebug.on && gDebug.pad;
 
                 // Debug overlay text (F3)
                 hud.debugText.clear();

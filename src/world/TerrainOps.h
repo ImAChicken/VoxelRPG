@@ -118,4 +118,53 @@ inline EditBatch flattenDisc(const ChunkManager& w, int cx, int cz, float r, int
     return b;
 }
 
+// Raise (delta > 0) or lower (delta < 0) the ground in a disc,
+// full height in the middle, fading to nothing at the edge (the
+// hoe's raise and lower)
+inline EditBatch shiftDisc(const ChunkManager& w, int cx, int cz, float r, int delta, int probeFrom,
+                           const FlattenOptions& o, EditSource src,
+                           int lowest = -1, int highest = WORLD_HEIGHT) {   // levels it won't go past
+    EditBatch b;
+    b.source = src;
+    b.label  = delta > 0 ? "raise ground" : "lower ground";
+    b.undoable = src == EditSource::Dev || src == EditSource::Command;
+    int ri = (int)std::ceil(r);
+    for (int z = -ri; z <= ri; z++)
+    for (int x = -ri; x <= ri; x++) {
+        float d = std::sqrt(float(x * x + z * z));
+        if (d > r) continue;
+        int step = (int)std::lround(delta * std::min(1.0f, 1.5f * (1.0f - d / (r + 1.0f))));
+        if (step == 0) continue;
+        int g = groundLevel(w, cx + x, cz + z, probeFrom, 96);
+        if (g < 0) continue;
+        int to = std::clamp(g + step, std::min(lowest, g), std::max(highest, g));
+        if (to != g) levelColumn(w, b, cx + x, cz + z, to, o);
+    }
+    return b;
+}
+
+// Top a disc of ground with another block, where it lies (the
+// hoe's path)
+inline EditBatch paintDisc(const ChunkManager& w, int cx, int cz, float r, uint16_t top, int probeFrom,
+                           const FlattenOptions& o, EditSource src) {
+    EditBatch b;
+    b.source = src;
+    b.label  = "path";
+    b.undoable = src == EditSource::Dev || src == EditSource::Command;
+    int ri = (int)std::ceil(r);
+    for (int z = -ri; z <= ri; z++)
+    for (int x = -ri; x <= ri; x++) {
+        if (x * x + z * z > r * r) continue;
+        int g = groundLevel(w, cx + x, cz + z, probeFrom, 96);
+        if (g <= 0) continue;
+        glm::ivec3 p(cx + x, g - 1, cz + z);
+        if (o.keep && o.keep(p)) continue;
+        if (w.typeAtVoxel(p.x, p.y, p.z) != top) b.set(p.x, p.y, p.z, top);
+        // plants on it go
+        uint16_t above = w.typeAtVoxel(p.x, g, p.z);
+        if (above != BLOCK_AIR && !isGround(above) && !(o.keep && o.keep({ p.x, g, p.z }))) b.set(p.x, g, p.z, BLOCK_AIR);
+    }
+    return b;
+}
+
 } // namespace terrain

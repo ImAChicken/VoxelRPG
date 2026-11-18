@@ -288,6 +288,16 @@ int main(int argc, char** argv) {
         int ring = terrain::groundLevel(w.chunks, 309, 302, GROUND + 30);
         int out = terrain::groundLevel(w.chunks, 320, 302, GROUND + 30);
         check(mid == GROUND + 6 && ring > GROUND && ring < GROUND + 6 && out == GROUND, "a raised pad slopes back down to the ground around it");
+        // the hoe's shapes
+        terrain::FlattenOptions ho;
+        ed.apply(terrain::shiftDisc(w.chunks, 400, 400, 6.0f, 1, GROUND + 20, ho, EditSource::Player));
+        check(terrain::groundLevel(w.chunks, 400, 400, GROUND + 20) == GROUND + 1 &&
+              terrain::groundLevel(w.chunks, 410, 400, GROUND + 20) == GROUND, "the hoe raises a step in the middle, not past its edge");
+        ed.apply(terrain::shiftDisc(w.chunks, 430, 400, 6.0f, -1, GROUND + 20, ho, EditSource::Player));
+        check(terrain::groundLevel(w.chunks, 430, 400, GROUND + 20) == GROUND - 1, "and lowers one");
+        ed.apply(terrain::paintDisc(w.chunks, 460, 400, 3.0f, BLOCK_GRAVEL, GROUND + 20, ho, EditSource::Player));
+        check(w.chunks.typeAtVoxel(460, GROUND - 1, 400) == BLOCK_GRAVEL && terrain::groundLevel(w.chunks, 460, 400, GROUND + 20) == GROUND,
+              "and lays a path where the ground is");
     }
 
     std::vector<Design> designs = {

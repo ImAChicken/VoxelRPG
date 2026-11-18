@@ -42,8 +42,17 @@ enum class InputAction {
     ToolbarSlot8,
     ToolbarSlot9,
     ToolbarSlot10,
-    SwapWeapon,     // Weapon 1 <-> Weapon 2
+    SwapWeapon,     // combat: the next weapon set (game/CombatKit.h)
     LockOn,         // hold the camera on an enemy (game/LockOn.h)
+
+    // ── Combat layout (game/CombatKit.h) ─────────────────
+    UseSlotX,       // use the item in the X / Y / B slot
+    UseSlotY,
+    UseSlotB,
+    CycleSlotX,     // the next item in that slot
+    CycleSlotY,
+    CycleSlotB,
+    QuickLayer,     // held: the slot keys pick one of the 8 quick options instead
 
     // ── Camera ───────────────────────────────────────────
     CameraToggle,   // first/third person toggle F5

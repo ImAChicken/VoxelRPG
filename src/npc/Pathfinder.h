@@ -32,6 +32,7 @@ constexpr int   CELL      = 2;          // voxels per grid step
 constexpr float STEP_UP   = Human::STEP_UP;
 constexpr int   CLIMB     = 12;         // highest step a jump gets up (JUMP_HEIGHT 15 less a margin)
 constexpr int   DROP      = 14;         // highest drop it walks off
+constexpr float BUMP      = 2.0f;       // ledges this high inside the body's radius don't block a spot
 constexpr int   MAX_NODES = 2500;
 constexpr float MAX_RANGE = 160.0f;     // goals farther than this are steered at in a straight line
 
@@ -44,6 +45,10 @@ struct Result {
 class Pathfinder {
 public:
     explicit Pathfinder(const IPhysics& p) : phys(p) {}
+    // What a voxel of climbing costs, in voxels of walking: the
+    // body's own slowdown uphill (Human::climb x CLIMB_COST), so a
+    // longer switchback wins when it's quicker
+    float climbCost = Human::CLIMB_COST;
 
     // Highest place to stand in column (x, z) between y-DROP and
     // y+CLIMB; false if none. Standing = solid below the feet and
@@ -51,8 +56,11 @@ public:
     bool standAt(int x, int z, int y, int& out) const {
         for (int sy = y + CLIMB; sy >= y - DROP; sy--) {
             if (!phys.solidAt(x, sy - 1, z) || phys.solidAt(x, sy, z)) continue;
-            glm::vec3 p((float)x + 0.5f, (float)sy, (float)z + 0.5f);
-            if (phys.capsuleIsClear(p, Human::RADIUS + 0.4f, Human::STAND_HEIGHT)) { out = sy; return true; }
+            // room for the body, from a little above the feet: a
+            // ledge of a voxel or two inside its radius (a terraced
+            // slope) is stepped up, not a wall
+            glm::vec3 p((float)x + 0.5f, (float)sy + BUMP, (float)z + 0.5f);
+            if (phys.capsuleIsClear(p, Human::RADIUS + 0.4f, Human::STAND_HEIGHT - BUMP)) { out = sy; return true; }
             return false;          // the top here has no room: blocked
         }
         return false;
@@ -110,7 +118,7 @@ public:
                 Node m{ n.x + DX[i], n.z + DZ[i], ys[i] };
                 int dy = m.y - n.y;
                 float cost = (i < 4 ? 1.0f : 1.4142f) * CELL;
-                if (dy > 0) cost += dy * 0.5f + (dy > STEP_UP ? 6.0f : 0.0f);   // climbing; a jump costs more
+                if (dy > 0) cost += dy * climbCost + (dy > STEP_UP ? 6.0f : 0.0f);   // climbing (slower, Human::CLIMB_COST); a jump costs more
                 else if (dy < -4) cost += 2.0f;                                   // a drop
                 int64_t mk = key(m);
                 float g = cur.g + cost;

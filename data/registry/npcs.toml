@@ -12,6 +12,8 @@
 #   look            appearance preset (data/characters/presets.toml)
 #   weapon          item it fights with (its moveset comes from the item)
 #   health, poise   its toughness
+#   climb           how much slopes slow it (default 1; 0.2 a goat, 1.5 a
+#                   heavy brute); its paths weigh climbing the same way
 #   states          the brain states it may use (npc/Brain.h); a
 #                   state it doesn't have is skipped (no patrol →
 #                   it idles instead). "dead" is always there.

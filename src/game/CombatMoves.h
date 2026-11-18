@@ -1,5 +1,6 @@
 #pragma once
 #include "Combat.h"
+#include "ItemRegistry.h"
 #include "../entity/Human.h"
 #include <glm/glm.hpp>
 #include <algorithm>
@@ -44,7 +45,27 @@ inline bool beginAttack(Human& h, AttackKind k, int chain = 0) {
 // Start one from the intent, or queue the next light swing of
 // a combo (a press once the swing is active). Ground: light /
 // heavy. Air: lurch / plunge, once per jump.
+// An item's own attack (a spell's cast: ItemDef::cast). Needs
+// no weapon; can't start mid-attack, rolling or in the air.
+inline bool beginCast(Human& h, const AttackDef* d) {
+    if (!d || h.dead() || h.attack.active() || h.exposed > 0.0f || h.flying) return false;
+    if (h.move == Human::Move::Roll || h.move == Human::Move::Backstep) return false;
+    if (!h.spend(d->stamina)) return false;
+    h.attack = AttackState();
+    h.attack.kind = AttackKind::Cast;
+    h.attack.d = d;
+    h.attack.dir = flatFacing(h);
+    h.move = Human::Move::None;
+    h.sprinting = false;
+    return true;
+}
+
 inline void startAttack(Human& h, const HumanIntent& in) {
+    if (in.useItem) {
+        const ItemDef& item = gItems.get(in.useItem);
+        if (item.valid() && !item.cast.empty()) beginCast(h, gMovesets.attack(item.cast));
+        return;
+    }
     if (!(in.attackLight || in.attackHeavy) || !h.moveset || h.weaponDamage <= 0.0f || h.dead()) return;
     if (h.exposed > 0.0f) return;                   // parried: reeling, can't attack yet
     if (h.move == Human::Move::Roll || h.move == Human::Move::Backstep) return;

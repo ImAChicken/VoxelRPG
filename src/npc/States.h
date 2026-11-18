@@ -150,6 +150,7 @@ private:
 class Combat : public NpcState {
 public:
     static constexpr float FIGHT_RANGE = 13.0f;   // vox: close enough to swing
+    static constexpr float STEER_RANGE = 24.0f;   // vox from its spot: closer than this, context steering takes over from paths
     static constexpr float KEEP_RANGE  = 16.0f;   // vox: circles at about this distance
     static constexpr float LOSE_AFTER  = 3.0f;    // s out of sight → search
 
@@ -244,7 +245,13 @@ private:
         switch (sub) {
         case Sub::Approach:
             if (slotted && offSpot > 4.0f && !(engage && dist <= FIGHT_RANGE)) {
-                n.walkTo(w, spot, 1.0f, offSpot > 30.0f && n.stamina > 40.0f, 2.0f);   // to its place, around obstacles
+                if (offSpot > STEER_RANGE) n.walkTo(w, spot, 1.0f, offSpot > 30.0f && n.stamina > 40.0f, 2.0f);   // far: a path around obstacles
+                else {
+                    // near: context steering for the last stretch (npc/ContextSteering.h)
+                    in.move = w.contextSteer(n, spot, t, engage, FIGHT_RANGE, 0.0f);
+                    in.speedScale = 1.0f;
+                    in.sprint = false;
+                }
                 n.facing = glm::vec3(dir.x, 0.0f, dir.y);
                 break;
             }
@@ -257,10 +264,16 @@ private:
             [[fallthrough]];
         case Sub::Circle: {
             // hold its place: drift around it, keep facing the target
-            glm::vec2 keep = slotted ? (offSpot > 1.0f ? toSpot / offSpot * std::min(1.0f, offSpot / 6.0f) : glm::vec2(0))
-                                     : dir * std::clamp((dist - KEEP_RANGE) * 0.2f, -0.6f, 0.6f);
-            in.move = left * side * 0.35f + keep;
-            in.speedScale = 0.6f;
+            if (slotted) {
+                // hold its place: steered to its spot, circling a little,
+                // clear of the others and out of the target's swing
+                in.move = w.contextSteer(n, spot, t, engage, FIGHT_RANGE, side);
+                in.speedScale = 0.6f * std::clamp(glm::length(in.move) * 1.5f, 0.3f, 1.0f);   // eases in as it settles
+            } else {
+                glm::vec2 keep = dir * std::clamp((dist - KEEP_RANGE) * 0.2f, -0.6f, 0.6f);
+                in.move = left * side * 0.35f + keep;
+                in.speedScale = 0.6f;
+            }
             if ((slotted && offSpot > 12.0f) || (!slotted && dist > FIGHT_RANGE + 12.0f)) { to(Sub::Approach, 0); break; }
             if (subTime <= 0.0f) {
                 float r = n.rand01();

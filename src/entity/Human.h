@@ -43,8 +43,12 @@ struct HumanIntent {
     bool attackLight = false;
     bool attackHeavy = false;
     bool guard       = false;
+    // Use an item (one-shot): a spell from an X / Y / B slot or the
+    // off hand (game/CombatKit.h); plays the item's 'cast' attack.
+    // The simulation checks the player really carries it.
+    uint16_t useItem = 0;
 
-    void clearOneShots() { jump = false; dodge = false; attackLight = false; attackHeavy = false; }
+    void clearOneShots() { jump = false; dodge = false; attackLight = false; attackHeavy = false; useItem = 0; }
 };
 
 class Human : public Entity {
@@ -67,6 +71,13 @@ public:
     static constexpr float GROUND_ACCEL   = 900.0f; // how fast you reach speed / stop
     static constexpr float AIR_ACCEL      = 30.0f;  // steering while airborne
     static constexpr float STEP_UP        = 5.0f;   // climbed without jumping
+    // Slopes (VoxelPhysics::slopeFactor): walking up a grade g
+    // (rise over run) goes at 1 / (1 + g * climb * CLIMB_COST) of
+    // the flat speed, never below MIN_CLIMB_SPEED; downhill a
+    // little faster, up to DOWNHILL_BONUS
+    static constexpr float CLIMB_COST      = 1.0f;
+    static constexpr float MIN_CLIMB_SPEED = 0.35f;
+    static constexpr float DOWNHILL_BONUS  = 0.10f;
     static constexpr float STEP_DOWN      = 2.0f;   // stay glued going down small steps
 
     // ── Gravity ───────────────────────────────────────────
@@ -132,6 +143,17 @@ public:
     // The camera uses it to glide over steps instead of
     // snapping. Whoever reads it resets it to zero.
     float stepJolt = 0.0f;
+    // A server corrected where this body is by this much (minus):
+    // the camera and the drawn body ease over it instead of jumping
+    // (client/ClientWorld.h reconcile). Whoever reads it resets it.
+    glm::vec3 renderOffset = { 0.0f, 0.0f, 0.0f };
+
+    // ── Slopes ────────────────────────────────────────────
+    float climb = 1.0f;               // how much slopes slow this body (NPC types: npcs.toml climb)
+    float grade = 0.0f;               // the recent rise over run while walking (+ up, - down)
+    float gradeRise = 0.0f, gradeRun = 0.0f;   // their running averages
+    glm::vec3 gradeFrom = { 0.0f, 0.0f, 0.0f };   // where it was last tick
+    bool  gradeGrounded = false;
 
     // Chunks under the body are not loaded yet — holding still
     bool waitingForWorld = false;

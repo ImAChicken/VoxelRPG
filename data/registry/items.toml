@@ -82,6 +82,13 @@ tool = "shovel"
 tool_power = 8.0
 color = [0.80, 0.80, 0.85]
 
+# The hoe shapes the ground, Valheim style (game/PlayerInteraction.h,
+# world/TerrainOps.h). T changes what it does:
+#   level  flatten round where you aim to the height you stand at
+#   raise  lift the ground there a step
+#   lower  dig it down a step
+#   path   a gravel path, following the ground
+# Left click (hold to repeat). Buildings are never touched.
 [[item]]
 id = 1020
 name = "hoe"
@@ -89,8 +96,21 @@ held_model = "hoe"
 weight = 1.5              # kg
 categories = ["tool"]
 tool = "hoe"
-tool_power = 3.0
+tool_power = 6.0          # how wide it works: the radius, in voxels
 color = [0.50, 0.40, 0.30]
+
+# A player tool for testing destruction: left click a blast,
+# right click a bigger one. Craters the ground and throws bodies.
+[[item]]
+id = 1041
+name = "blast_wand"
+held_model = "dev_explode"
+weight = 0.5              # kg
+display = "Blast Wand"
+categories = ["tool"]
+tool = "blast"
+tool_power = 4.0          # blast radius in voxels (right click: double)
+color = [0.95, 0.35, 0.20]
 
 # Right click: build menu. Left click: place. T: turn.
 [[item]]
@@ -358,3 +378,16 @@ gear = { shape = "pack", color = "#7a6a4a", trim = "#4d3b28" }
 weight = 9.0
 worn = "back"
 color = [0.45, 0.42, 0.30]
+
+# ── Spells (categories = ["spell"]) ───────────────────────
+# Put in an X / Y / B slot (or the off hand) in combat: using it
+# plays its 'cast' attack (movesets.toml), whose effect does the
+# rest. Spells are never used up.
+[[item]]
+id = 1400
+name = "windburst"
+display = "Windburst"
+categories = ["spell"]
+cast = "windburst_cast"
+weight = 0.2
+color = [0.70, 0.90, 0.95]

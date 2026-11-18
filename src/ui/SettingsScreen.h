@@ -32,8 +32,6 @@ public:
         addSlider("Render distance", &gSettings.renderDistance,
                   GameSettings::RENDER_MIN, GameSettings::RENDER_ALL,
                   [](float v) { return chunks(v, v >= GameSettings::RENDER_ALL - 0.5f); });
-        addSlider("Eye height", &gSettings.eyeHeight, 13.0f, 17.5f,
-                  [](float v) { return feetInches(v); });
         addChoice("Character edges", &gSettings.charEdges, { "Off", "Lines", "Lines + echo" });
         addChoice("Edge line colour", &gSettings.charLineColor, { "Black", "Tinted" });
         addChoice("Hair mesh", &gSettings.charHairMesh, { "Voxels", "Shards", "Soft shards" });

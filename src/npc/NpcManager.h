@@ -58,6 +58,7 @@ public:
             n->mass = n->body.total();
         }
         n->maxHealth = n->health = t->health;
+        n->climb = t->climb;
         n->maxPoise = n->poise = t->poise;
         n->healthSeen = n->health;
         n->senseTimer = (float)(list.size() % 8) / (8.0f * brain::SENSE_HZ);   // staggered
