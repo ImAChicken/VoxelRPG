@@ -251,12 +251,24 @@ public:
             std::string line1 = t ? t->displayName + "   " + t->feet()
                                   : std::string("Builder's Hammer");
             std::string line2 = t ? (player.mode == GameMode::Survival
-                                     ? "cost: " + t->costText() : std::string("free in Test Play"))
+                                     ? "cost: " + t->costText(gStructures.costsEnabled) : std::string("free in Test Play"))
                                   : std::string("right click: choose a structure");
             std::string line3 = hands.previewWhy.empty()
                 ? (build->locked ? "LOCKED - left click builds" : "left click builds")
                 : hands.previewWhy;
-            float y = sh - 170.0f;
+            if (build->mode == HammerMode::Copy) {
+                line1 = "Copy a building";
+                line2 = "click any piece of it to save the whole building";
+                line3 = hands.previewWhy.empty() ? hands.aimLabel : hands.previewWhy;
+            } else if (build->mode == HammerMode::Blueprint) {
+                const Blueprint* bp = build->chosenBlueprint();
+                line1 = bp ? bp->display + "   " + std::to_string(bp->size.x / 3) + " x " + std::to_string(bp->size.z / 3) + " ft"
+                           : std::string("Blueprint");
+                line2 = bp ? std::to_string(bp->parts.size()) + " pieces   T turns it" + (build->style.sitePrep ? "   levels the ground" : "")
+                           : std::string("right click: choose a blueprint");
+                if (hands.previewWhy.empty()) line3 = build->locked ? "LOCKED - left click places it" : "left click places it";
+            }
+            float y = sh - 196.0f;     // above the held item's name
             const std::string* lines[3] = { &line1, &line2, &line3 };
             for (int i = 0; i < 3; i++) {
                 float w = (float)ui.textWidth(*lines[i], 2);

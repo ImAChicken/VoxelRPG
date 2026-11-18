@@ -1,0 +1,87 @@
+# Blueprint: a building made of build pieces (game/Blueprint.h).
+# Saved by the hammer's Copy tab; placed from its Blueprints tab and
+# by the village generator. Each part: its structure type, the low
+# corner of its box from the blueprint's low corner, its turn; chests
+# also keep items, or a loot table rolled when placed.
+#   front: the side the door faces, 0 north, 1 east, 2 south, 3 west
+
+name = "hut_workshop"
+display = "Workshop Hut"
+tags = ["work", "village", "small"]
+size = [18, 44, 18]
+front = 2
+
+[[part]]
+type = "stone_foundation_6"
+at = [0, 0, 0]
+rot = 0
+
+[[part]]
+type = "workbench"
+at = [5, 12, 2]
+rot = 1
+
+[[part]]
+type = "plaster_wall_4"
+at = [0, 12, 0]
+rot = 0
+
+[[part]]
+type = "plaster_wall_2"
+at = [12, 12, 0]
+rot = 0
+
+[[part]]
+type = "plaster_wall_4"
+at = [0, 12, 0]
+rot = 1
+
+[[part]]
+type = "plaster_wall_2"
+at = [0, 12, 12]
+rot = 1
+
+[[part]]
+type = "plaster_wall_4"
+at = [16, 12, 0]
+rot = 1
+
+[[part]]
+type = "plaster_wall_2"
+at = [16, 12, 12]
+rot = 1
+
+[[part]]
+type = "plaster_wall_2"
+at = [12, 12, 16]
+rot = 0
+
+[[part]]
+type = "plank_floor_4"
+at = [0, 42, 0]
+rot = 0
+
+[[part]]
+type = "plank_floor_2"
+at = [12, 42, 0]
+rot = 0
+
+[[part]]
+type = "plank_floor_2"
+at = [0, 42, 12]
+rot = 0
+
+[[part]]
+type = "plank_floor_2"
+at = [12, 42, 12]
+rot = 0
+
+[[part]]
+type = "plank_floor_2"
+at = [12, 42, 6]
+rot = 0
+
+[[part]]
+type = "plank_floor_2"
+at = [6, 42, 12]
+rot = 0

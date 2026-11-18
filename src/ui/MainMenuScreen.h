@@ -114,6 +114,7 @@ public:
     std::string getNewWorldCopyOf() const { return copyFrom && !devSaves.empty() ? copyOf : std::string(); }
     // New dev world on new terrain: lay out the showcase chests (game/DevKit.h)?
     bool        getNewWorldKit() const { return newDev && !copyFrom && kit; }
+    bool        getNewWorldVillage() const { return !copyFrom && worldType == WorldType::Flat && flat.village; }
 
 private:
     enum class State { Main, NewWorld, LoadWorld, Join };
@@ -518,6 +519,16 @@ private:
                                          [](int b) { return std::string(island::biomeInfo(b).name); });
             } else {
                 fitText(ui, "nothing grows", cx + 8, ly + (bh - 16) * 0.5f, cw, theme.textDim);
+            }
+            ly += bh + rowGap;
+            // a village to test building in, from the blueprints
+            rowLabel(ui, theme, "Village", lx, ly, bh, true);
+            {
+                bool hov = isHovered(cx, ly, cw, bh), on = flat.village;
+                ui.drawRect(cx, ly, cw, bh, (on || hov) ? theme.buttonBgHover : theme.buttonBg);
+                ui.drawBorder(cx, ly, cw, bh, on ? theme.accent : theme.buttonBorder, on ? 2.0f : 1.0f);
+                ui.drawTextCentered(on ? "Ahead of you" : "None", cx, ly, cw, bh, on ? theme.textHover : theme.textDim, 2);
+                if (hov && justClicked()) flat.village = !flat.village;
             }
             ly += bh + rowGap;
         }

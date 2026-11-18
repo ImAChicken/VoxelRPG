@@ -23,6 +23,7 @@
 struct FlatOptions {
     std::string ground = "grass";
     bool trees = false, plants = true, decor = false;
+    bool village = false;           // build a village from the blueprints near the start (game/Village.h)
     int  biome = island::Plains;
     int  height = 40;               // the field's surface (voxels up)
 

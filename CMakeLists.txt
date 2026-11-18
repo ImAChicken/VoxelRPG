@@ -153,7 +153,7 @@ endif()
 # ── Tests ─────────────────────────────────────────────────
 # Headless test programs (no window, no OpenGL). Off by default:
 #   cmake -B build -DVOXELRPG_TESTS=ON
-#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test server_test net_test
+#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test parts_test blueprint_test server_test net_test
 #   build/bin/Release/ragdoll_test      (build/bin/ragdoll_test elsewhere)
 #   build/bin/Release/woodcut_test      (from the repo root: it reads data/)
 #   build/bin/Release/combat_test
@@ -185,10 +185,12 @@ if(VOXELRPG_TESTS)
     add_executable(chest_test tests/chest_test.cpp)
     add_executable(icon_test tests/icon_test.cpp)
     add_executable(build_test tests/build_test.cpp)
+    add_executable(parts_test tests/parts_test.cpp)
+    add_executable(blueprint_test tests/blueprint_test.cpp)
     add_executable(server_test tests/server_test.cpp)
     add_executable(net_test tests/net_test.cpp)
     add_executable(net_bot tests/net_bot.cpp)      # a screenless player for trying a server (not a test)
-    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test server_test net_test net_bot)
+    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test parts_test blueprint_test server_test net_test net_bot)
         target_link_libraries(${t} PRIVATE voxelrpg_core)
         if(MSVC)
             target_compile_options(${t} PRIVATE /utf-8)

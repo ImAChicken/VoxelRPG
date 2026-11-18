@@ -14,6 +14,7 @@
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <utility>
 #include <vector>
 #include <functional>
@@ -79,6 +80,8 @@ public:
 
     // Builder's Hammer preview (drawn by the main loop)
     bool        hammerActive = false;   // hammer held this frame
+    // Blueprint and Copy modes: the boxes of every piece, to outline
+    std::vector<std::pair<glm::ivec3, glm::ivec3>> previewBoxes;
     bool        previewHas   = false;   // there is a spot to show
     glm::ivec3  previewSpot  = {0, 0, 0};
     std::string previewWhy;             // "" = can place, else why not
@@ -96,10 +99,13 @@ public:
     // Felled trees, logs and drops (set by the main loop when a
     // world is open)
     Woodcutting* wood = nullptr;
-    ChestStore*  chests = nullptr;     // for a chest's label in the aim text
+    ChestStore*  chests = nullptr;     // a chest's label in the aim text; blueprints keep chest contents
     // A chest E was pressed on (structure instance id; main.cpp
     // opens it in the inventory screen and sets this back to 0)
     uint32_t openChest = 0;
+    // A station E was pressed on (workbench, forge …; main.cpp
+    // opens its menu and sets this back to 0)
+    uint32_t openStation = 0;
 
     // Look for the block under the crosshair. Call every
     // frame a body exists, before update().
@@ -147,6 +153,7 @@ public:
                 if (!why.empty()) say(why);
             }
             if (t && t->slots > 0) openChest = aimed->id;            // a chest, or anything with storage
+            else if (t && t->kind == StructureKind::Station) openStation = aimed->id;
         }
 
         // ── Middle click: pick block ──────────────────────
@@ -165,7 +172,7 @@ public:
         // ── Builder's Hammer ──────────────────────────────
         if (hammer) {
             breakProgress = 0.0f;
-            hammerKeys(player, structs, build, survival, src, dt);
+            hammerKeys(player, editor, structs, build, survival, src, dt);
             return;
         }
 
@@ -564,7 +571,7 @@ private:
                 say(std::to_string(gone.size() - 1) + " piece(s) resting on it collapsed");
             if (survival)
                 for (auto& g : gone)
-                    if (const StructureType* gt = gStructures.get(g.type))
+                    if (const StructureType* gt = gStructures.get(g.type); gt && gStructures.charges(*gt))
                         for (auto& [item, n] : gt->cost)
                             player.inventory.add(item, n);
             return;
@@ -745,6 +752,8 @@ private:
         if (!t) return;
         if (t->kind == StructureKind::Door)
             aimLabel = t->displayName + (s->state ? "   E: close" : "   E: open");
+        else if (t->kind == StructureKind::Station)
+            aimLabel = t->displayName + "   E: use";
         else if (t->kind == StructureKind::Chest) {
             char b[112];
             std::string name = t->displayName;
@@ -767,10 +776,13 @@ private:
     }
 
     // ── Builder's Hammer ──────────────────────────────────
-    void hammerKeys(Player& player, StructureManager& structs, BuildTool& build,
+    void hammerKeys(Player& player, WorldEditor& editor, StructureManager& structs, BuildTool& build,
                     bool survival, EditSource src, float dt) {
         hammerActive = true;
+        previewBoxes.clear();
         if (gInput.isPressed(InputAction::UseRight)) wantBuildMenu = true;
+        if (build.mode == HammerMode::Copy)      { copyKeys(structs, build); return; }
+        if (build.mode == HammerMode::Blueprint) { blueprintKeys(player, editor, structs, build, survival, src, dt); return; }
         const StructureType* t = build.type();
         if (!t) {
             previewHas = false;
@@ -778,9 +790,10 @@ private:
             return;
         }
         if (gInput.isPressed(InputAction::RotatePiece)) build.rot = (build.rot + 1) & 3;
+        if (!build.locked) build.shownRot = build.rot;
         if (gInput.isPressed(InputAction::ToolCancel))  build.locked = false;
 
-        const VoxelVolume& shape = t->shape(0, build.rot);
+        const VoxelVolume& shape = t->shape(0, build.shownRot);
         glm::ivec3 fwd = std::fabs(lookDir.x) > std::fabs(lookDir.z)
             ? glm::ivec3(lookDir.x > 0 ? 1 : -1, 0, 0)
             : glm::ivec3(0, 0, lookDir.z > 0 ? 1 : -1);
@@ -790,7 +803,12 @@ private:
         previewHas = build.locked || target.hit;
         if (!build.locked && target.hit) {
             glm::ivec3 spot = target.blockPos + glm::ivec3(target.normal);
-            if (t->foundation && structs.alignFoundation(build.selected, build.rot, target.blockPos,
+            int snapRot = build.rot;
+            if (structs.snapTo(build.selected, build.rot, target.blockPos, glm::ivec3(target.normal),
+                               lookDir, spot, snapRot)) {
+                // against the piece aimed at (StructureManager::snapTo)
+                build.shownRot = snapRot;
+            } else if (t->foundation && structs.alignFoundation(build.selected, build.rot, target.blockPos,
                                                          glm::ivec3(target.normal), spot)) {
                 // lined up with the foundation beside it (StructureManager::alignFoundation)
             } else if (t->snap > 0) {
@@ -833,9 +851,10 @@ private:
         // Can it go there?
         uint32_t support = 0;
         previewWhy = previewHas ? structs.checkPlace(build.selected, build.spot,
-                                                     build.rot, survival, &support)
+                                                     build.shownRot, survival, &support)
                                 : "aim at the ground";
-        if (previewWhy.empty() && survival)
+        const bool pay = survival && gStructures.charges(*t);
+        if (previewWhy.empty() && pay)
             for (auto& [item, cnt] : t->cost) {
                 int have = player.inventory.count(item);
                 if (have < cnt) {
@@ -849,9 +868,111 @@ private:
         // Left click: build it
         if (gInput.isPressed(InputAction::UseLeft)) {
             if (!previewWhy.empty()) { say(previewWhy); return; }
-            if (survival)
+            if (pay)
                 for (auto& [item, cnt] : t->cost) player.inventory.take(item, cnt);
-            structs.place(build.selected, build.spot, build.rot, src, support);
+            structs.place(build.selected, build.spot, build.shownRot, src, support);
+        }
+    }
+
+    // ── Hammer, Copy tab: click a building to save it ─────
+    uint32_t  copyFor = 0;          // the piece the outline was worked out for
+    Blueprint copyShown;
+    glm::ivec3 copyLo{ 0 };
+
+    void copyKeys(StructureManager& structs, BuildTool& build) {
+        previewHas = false;
+        const StructureInstance* a = target.hit ? structs.instanceAt(target.blockPos) : nullptr;
+        if (!a || a->natural) {
+            copyFor = 0;
+            previewWhy = "aim at a building to copy it";
+            return;
+        }
+        std::string why;
+        if (a->id != copyFor) {     // work it out once per piece aimed at
+            copyFor = a->id;
+            if (!Blueprint::capture(structs, a->id, chests, copyShown, why, 600, &copyLo)) copyShown.parts.clear();
+        }
+        if (copyShown.parts.empty()) { previewWhy = "that is not a building piece"; return; }
+        for (const BlueprintPlacement& p : copyShown.plan(copyLo, 0))
+            previewBoxes.push_back({ p.lo, p.hi });
+        previewWhy = "";
+        aimLabel = "click: save this building, " + std::to_string(copyShown.parts.size()) + " pieces";
+        if (gInput.isPressed(InputAction::UseLeft)) {
+            Blueprint bp = copyShown;
+            bp.name    = gBlueprints.freeName("building");
+            bp.display = "Building " + bp.name.substr(std::min<size_t>(bp.name.size(), 9));
+            if (bp.name == "building") bp.display = "Building";
+            bp.tags    = { "player" };
+            if (gBlueprints.save(bp)) {
+                say("saved as " + bp.name + " - ready to place");
+                build.selectBlueprint(bp.name);
+            } else say("could not save the blueprint");
+            copyFor = 0;
+        }
+    }
+
+    // ── Hammer, Blueprints tab: place a whole building ────
+    void blueprintKeys(Player& player, WorldEditor& editor, StructureManager& structs, BuildTool& build,
+                       bool survival, EditSource src, float dt) {
+        const Blueprint* bp = build.chosenBlueprint();
+        if (!bp) {
+            previewHas = false;
+            previewWhy = "right click to choose a blueprint";
+            return;
+        }
+        if (gInput.isPressed(InputAction::RotatePiece)) build.rot = (build.rot + 1) & 3;
+        if (gInput.isPressed(InputAction::ToolCancel))  build.locked = false;
+        const glm::ivec3 sz = bp->sizeTurned(build.rot);
+        glm::ivec3 fwd = std::fabs(lookDir.x) > std::fabs(lookDir.z)
+            ? glm::ivec3(lookDir.x > 0 ? 1 : -1, 0, 0)
+            : glm::ivec3(0, 0, lookDir.z > 0 ? 1 : -1);
+
+        // centred on the ground aimed at (build.spot: its low corner)
+        previewHas = build.locked || target.hit;
+        if (!build.locked && target.hit) {
+            glm::ivec3 at = target.blockPos + glm::ivec3(target.normal);
+            build.spot = glm::ivec3(at.x - sz.x / 2, at.y - build.style.sink, at.z - sz.z / 2);
+        }
+        glm::ivec3 right(-fwd.z, 0, fwd.x);
+        int n = gInput.isHeld(InputAction::Sprint) ? 8 : 1;
+        struct { InputAction a; glm::ivec3 d; } keys[] = {
+            { InputAction::NudgeForward, fwd },  { InputAction::NudgeBack, -fwd },
+            { InputAction::NudgeRight, right },  { InputAction::NudgeLeft, -right },
+            { InputAction::NudgeUp, {0, 1, 0} }, { InputAction::NudgeDown, {0, -1, 0} },
+        };
+        for (int i = 0; i < 6; i++)
+            if (repeatKey(keys[i].a, nudgeTimers[i], dt)) {
+                if (!build.locked) {
+                    if (!target.hit)
+                        build.spot = glm::ivec3(glm::floor(player.position)) + fwd * (sz.x + 8);
+                    build.locked = true;
+                    previewHas = true;
+                }
+                build.spot += keys[i].d * n;
+            }
+        previewSpot = build.spot;
+        if (!previewHas) { previewWhy = "aim at the ground"; return; }
+
+        std::vector<BlueprintPlacement> plan = bp->plan(build.spot, build.rot, &build.style);
+        for (const BlueprintPlacement& p : plan) previewBoxes.push_back({ p.lo, p.hi });
+        previewWhy = Blueprint::check(structs, plan, build.style.sitePrep);
+        const bool pay = survival && gStructures.costsEnabled;
+        std::map<uint16_t, int> cost = pay ? bp->cost(&build.style) : std::map<uint16_t, int>();
+        if (previewWhy.empty())
+            for (auto& [item, cnt] : cost)
+                if (player.inventory.count(item) < cnt) {
+                    previewWhy = "needs " + std::to_string(cnt) + " " + gItems.get(item).displayName;
+                    break;
+                }
+        aimLabel = bp->display + "   T: turn";
+
+        if (gInput.isPressed(InputAction::UseLeft)) {
+            if (!previewWhy.empty()) { say(previewWhy); return; }
+            for (auto& [item, cnt] : cost) player.inventory.take(item, cnt);
+            std::string why;
+            auto made = bp->paste(structs, editor, chests, plan, src, &build.style, &why);
+            say(why.empty() ? bp->display + " built" : why);
+            build.locked = false;
         }
     }
 

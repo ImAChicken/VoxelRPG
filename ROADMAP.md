@@ -4,6 +4,15 @@ Living list of planned work. Sections marked **Tabled** are agreed
 ideas parked for later; add to them as new ideas come up.
 
 ## Recently done
+- Building parts (2026-11-18): foundations 2, 4, 6, 8 and 10 ft square, all 4 ft deep, in stone or slate; 10 ft walls (2, 4, 8 ft long) with doorways (8 ft tall) and windows, in plank, stone, brick and plaster; gables, posts, beams, floors, 45 degree roofs (thatch, tile, slate), stairs, a door that fills the doorway. Each piece has a part, group and material (structures.toml `materials = {...}` makes one piece per material), so a piece swaps to another material in one call (StructureRegistry::swap)
+- Stations, E opens a placeholder menu (ui/StationScreen.h): workbench, campfire (glowing embers), hearth (stone bricks round a fire), forge, anvil; furniture: table, bench, bed, lantern post. New blocks: slate, stone bricks, roof tiles, plaster, workbench top
+- Hammer snapping (StructureManager::snapTo): walls go on the nearest edge of a foundation or floor and turn themselves, posts go in corners, doors into doorways, ceilings on wall tops, roofs on a ceiling's edge rising inward (or on a wall top), furniture centred where aimed, anything else flush beside the piece aimed at. Walls share corner voxels; taking one down hands the corner back
+- Costs off for now: `costs = false` at the top of structures.toml (the costs stay written per piece; flip it to charge them)
+- Blueprints (game/Blueprint.h, data/blueprints/*.toml): whole buildings as lists of pieces. The hammer's build menu has a Blueprints tab: "Copy a building" (click any piece, the whole connected building is saved, chests with their items), then place it anywhere: T turns it, the ground under it is levelled, and a style restyles it as it goes down (walls, roofs, foundations, floors, gables, posts by material; chests keep their items or roll a loot table; foundations sunk 0 to 3 ft). Each blueprint adds up its pieces' costs, ready for players placing huts or tents for a price
+- Six village buildings, each built piece by piece with the hammer's snapping in tests/blueprint_test.cpp (run it with --write to remake them): small cottage, longhouse, smithy, storehouse, workshop hut, village square
+- Villages from blueprints (game/Village.h): a square in the middle, 1 to 4 roads out of it, buildings along both sides facing the road, picked by tag weight, one style for the whole village, roads levelled along the ground. Console: `village [seed] [roads] [length]`
+- Terrain operations (world/TerrainOps.h): flatten a box (with a feathered edge back to the old ground), a flatten disc (brush), level one column; shared by blueprints, villages and the console `flatten [radius] [level]`
+- AGENTS.md: a map of the code for coding agents
 - World types (Classic, Island, One biome) with the chart preview on the New World screen
 - Island chart by wave function collapse (worldgen/BiomeCollapse.h): height levels per biome, neighbours within one level, quadrant themes, pinned peak and swamp, then elevation, rivers that run downhill, lakes, road and settlements on a layer over the land
 - Per-biome relief (worldgen/BiomeTable.h): plains and moor mostly flat with scattered hills, forest rolling, mountains ridged, swamp hummocks with standing water; blended across borders
@@ -171,7 +180,9 @@ Target: at least 20 players per server for now.
 - Leaning away from players mining and placing single voxels. Building goes through the Builder's Hammer and structures (foundations first)
 - Pickaxes extract ore from tagged resource veins: a vein is a structure spawned in the world like a tree (structures.toml kind "vein", a voxel model with a resource, health and yield), worn down by pickaxe hits and dropping ore, as trees drop wood. Pickaxe cube-breaking becomes less important (may go entirely, or stay a dev / Test Play tool)
 - Open: whether Survival keeps any voxel breaking or placing (dirt and stone for terraforming, or not at all), and where stone for foundations comes from (stone veins / quarry outcrops)
-- Next for building: wall, floor and roof pieces sized to the 8 ft foundation (snapping to its edges and top), stairs and ramps between stacked foundations
+- Building next (2026-11-18 list): a flatten brush as a dev tool item and the player's hoe (Valheim-like: level, raise, lower, a path) on terrain::flattenDisc; real station menus once crafting exists; hip roofs and roof corners; a 10 ft roof span; blueprints placeable by players for a cost (huts, tents); chest loot-table swap per blueprint in the style menu is done, per-chest choice later; a blueprint editor (rename, tags, front) in game
+- Villages next: smart road tools (curves, junctions, a road the player draws, paths to doors), villages placed by the island generator at its settlement sites, lots that follow slopes (terraces, stilts) instead of skipping them, wells, fences, fields, NPC villagers living in the houses
+- A simpler start world: a small flat or gentle world with a village for testing building, instead of generating the big island each time
 
 ## Tools (planned)
 - (Pickaxe cube sizes and dig times: on hold, see Resources and building direction above)
@@ -180,7 +191,7 @@ Target: at least 20 players per server for now.
 ## Known gaps
 - Caves are only pits at cave cells
 - Water and lava are static (no flow)
-- Villages are flattened plazas with no buildings yet
+- The island generator's settlements are still flattened plazas: the village generator (game/Village.h) isn't hooked into world generation yet; use the `village` command
 - Distant terrain shows player edits only for chunks that have been loaded at least once (remembered in lowres.dat)
 - No real-time shadows: shading is baked sky light plus sun facing
 - Light bake is 50–110 ms per column on one worker; fine for streaming, could be trimmed

@@ -1,0 +1,108 @@
+# Blueprint: a building made of build pieces (game/Blueprint.h).
+# Saved by the hammer's Copy tab; placed from its Blueprints tab and
+# by the village generator. Each part: its structure type, the low
+# corner of its box from the blueprint's low corner, its turn; chests
+# also keep items, or a loot table rolled when placed.
+#   front: the side the door faces, 0 north, 1 east, 2 south, 3 west
+
+name = "smithy"
+display = "Smithy"
+tags = ["smithy", "village", "work"]
+size = [24, 68, 48]
+front = 1
+
+[[part]]
+type = "slate_foundation"
+at = [0, 0, 0]
+rot = 0
+
+[[part]]
+type = "slate_foundation"
+at = [0, 0, 24]
+rot = 0
+
+[[part]]
+type = "workbench"
+at = [4, 12, 13]
+rot = 0
+
+[[part]]
+type = "stone_wall_8"
+at = [0, 12, 0]
+rot = 0
+
+[[part]]
+type = "stone_wall_8"
+at = [0, 12, 0]
+rot = 1
+
+[[part]]
+type = "stone_wall_8"
+at = [22, 12, 0]
+rot = 1
+
+[[part]]
+type = "stone_doorway_8"
+at = [0, 12, 22]
+rot = 0
+
+[[part]]
+type = "anvil"
+at = [14, 12, 34]
+rot = 0
+
+[[part]]
+type = "forge"
+at = [3, 12, 31]
+rot = 0
+
+[[part]]
+type = "wood_post"
+at = [0, 12, 45]
+rot = 0
+
+[[part]]
+type = "wood_post"
+at = [21, 12, 45]
+rot = 0
+
+[[part]]
+type = "wooden_chest"
+at = [13, 12, 3]
+rot = 0
+loot = "village_smithy"
+
+[[part]]
+type = "plank_door"
+at = [7, 12, 22]
+rot = 0
+
+[[part]]
+type = "plank_floor_8"
+at = [0, 42, 0]
+rot = 0
+
+[[part]]
+type = "plank_floor_8"
+at = [0, 42, 24]
+rot = 0
+
+[[part]]
+type = "stone_gable_16"
+at = [22, 44, 0]
+rot = 1
+
+[[part]]
+type = "stone_gable_16"
+at = [0, 44, 0]
+rot = 1
+
+[[part]]
+type = "slate_roof_8x8"
+at = [0, 44, 0]
+rot = 0
+
+[[part]]
+type = "slate_roof_8x8"
+at = [0, 44, 24]
+rot = 2

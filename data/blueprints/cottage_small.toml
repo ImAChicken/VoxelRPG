@@ -1,0 +1,79 @@
+# Blueprint: a building made of build pieces (game/Blueprint.h).
+# Saved by the hammer's Copy tab; placed from its Blueprints tab and
+# by the village generator. Each part: its structure type, the low
+# corner of its box from the blueprint's low corner, its turn; chests
+# also keep items, or a loot table rolled when placed.
+#   front: the side the door faces, 0 north, 1 east, 2 south, 3 west
+
+name = "cottage_small"
+display = "Small Cottage"
+tags = ["house", "village", "small"]
+size = [24, 56, 24]
+front = 2
+
+[[part]]
+type = "stone_foundation"
+at = [0, 0, 0]
+rot = 0
+
+[[part]]
+type = "bed"
+at = [3, 12, 3]
+rot = 0
+
+[[part]]
+type = "plank_doorway_8"
+at = [0, 12, 22]
+rot = 0
+
+[[part]]
+type = "plank_window_8"
+at = [22, 12, 0]
+rot = 1
+
+[[part]]
+type = "plank_wall_8"
+at = [0, 12, 0]
+rot = 1
+
+[[part]]
+type = "plank_wall_8"
+at = [0, 12, 0]
+rot = 0
+
+[[part]]
+type = "wooden_chest"
+at = [12, 12, 2]
+rot = 0
+items = [["planks", 12], ["torch", 4]]
+label = "Linen chest"
+
+[[part]]
+type = "plank_door"
+at = [7, 12, 22]
+rot = 0
+
+[[part]]
+type = "plank_floor_8"
+at = [0, 42, 0]
+rot = 0
+
+[[part]]
+type = "plank_gable_8"
+at = [22, 44, 0]
+rot = 1
+
+[[part]]
+type = "plank_gable_8"
+at = [0, 44, 0]
+rot = 1
+
+[[part]]
+type = "thatch_roof_8x4"
+at = [0, 44, 12]
+rot = 2
+
+[[part]]
+type = "thatch_roof_8x4"
+at = [0, 44, 0]
+rot = 0

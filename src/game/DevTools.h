@@ -110,6 +110,7 @@ public:
     // Point at the open world's editor (nullptr = no world)
     void attach(WorldEditor* ed) { editor = ed; }
     bool ready() const { return editor != nullptr; }
+    WorldEditor* worldEditor() const { return editor; }   // for commands that build (blueprints, villages)
 
     // ── Selection ─────────────────────────────────────────
     bool hasSelection() const { return hasPos1 && hasPos2; }

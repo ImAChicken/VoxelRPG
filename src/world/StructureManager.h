@@ -64,6 +64,10 @@ public:
     std::function<void(const std::string&)> log = [](const std::string&) {};
 
     // ── Looking things up ─────────────────────────────────
+    const StructureInstance* get(uint32_t id) const {
+        auto it = instances.find(id);
+        return it == instances.end() ? nullptr : &it->second;
+    }
     const StructureType* typeOf(const StructureInstance& s) const {
         return gStructures.get(s.type);
     }
@@ -174,6 +178,7 @@ public:
     // crosshair lines them up by itself.
     static constexpr int FOUNDATION_NEAR = 12;
     static constexpr int FOUNDATION_SNAP = 24;
+    static constexpr int MODULE = 6;           // the 2 ft building grid
 
     // Empty voxels between two boxes along their farthest-apart
     // axis (-1 or less: they overlap on every axis)
@@ -200,8 +205,10 @@ public:
         for (const StructureInstance* f : foundationsNear(o, o + v.size - 1, FOUNDATION_NEAR)) {
             glm::ivec3 flo, fhi;
             bounds(*f, flo, fhi);
+            // on the 2 ft module (foundations come in 2 to 10 ft),
+            // at the same level or stacked
             glm::ivec3 step = fhi - flo + 1, d = o - flo;
-            if (d.x % step.x || d.z % step.z || d.y % step.y)
+            if (d.x % MODULE || d.z % MODULE || d.y % step.y)
                 return "must line up with the foundation next to it";
         }
         return "";
@@ -243,6 +250,186 @@ public:
         return true;
     }
 
+    // ── Snapping (the Builder's Hammer, blueprints, villages) ──
+    // Where a piece should go when the crosshair is on voxel
+    // 'aimed' (face 'normal') of an existing piece. Fills spot
+    // (the origin to place at) and rot. False: nothing to snap to
+    // (aimed at the ground), leave it to the caller.
+    //   lookDir  which way the player looks (a roof rises away
+    //            from them; T flips it)
+    //   rotPick  the hammer's own rotation (T): used where the
+    //            snap leaves a choice
+    bool snapTo(uint16_t type, int rotPick, glm::ivec3 aimed, glm::ivec3 normal,
+                glm::vec3 lookDir, glm::ivec3& spot, int& rot) const {
+        const StructureType* t = gStructures.get(type);
+        const StructureInstance* a = instanceAt(aimed);
+        if (!t || !a || a->natural) return false;
+        const StructureType* at = typeOf(*a);
+        if (!at || at->kind == StructureKind::Tree) return false;
+        glm::ivec3 alo, ahi;
+        bounds(*a, alo, ahi);
+        const glm::ivec3 asz = ahi - alo + 1;
+        auto place = [&](int r, glm::ivec3 lo) {
+            rot = r & 3;
+            spot = lo + t->shape(0, rot).anchor;
+            return true;
+        };
+        auto sizeAt = [&](int r) { return t->shape(0, r & 3).size; };
+        const bool onTop = normal.y > 0;
+        const std::string& g = t->group;
+
+        // A door into a doorway: the hole's box
+        if (t->kind == StructureKind::Door && at->part == "wall_door") {
+            glm::ivec3 hlo, hhi;
+            if (holeOf(*a, hlo, hhi)) {
+                int r = (a->rot + (rotPick & 2)) & 3;
+                glm::ivec3 sz = sizeAt(r);
+                glm::ivec3 lo = hlo;
+                // centred in the hole's thickness
+                if (r % 2 == 0) lo.z = hlo.z + ((hhi.z - hlo.z + 1) - sz.z) / 2;
+                else            lo.x = hlo.x + ((hhi.x - hlo.x + 1) - sz.x) / 2;
+                return place(r, lo);
+            }
+        }
+
+        // On top of a foundation or floor: walls on the nearest
+        // edge, posts in the nearest corner
+        if (onTop && (at->foundation || at->group == "floor") &&
+            (g == "wall" || g == "gable" || g == "pillar")) {
+            int dxl = aimed.x - alo.x, dxh = ahi.x - aimed.x, dzl = aimed.z - alo.z, dzh = ahi.z - aimed.z;
+            int nearest = std::min({ dxl, dxh, dzl, dzh });
+            int y = ahi.y + 1;
+            if (g == "pillar") {
+                glm::ivec3 sz = sizeAt(0);
+                int x = dxl <= dxh ? alo.x : ahi.x - sz.x + 1;
+                int z = dzl <= dzh ? alo.z : ahi.z - sz.z + 1;
+                return place(0, { x, y, z });
+            }
+            // close to an edge (within a third of the way in): on it
+            if (nearest * 3 <= std::min(asz.x, asz.z)) {
+                bool alongX = nearest == dzl || nearest == dzh;      // an edge running along x
+                int r = alongX ? (rotPick & 2) : 1 + (rotPick & 2);
+                glm::ivec3 sz = sizeAt(r);
+                glm::ivec3 lo;
+                lo.y = y;
+                if (alongX) {
+                    lo.z = nearest == dzl ? alo.z : ahi.z - sz.z + 1;
+                    lo.x = tile(aimed.x, alo.x, ahi.x, sz.x);
+                } else {
+                    lo.x = nearest == dxl ? alo.x : ahi.x - sz.x + 1;
+                    lo.z = tile(aimed.z, alo.z, ahi.z, sz.z);
+                }
+                return place(r, lo);
+            }
+        }
+
+        // A roof on a ceiling or foundation: its eave on the
+        // nearest edge, rising inward
+        if (onTop && g == "roof" && (at->foundation || at->group == "floor")) {
+            int dxl = aimed.x - alo.x, dxh = ahi.x - aimed.x, dzl = aimed.z - alo.z, dzh = ahi.z - aimed.z;
+            int nearest = std::min({ dxl, dxh, dzl, dzh });
+            int r;
+            if (nearest == dzl)      r = 0;                          // rises toward +z
+            else if (nearest == dzh) r = 2;
+            else                     r = (shapeRisesPlusX(*t, 1) == (nearest == dxl)) ? 1 : 3;
+            if (rotPick & 2) r = (r + 2) & 3;
+            glm::ivec3 sz = sizeAt(r);
+            glm::ivec3 lo;
+            lo.y = ahi.y + 1;
+            if (r % 2 == 0) {
+                lo.x = tile(aimed.x, alo.x, ahi.x, sz.x);
+                lo.z = (r == 0) ? alo.z : ahi.z - sz.z + 1;
+            } else {
+                lo.z = tile(aimed.z, alo.z, ahi.z, sz.z);
+                lo.x = shapeRisesPlusX(*t, r) ? alo.x : ahi.x - sz.x + 1;
+            }
+            return place(r, lo);
+        }
+
+        // A roof on a wall's top: its eave along the wall, rising
+        // the way the player looks (T flips it)
+        if (onTop && g == "roof" && (at->group == "wall" || at->group == "gable" || at->group == "beam")) {
+            bool wallAlongX = asz.x >= asz.z;
+            int r;
+            if (wallAlongX) r = lookDir.z >= 0 ? 0 : 2;              // rot 0 rises toward +z
+            else            r = (shapeRisesPlusX(*t, 1) == (lookDir.x >= 0)) ? 1 : 3;
+            if (rotPick & 2) r = (r + 2) & 3;
+            glm::ivec3 sz = sizeAt(r);
+            glm::ivec3 lo;
+            lo.y = ahi.y + 1;
+            if (wallAlongX) {
+                lo.x = tile(aimed.x, alo.x, ahi.x, sz.x);
+                lo.z = (r == 0) ? alo.z : ahi.z - sz.z + 1;         // the low edge over the wall
+            } else {
+                lo.z = tile(aimed.z, alo.z, ahi.z, sz.z);
+                bool risesPlusX = shapeRisesPlusX(*t, r);
+                lo.x = risesPlusX ? alo.x : ahi.x - sz.x + 1;
+            }
+            return place(r, lo);
+        }
+
+        // Furniture, stations and lights on a floor: centred where
+        // aimed, kept on the piece below
+        if (onTop && (g == "station" || g == "furniture" || g == "light" || g == "chest")) {
+            int r = rotPick & 3;
+            glm::ivec3 sz = sizeAt(r);
+            glm::ivec3 lo(aimed.x - sz.x / 2, ahi.y + 1, aimed.z - sz.z / 2);
+            if (asz.x >= sz.x) lo.x = std::clamp(lo.x, alo.x, ahi.x - sz.x + 1);
+            if (asz.z >= sz.z) lo.z = std::clamp(lo.z, alo.z, ahi.z - sz.z + 1);
+            return place(r, lo);
+        }
+
+        // Anything else: flush against the face aimed at, lined up
+        // with the aimed piece's corner, stepping by this piece's size
+        int r = rotPick & 3;
+        glm::ivec3 sz = sizeAt(r);
+        glm::ivec3 lo;
+        for (int k = 0; k < 3; k++) {
+            if (normal[k] > 0)      lo[k] = ahi[k] + 1;
+            else if (normal[k] < 0) lo[k] = alo[k] - sz[k];
+            else                    lo[k] = tile(aimed[k], alo[k], ahi[k], sz[k]);
+        }
+        return place(r, lo);
+    }
+
+    // Steps of 'size' from 'from' toward p, kept inside [from, to]
+    // where the piece fits (a bigger piece starts at 'from')
+    static int tile(int p, int from, int to, int size) {
+        int k = (p - from) >= 0 ? (p - from) / size : -((from - p + size - 1) / size);
+        int lo = from + k * size;
+        if (to - from + 1 >= size) lo = std::clamp(lo, from, to - size + 1);
+        return lo;
+    }
+    // Does this roof (rotation r) rise toward +x?
+    static bool shapeRisesPlusX(const StructureType& t, int r) {
+        const VoxelVolume& v = t.shape(0, r);
+        // the tallest column is the ridge: compare the two x ends
+        auto top = [&](int x) {
+            for (int y = v.size.y - 1; y >= 0; y--)
+                for (int z = 0; z < v.size.z; z++) if (v.at(x, y, z) != BLOCK_AIR) return y;
+            return -1;
+        };
+        return top(v.size.x - 1) > top(0);
+    }
+    // The empty box in a doorway's shape (its hole), in world voxels
+    bool holeOf(const StructureInstance& s, glm::ivec3& lo, glm::ivec3& hi) const {
+        const StructureType* t = typeOf(s);
+        if (!t) return false;
+        const VoxelVolume& v = t->shape(0, s.rot);
+        glm::ivec3 o = s.origin - v.anchor;
+        lo = glm::ivec3(1 << 30); hi = glm::ivec3(-(1 << 30));
+        bool any = false;
+        for (int y = 0; y < v.size.y; y++)
+        for (int z = 0; z < v.size.z; z++)
+        for (int x = 0; x < v.size.x; x++)
+            if (v.at(x, y, z) == BLOCK_AIR) {
+                lo = glm::min(lo, o + glm::ivec3(x, y, z));
+                hi = glm::max(hi, o + glm::ivec3(x, y, z));
+                any = true;
+            }
+        return any;
+    }
+
     // ── Placing ───────────────────────────────────────────
     // Why a placement would fail, or "" if it is fine.
     //   strictSupport — Survival: pieces that need support
@@ -269,6 +456,11 @@ public:
                 if (gRegistry.get(here).sprite) continue;     // grass and flowers make way
                 // Foundations sink into the ground
                 if (t->foundation && foundationCanReplace(p, here)) continue;
+                // Walls meeting at a corner share it
+                if (sharesCorners(t)) {
+                    const StructureInstance* other = instanceAt(p);
+                    if (other && sharesCorners(typeOf(*other))) continue;
+                }
                 return "blocked";
             }
         }
@@ -545,9 +737,39 @@ private:
             uint16_t id = v.at(x, y, z);
             if (id == BLOCK_AIR) continue;
             glm::ivec3 p = o + glm::ivec3(x, y, z);
-            if (world.typeAtVoxel(p.x, p.y, p.z) == id) b.set(p.x, p.y, p.z, BLOCK_AIR);
+            if (world.typeAtVoxel(p.x, p.y, p.z) != id) continue;
+            // A shared wall corner: hand it back to the other piece
+            uint16_t keep = BLOCK_AIR;
+            if (const StructureInstance* other = ownerOtherThan(p, s.id)) keep = voxelOf(*other, p);
+            b.set(p.x, p.y, p.z, keep);
         }
         return b;
+    }
+
+    // Another instance (not 'skip') whose shape covers voxel p
+    const StructureInstance* ownerOtherThan(glm::ivec3 p, uint32_t skip) const {
+        auto it = byChunk.find(key(ChunkManager::chunkCoord(p.x), ChunkManager::chunkCoord(p.z)));
+        if (it == byChunk.end()) return nullptr;
+        for (uint32_t id : it->second) {
+            if (id == skip) continue;
+            auto f = instances.find(id);
+            if (f != instances.end() && owns(f->second, p)) return &f->second;
+        }
+        return nullptr;
+    }
+    // The block an instance's shape puts at world voxel p
+    uint16_t voxelOf(const StructureInstance& s, glm::ivec3 p) const {
+        const StructureType* t = typeOf(s);
+        if (!t) return BLOCK_AIR;
+        const VoxelVolume& v = t->shape(s.state, s.rot);
+        glm::ivec3 q = p - s.origin + v.anchor;
+        return v.inside(q.x, q.y, q.z) ? v.at(q.x, q.y, q.z) : BLOCK_AIR;
+    }
+    // Walls, gables and posts may share their corner voxels:
+    // two walls meeting on a foundation's corner overlap there
+    static bool sharesCorners(const StructureType* t) {
+        return t && (t->group == "wall" || t->group == "gable" || t->group == "pillar" ||
+                     t->group == "post");
     }
 
     // An instance with a voxel right under or beside the

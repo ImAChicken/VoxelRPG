@@ -4,7 +4,7 @@
 # Scale: 1 voxel = 4 inches, so 3 voxels = 1 ft, 12 voxels = 4 ft.
 # F6 reloads this file.
 #
-# kind:     build | door | tree | spawner | chest
+# kind:     build | door | tree | spawner | chest | station
 # menu:     true = listed in the Builder's Hammer build menu
 # block:    what a build piece / door is made of
 # size:     [width, height, depth] in voxels
@@ -35,25 +35,545 @@
 #   anchor = [x, y, z]   the voxel placed where you aim (default: the
 #            bottom centre; build pieces: the corner)
 
+# ── Parts (building, blueprints, villages) ────────────────
+# part:     what the piece is (foundation, wall, wall_door,
+#           wall_window, gable, floor, roof, pillar, beam, stairs,
+#           door, station, furniture, light). Its group is the part
+#           up to the first '_' (wall_door → wall)
+# materials = { plank = "planks", stone = "cobblestone" }
+#           one entry, one type per material: {m} in the name (and
+#           {M} in the display) becomes the material, "$" in a
+#           legend is its block. Types that differ only by material
+#           are one family, so a blueprint can swap one for another
+#           (all plank walls → stone walls)
+# family:   set it to join an entry that isn't a {m} template to a
+#           family (the 8 ft foundation keeps its old name)
+# tags:     anything else, for generators: tags = ["village"]
+#
+# Shapes made from a size (no drawing needed):
+#   shape = "slope"   roof plane rising along z; size [width, rise, run],
+#                     thickness (2)
+#   shape = "gable"   the triangle under a roof's end; size [span,
+#                     height, thickness], inset (2) below the roof planes
+#   shape = "stairs"  solid steps rising along z; size [width, rise,
+#                     run], step (3)
+#
+# Stations (kind "station"): station = "workbench", title = "Workbench".
+# E opens their menu (a placeholder for now).
+#
+# costs:    false = building is free for everyone (the hammer charges
+#           nothing, removing refunds nothing). The cost lists stay so
+#           turning this on brings them back
+costs = false
+
 # ── Building pieces ───────────────────────────────────────
-# Foundations: 8 x 8 ft and 4 ft tall. Anywhere on their own; one
-# within 4 ft of another must line up with it (side by side, edges
-# flush, or stacked), and the hammer snaps to the nearest one's grid
-# within 8 ft (aim at a foundation's side for the next slot that way,
-# at its top to stack one). They sink into earth and stone to level
+# Sizes: 1 ft = 3 voxels. Everything is on a 2 ft (6 voxel) module.
+#   foundations  2, 4, 6, 8 and 10 ft square, 4 ft deep
+#   walls        10 ft tall (good headroom under a ceiling), 8 in
+#                thick, 2 / 4 / 8 ft wide; doorways 3 ft 4 in x 8 ft
+#   floors       8 in thick, sit on top of walls as ceilings / lofts
+#   roofs        45 degrees, 4 or 8 ft along the ridge, running 4 to
+#                10 ft from eave to ridge (half the house's width)
+#
+# Foundations rest on the ground and hold others up. One within 4 ft
+# of another must line up with it on the 2 ft module (side by side,
+# edges flush, or stacked). They sink into earth and stone to level
 # uneven ground.
 [[structure]]
-name = "stone_foundation"
-display = "Stone Foundation"
+name = "{m}_foundation_2"
+display = "{M} Foundation 2 ft"
+part = "foundation"
+materials = { stone = "stone", slate = "slate" }
 kind = "build"
 menu = true
-block = "stone"
+size = [6, 12, 6]
+foundation = true
+cost = { stone = 6 }
+
+[[structure]]
+name = "{m}_foundation_4"
+display = "{M} Foundation 4 ft"
+part = "foundation"
+materials = { stone = "stone", slate = "slate" }
+kind = "build"
+menu = true
+size = [12, 12, 12]
+foundation = true
+cost = { stone = 24 }
+
+[[structure]]
+name = "{m}_foundation_6"
+display = "{M} Foundation 6 ft"
+part = "foundation"
+materials = { stone = "stone", slate = "slate" }
+kind = "build"
+menu = true
+size = [18, 12, 18]
+foundation = true
+cost = { stone = 54 }
+
+# The 8 ft one keeps its old name (stone_foundation) for saved worlds
+[[structure]]
+name = "{m}_foundation"
+display = "{M} Foundation 8 ft"
+family = "foundation_8"
+part = "foundation"
+materials = { stone = "stone", slate = "slate" }
+kind = "build"
+menu = true
 size = [24, 12, 24]
 foundation = true
 cost = { stone = 96 }
 
-# The old 4 ft cube foundation: kept so worlds that have them load
-# and can take them down; not in the build menu
+[[structure]]
+name = "{m}_foundation_10"
+display = "{M} Foundation 10 ft"
+part = "foundation"
+materials = { stone = "stone", slate = "slate" }
+kind = "build"
+menu = true
+size = [30, 12, 30]
+foundation = true
+cost = { stone = 150 }
+
+# ── Walls: 10 ft tall, 8 in thick ──
+[[structure]]
+name = "{m}_wall_2"
+display = "{M} Wall 2 ft"
+part = "wall"
+materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
+kind = "build"
+menu = true
+size = [6, 30, 2]
+needs_support = true
+cost = { planks = 6 }
+
+[[structure]]
+name = "{m}_wall_4"
+display = "{M} Wall 4 ft"
+part = "wall"
+materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
+kind = "build"
+menu = true
+size = [12, 30, 2]
+needs_support = true
+cost = { planks = 12 }
+
+[[structure]]
+name = "{m}_wall_8"
+display = "{M} Wall 8 ft"
+part = "wall"
+materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
+kind = "build"
+menu = true
+size = [24, 30, 2]
+needs_support = true
+cost = { planks = 24 }
+
+[[structure]]
+name = "{m}_doorway_4"
+display = "{M} Doorway 4 ft"
+part = "wall_door"
+materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
+kind = "build"
+menu = true
+size = [12, 30, 2]
+hole = [1, 0, 0, 10, 24, 2]
+needs_support = true
+cost = { planks = 6 }
+
+[[structure]]
+name = "{m}_doorway_8"
+display = "{M} Doorway 8 ft"
+part = "wall_door"
+materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
+kind = "build"
+menu = true
+size = [24, 30, 2]
+hole = [7, 0, 0, 10, 24, 2]
+needs_support = true
+cost = { planks = 18 }
+
+[[structure]]
+name = "{m}_window_4"
+display = "{M} Window Wall 4 ft"
+part = "wall_window"
+materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
+kind = "build"
+menu = true
+size = [12, 30, 2]
+hole = [3, 12, 0, 6, 9, 2]
+needs_support = true
+cost = { planks = 10 }
+
+[[structure]]
+name = "{m}_window_8"
+display = "{M} Window Wall 8 ft"
+part = "wall_window"
+materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
+kind = "build"
+menu = true
+size = [24, 30, 2]
+hole = [6, 12, 0, 12, 9, 2]
+needs_support = true
+cost = { planks = 20 }
+
+# Gables: the triangle that closes the end of a 45 degree roof, set on
+# the end wall. Span = the house's width
+[[structure]]
+name = "{m}_gable_8"
+display = "{M} Gable 8 ft"
+part = "gable"
+materials = { plank = "planks", stone = "cobblestone", plaster = "plaster" }
+kind = "build"
+menu = true
+shape = "gable"
+size = [24, 12, 2]
+needs_support = true
+cost = { planks = 8 }
+
+[[structure]]
+name = "{m}_gable_12"
+display = "{M} Gable 12 ft"
+part = "gable"
+materials = { plank = "planks", stone = "cobblestone", plaster = "plaster" }
+kind = "build"
+menu = true
+shape = "gable"
+size = [36, 18, 2]
+needs_support = true
+cost = { planks = 16 }
+
+[[structure]]
+name = "{m}_gable_16"
+display = "{M} Gable 16 ft"
+part = "gable"
+materials = { plank = "planks", stone = "cobblestone", plaster = "plaster" }
+kind = "build"
+menu = true
+shape = "gable"
+size = [48, 24, 2]
+needs_support = true
+cost = { planks = 28 }
+
+[[structure]]
+name = "{m}_gable_20"
+display = "{M} Gable 20 ft"
+part = "gable"
+materials = { plank = "planks", stone = "cobblestone", plaster = "plaster" }
+kind = "build"
+menu = true
+shape = "gable"
+size = [60, 30, 2]
+needs_support = true
+cost = { planks = 44 }
+
+# Posts and beams
+[[structure]]
+name = "{m}_post"
+display = "{M} Post 10 ft"
+part = "pillar"
+materials = { wood = "log_y", stone = "cobblestone", brick = "stone_bricks" }
+kind = "build"
+menu = true
+size = [3, 30, 3]
+needs_support = true
+cost = { planks = 4 }
+
+[[structure]]
+name = "{m}_beam_8"
+display = "{M} Beam 8 ft"
+part = "beam"
+materials = { wood = "log_x" }
+kind = "build"
+menu = true
+size = [24, 3, 3]
+needs_support = true
+cost = { planks = 4 }
+
+# Floors and ceilings (set on top of walls)
+[[structure]]
+name = "{m}_floor_2"
+display = "{M} Floor 2 ft"
+part = "floor"
+materials = { plank = "planks", brick = "stone_bricks", slate = "slate" }
+kind = "build"
+menu = true
+size = [6, 2, 6]
+needs_support = true
+cost = { planks = 2 }
+
+[[structure]]
+name = "{m}_floor_4"
+display = "{M} Floor 4 ft"
+part = "floor"
+materials = { plank = "planks", brick = "stone_bricks", slate = "slate" }
+kind = "build"
+menu = true
+size = [12, 2, 12]
+needs_support = true
+cost = { planks = 6 }
+
+[[structure]]
+name = "{m}_floor_8"
+display = "{M} Floor 8 ft"
+part = "floor"
+materials = { plank = "planks", brick = "stone_bricks", slate = "slate" }
+kind = "build"
+menu = true
+size = [24, 2, 24]
+needs_support = true
+cost = { planks = 24 }
+
+# Roofs: 45 degrees, rising along their depth. Set the low edge on a
+# side wall's top; two meeting at the ridge cover the house
+[[structure]]
+name = "{m}_roof_4x4"
+display = "{M} Roof 4 ft, 4 ft run"
+part = "roof"
+materials = { thatch = "thatch", tile = "roof_tiles", slate = "slate" }
+kind = "build"
+menu = true
+shape = "slope"
+size = [12, 12, 12]
+needs_support = true
+cost = { thatch = 8 }
+
+[[structure]]
+name = "{m}_roof_8x4"
+display = "{M} Roof 8 ft, 4 ft run"
+part = "roof"
+materials = { thatch = "thatch", tile = "roof_tiles", slate = "slate" }
+kind = "build"
+menu = true
+shape = "slope"
+size = [24, 12, 12]
+needs_support = true
+cost = { thatch = 16 }
+
+[[structure]]
+name = "{m}_roof_8x6"
+display = "{M} Roof 8 ft, 6 ft run"
+part = "roof"
+materials = { thatch = "thatch", tile = "roof_tiles", slate = "slate" }
+kind = "build"
+menu = true
+shape = "slope"
+size = [24, 18, 18]
+needs_support = true
+cost = { thatch = 24 }
+
+[[structure]]
+name = "{m}_roof_8x8"
+display = "{M} Roof 8 ft, 8 ft run"
+part = "roof"
+materials = { thatch = "thatch", tile = "roof_tiles", slate = "slate" }
+kind = "build"
+menu = true
+shape = "slope"
+size = [24, 24, 24]
+needs_support = true
+cost = { thatch = 32 }
+
+[[structure]]
+name = "{m}_roof_8x10"
+display = "{M} Roof 8 ft, 10 ft run"
+part = "roof"
+materials = { thatch = "thatch", tile = "roof_tiles", slate = "slate" }
+kind = "build"
+menu = true
+shape = "slope"
+size = [24, 30, 30]
+needs_support = true
+cost = { thatch = 40 }
+
+# Stairs: 4 ft wide, up one storey (10 ft and the floor above)
+[[structure]]
+name = "{m}_stairs"
+display = "{M} Stairs"
+part = "stairs"
+materials = { plank = "planks", stone = "cobblestone" }
+kind = "build"
+menu = true
+shape = "stairs"
+size = [12, 32, 32]
+step = 4
+needs_support = true
+cost = { planks = 20 }
+
+# ── Doors (E opens / closes) ──────────────────────────────
+# Placed by its hinge corner; opening swings the panel a quarter
+# turn around the hinge. The new door fills a doorway (3 ft 4 in
+# x 8 ft); the old 3 x 7 ft one is kept for saved worlds.
+[[structure]]
+name = "{m}_door"
+display = "{M} Door"
+part = "door"
+materials = { plank = "planks" }
+kind = "door"
+menu = true
+size = [10, 24, 1]
+needs_support = true
+cost = { planks = 8 }
+
+# ── Stations (E opens their menu; a placeholder for now) ──
+[[structure]]
+name = "workbench"
+display = "Workbench"
+part = "station"
+kind = "station"
+station = "workbench"
+title = "Workbench"
+menu = true
+cost = { planks = 20 }
+legend = { l = "log_y", t = "workbench_top", p = "planks", s = "stone" }
+layers = [
+  [ "l.............l", "...............", "...............", "...............", "...............", "l.............l" ],
+  [ "l.............l", "...............", "...............", "...............", "...............", "l.............l" ],
+  [ "lpppppppppppppl", "p.............p", "p.............p", "p.............p", "p.............p", "lpppppppppppppl" ],
+  [ "l.............l", "...............", "...............", "...............", "...............", "l.............l" ],
+  [ "l.............l", "...............", "...............", "...............", "...............", "l.............l" ],
+  [ "l.............l", "...............", "...............", "...............", "...............", "l.............l" ],
+  [ "l.............l", "...............", "...............", "...............", "...............", "l.............l" ],
+  [ "ttttttttttttttt", "ttttttttttttttt", "ttttttttttttttt", "ttttttttttttttt", "ttttttttttttttt", "ttttttttttttttt" ],
+  [ "ss...........pp", "s.............p", "...............", "...............", "...............", "..............." ],
+]
+
+[[structure]]
+name = "campfire"
+display = "Campfire"
+part = "station"
+kind = "station"
+station = "campfire"
+title = "Campfire"
+tags = ["light"]
+menu = true
+cost = { cobblestone = 8, planks = 4 }
+legend = { c = "cobblestone", x = "charred_log", e = "ember", f = "fire", a = "ash" }
+layers = [
+  [ "...ccccc...", "..cc...cc..", ".c..aaa..c.", "cc.aeeea.cc", "c..aeeea..c", "c..aeeea..c", "cc.aeeea.cc", ".c..aaa..c.", "..cc...cc..", "...ccccc..." ],
+  [ "...........", "...........", "....x......", ".....x.....", "...xxexx...", "....exe....", "...xxexx...", ".....x.....", "......x....", "..........." ],
+  [ "...........", "...........", "...........", "...........", ".....f.....", "....fxf....", ".....f.....", "...........", "...........", "..........." ],
+  [ "...........", "...........", "...........", "...........", "...........", ".....f.....", "...........", "...........", "...........", "..........." ],
+]
+
+[[structure]]
+name = "hearth"
+display = "Hearth"
+part = "station"
+kind = "station"
+station = "hearth"
+title = "Hearth"
+tags = ["light"]
+menu = true
+cost = { stone_bricks = 40 }
+legend = { b = "stone_bricks", e = "ember", f = "fire", x = "charred_log", a = "ash" }
+layers = [
+  [ "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbaaaaaaaaabb", "bbaeeeeeeeabb", "bbaeeeeeeeabb", "bbaeeeeeeeabb", "bbaeeeeeeeabb", "bbaeeeeeeeabb", "bbaeeeeeeeabb", "bbaeeeeeeeabb", "bbaaaaaaaaabb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb" ],
+  [ "bbbbbbbbbbbbb", "b...........b", "b...........b", "b...x...x...b", "b....x.x....b", "b...xxexx...b", "b....eee....b", "b...xxexx...b", "b....x.x....b", "b...x...x...b", "b...........b", "b...........b", "bbbbbbbbbbbbb" ],
+  [ "bbbbbbbbbbbbb", "b...........b", "b...........b", "b...........b", "b.....f.....b", "b....fff....b", "b...ffxff...b", "b....fff....b", "b.....f.....b", "b...........b", "b...........b", "b...........b", "bbbbbbbbbbbbb" ],
+  [ "", "", "", "", "", "", "......f......", "", "", "", "", "", "" ],
+]
+
+[[structure]]
+name = "forge"
+display = "Forge"
+part = "station"
+kind = "station"
+station = "forge"
+title = "Forge"
+tags = ["light"]
+menu = true
+cost = { stone_bricks = 60 }
+legend = { b = "stone_bricks", e = "ember", f = "fire", c = "cobblestone" }
+layers = [
+  [ "bbbbbbbbb", "bbbbbbbbb", "bbbbbbbbb", "bbbbbbbbb", "bbbbbbbbb", "bbbbbbbbb" ],
+  { rows = [ "bbbbbbbbb", "bbbbbbbbb", "bbbbbbbbb", "bbbbbbbbb", "bbbbbbbbb", "bbbbbbbbb" ], repeat = 6 },
+  [ "bbbbbbbbb", "beeeeeeeb", "beeeeeeeb", "beeeeeeeb", "bbbbbbbbb", "bbbbbbbbb" ],
+  [ "bbbbbbbbb", "b.f.f.f.b", "b..f.f..b", "b.......b", "b.......b", "bbbbbbbbb" ],
+  { rows = [ "bbbbbbbbb", "b.......b", "b.......b", "b.......b", "b.......b", "bbbbbbbbb" ], repeat = 3 },
+  { rows = [ "", ".bbbbbbb.", ".bbbbbbb.", ".bbbbbbb.", ".bbbbbbb.", "" ], repeat = 2 },
+  { rows = [ "", "", "...bbb...", "...b.b...", "...bbb..." ], repeat = 14 },
+]
+
+[[structure]]
+name = "anvil"
+display = "Anvil"
+part = "station"
+kind = "station"
+station = "anvil"
+title = "Anvil"
+menu = true
+cost = { cobblestone = 10 }
+legend = { l = "log_y", o = "obsidian", s = "stone" }
+layers = [
+  [ "", ".lll.", ".lll.", ".lll." ],
+  { rows = [ "", ".lll.", ".lll.", ".lll." ], repeat = 5 },
+  [ "", ".ooo.", ".ooo.", ".ooo." ],
+  [ "", "..o..", "..o..", "..o.." ],
+  [ "ooooooo", "ooooooo", "ooooooo", "ooooooo" ],
+  [ "ooooo..", "ooooooo", "ooooooo", "ooooo.." ],
+]
+
+# ── Furniture ─────────────────────────────────────────────
+[[structure]]
+name = "table"
+display = "Table"
+part = "furniture"
+kind = "build"
+menu = true
+cost = { planks = 10 }
+legend = { l = "log_y", p = "planks" }
+layers = [
+  { rows = [ "l..........l", "", "", "", "", "", "", "l..........l" ], repeat = 8 },
+  [ "pppppppppppp", "pppppppppppp", "pppppppppppp", "pppppppppppp", "pppppppppppp", "pppppppppppp", "pppppppppppp", "pppppppppppp" ],
+]
+
+[[structure]]
+name = "bench"
+display = "Bench"
+part = "furniture"
+kind = "build"
+menu = true
+cost = { planks = 6 }
+legend = { l = "log_y", p = "planks" }
+layers = [
+  { rows = [ "l..........l", "", "l..........l" ], repeat = 4 },
+  [ "pppppppppppp", "pppppppppppp", "pppppppppppp" ],
+]
+
+[[structure]]
+name = "bed"
+display = "Bed"
+part = "furniture"
+kind = "build"
+menu = true
+cost = { planks = 12 }
+legend = { p = "planks", w = "plaster", r = "petal_red" }
+layers = [
+  [ "p.....p", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "p.....p" ],
+  { rows = [ "ppppppp", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "p.....p", "ppppppp" ], repeat = 1 },
+  [ "ppppppp", "pwwwwwp", "pwwwwwp", "prrrrrp", "prrrrrp", "prrrrrp", "prrrrrp", "prrrrrp", "prrrrrp", "prrrrrp", "prrrrrp", "prrrrrp", "prrrrrp", "prrrrrp", "prrrrrp", "prrrrrp", "prrrrrp", "ppppppp" ],
+  [ "ppppppp", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" ],
+  [ "ppppppp" ],
+]
+
+[[structure]]
+name = "lantern_post"
+display = "Lantern Post"
+part = "light"
+kind = "build"
+tags = ["light"]
+menu = true
+cost = { planks = 4 }
+legend = { l = "log_y", n = "lantern", b = "log_x" }
+layers = [
+  { rows = [ "", ".l." ], repeat = 15 },
+  [ "", ".lbb" ],
+  [ "", "...n" ],
+]
+
+# ── Old pieces: kept so saved worlds load; not in the build menu ──
 [[structure]]
 name = "foundation"
 display = "Small Stone Foundation (old)"
@@ -67,9 +587,9 @@ cost = { stone = 32 }
 
 [[structure]]
 name = "plank_floor"
-display = "Plank Floor"
+display = "Plank Floor (old)"
 kind = "build"
-menu = true
+menu = false
 block = "planks"
 size = [12, 1, 12]
 snap = 12
@@ -78,9 +598,9 @@ cost = { planks = 12 }
 
 [[structure]]
 name = "plank_wall"
-display = "Plank Wall"
+display = "Plank Wall (old)"
 kind = "build"
-menu = true
+menu = false
 block = "planks"
 size = [12, 24, 1]
 needs_support = true
@@ -88,9 +608,9 @@ cost = { planks = 16 }
 
 [[structure]]
 name = "plank_doorway"
-display = "Plank Doorway"
+display = "Plank Doorway (old)"
 kind = "build"
-menu = true
+menu = false
 block = "planks"
 size = [12, 24, 1]
 hole = [1, 0, 0, 9, 21, 1]
@@ -99,9 +619,9 @@ cost = { planks = 10 }
 
 [[structure]]
 name = "plank_window"
-display = "Plank Window Wall"
+display = "Plank Window Wall (old)"
 kind = "build"
-menu = true
+menu = false
 block = "planks"
 size = [12, 24, 1]
 hole = [3, 9, 0, 6, 6, 1]
@@ -110,9 +630,9 @@ cost = { planks = 14 }
 
 [[structure]]
 name = "stone_wall"
-display = "Stone Wall"
+display = "Stone Wall (old)"
 kind = "build"
-menu = true
+menu = false
 block = "cobblestone"
 size = [12, 24, 2]
 needs_support = true
@@ -120,22 +640,19 @@ cost = { cobblestone = 24 }
 
 [[structure]]
 name = "stone_pillar"
-display = "Stone Pillar"
+display = "Stone Pillar (old)"
 kind = "build"
-menu = true
+menu = false
 block = "cobblestone"
 size = [3, 24, 3]
 needs_support = true
 cost = { cobblestone = 8 }
 
-# ── Doors (E opens / closes) ──────────────────────────────
-# 3 ft x 7 ft. Placed by its hinge corner; opening swings the
-# panel a quarter turn around the hinge.
 [[structure]]
 name = "wooden_door"
-display = "Wooden Door"
+display = "Wooden Door (old, 7 ft)"
 kind = "door"
-menu = true
+menu = false
 block = "planks"
 size = [9, 21, 1]
 needs_support = true
@@ -244,6 +761,7 @@ spawn = { npcs = { undead = 1 }, max_alive = 2, radius = 8, activate = 80, respa
 [[structure]]
 name = "wooden_chest"
 display = "Wooden Chest"
+part = "chest"
 kind = "chest"
 menu = true
 slots = 50

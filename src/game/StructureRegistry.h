@@ -6,6 +6,8 @@
 #include <toml++/toml.hpp>
 #include <glm/glm.hpp>
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <array>
 #include <cstdio>
 #include <iostream>
@@ -31,7 +33,7 @@
 // coming while a player is near (sim/Spawners.h). What it
 // spawns, how many and how often are in its entry (spawn =).
 
-enum class StructureKind : uint8_t { Build, Door, Tree, Spawner, Chest };
+enum class StructureKind : uint8_t { Build, Door, Tree, Spawner, Chest, Station };
 
 // What a spawner structure spawns (structures.toml: spawn = { … })
 struct SpawnDef {
@@ -62,8 +64,33 @@ struct StructureType {
     uint16_t dropItem  = 0;
     int      dropCount = 0;
 
-    // Survival cost: (item, count) pairs
+    // Survival cost: (item, count) pairs. Only charged while the
+    // registry's costsEnabled is on (structures.toml: costs = true)
     std::vector<std::pair<uint16_t, int>> cost;
+
+    // ── Part tags (building, blueprints, villages) ────────
+    //   part      what the piece is: foundation, wall, wall_door,
+    //             wall_window, gable, floor, roof, pillar, beam,
+    //             stairs, door, station, light, furniture …
+    //   group     the part's broad group: the part up to the first
+    //             '_' (wall_door → wall). Swaps work per group
+    //   material  what it's made of: stone, slate, plank, brick,
+    //             thatch, tile …
+    //   family    the piece regardless of material (wall_4,
+    //             foundation_8): two types in one family are the
+    //             same shape in different materials, so one can
+    //             stand in for the other (StructureRegistry::swap)
+    //   tags      anything else, for generators to filter on
+    std::string part, group, material, family;
+    std::vector<std::string> tags;
+    bool hasTag(const std::string& tg) const {
+        return std::find(tags.begin(), tags.end(), tg) != tags.end();
+    }
+
+    // Stations (kind "station"): E opens their menu
+    //   station   what it is (workbench, campfire, hearth, forge …)
+    //   title     the menu's heading
+    std::string station, title;
 
     // Spawners
     SpawnDef spawn;
@@ -95,8 +122,8 @@ struct StructureType {
         return f(size.x) + " x " + f(size.y) + " x " + f(size.z) + " ft";
     }
 
-    std::string costText() const {
-        if (cost.empty()) return "free";
+    std::string costText(bool charged = true) const {
+        if (cost.empty() || !charged) return "free";
         std::string t;
         for (auto& [item, n] : cost) {
             if (!t.empty()) t += ", ";
@@ -116,18 +143,37 @@ public:
             auto tbl = toml::parse_file(path);
             auto* arr = tbl["structure"].as_array();
             if (!arr) return false;
+            costsEnabled = tbl["costs"].value_or(false);
             for (auto& e : *arr) {
                 auto* t = e.as_table();
                 if (!t) continue;
+                // materials = { plank = "planks", stone = "cobblestone" }:
+                // one type per material, named by putting the material
+                // where {m} is in the name ({M} in the display: capitalised)
+                std::vector<std::pair<std::string, std::string>> mats;
+                if (auto* mt = (*t)["materials"].as_table())
+                    for (auto& [k, v] : *mt) mats.push_back({ std::string(k.str()), v.value_or(std::string()) });
+                if (mats.empty()) mats.push_back({ (*t)["material"].value_or(std::string()), std::string() });
+                for (auto& [matKey, matBlock] : mats) {
                 StructureType s;
                 s.id          = (uint16_t)types.size();
-                s.name        = (*t)["name"].value_or(std::string("structure"));
-                s.displayName = (*t)["display"].value_or(s.name);
+                std::string nameT = (*t)["name"].value_or(std::string("structure"));
+                s.name        = fillMaterial(nameT, matKey, false);
+                s.displayName = fillMaterial((*t)["display"].value_or(nameT), matKey, true);
+                s.material    = matKey;
+                s.part        = (*t)["part"].value_or(std::string());
+                s.group       = s.part.substr(0, s.part.find('_'));
+                s.family      = (*t)["family"].value_or(familyOf(nameT));
+                if (auto* tg = (*t)["tags"].as_array())
+                    for (auto& x : *tg) s.tags.push_back(x.value_or(std::string()));
+                s.station     = (*t)["station"].value_or(std::string());
+                s.title       = (*t)["title"].value_or(s.displayName);
                 std::string kind = (*t)["kind"].value_or(std::string("build"));
                 s.kind = kind == "door"    ? StructureKind::Door
                        : kind == "tree"    ? StructureKind::Tree
                        : kind == "spawner" ? StructureKind::Spawner
                        : kind == "chest"   ? StructureKind::Chest
+                       : kind == "station" ? StructureKind::Station
                                            : StructureKind::Build;
                 s.loot  = (*t)["loot"].value_or(std::string());
                 s.slots = std::clamp((int)(*t)["slots"].value_or((int64_t)(s.kind == StructureKind::Chest || !s.loot.empty() ? 50 : 0)), 0, 50);
@@ -149,7 +195,7 @@ public:
                 s.foundation   = (*t)["foundation"].value_or(false);
                 s.needsSupport = (*t)["needs_support"].value_or(false);
                 s.snap         = (int)(*t)["snap"].value_or(0);
-                std::string blk = (*t)["block"].value_or(std::string("stone"));
+                std::string blk = matBlock.empty() ? (*t)["block"].value_or(std::string("stone")) : matBlock;
                 s.block = gRegistry.getIDByName(blk);
                 if (!s.block) s.block = BLOCK_STONE;
                 if (auto* sz = (*t)["size"].as_array(); sz && sz->size() == 3)
@@ -186,7 +232,7 @@ public:
                 } else if ((*t)["layers"].as_array()) {
                     // a drawn model: legend + layers of rows
                     VoxelVolume v;
-                    std::string why = modelFrom(*t, v);
+                    std::string why = modelFrom(*t, v, s.block);
                     if (!why.empty()) {
                         std::cerr << "structures.toml: " << s.name << ": " << why << "\n";
                         v = VoxelVolume({ 1, 1, 1 });
@@ -196,6 +242,43 @@ public:
                     if (s.kind == StructureKind::Build) v.anchor = { 0, 0, 0 };   // build pieces by the corner
                     if (auto* an = (*t)["anchor"].as_array(); an && an->size() == 3)
                         v.anchor = { (int)(*an)[0].value_or(0), (int)(*an)[1].value_or(0), (int)(*an)[2].value_or(0) };
+                    base.push_back(v);
+                } else if (std::string shp = (*t)["shape"].value_or(std::string()); shp == "slope" || shp == "gable" || shp == "stairs") {
+                    // slope: a roof plane rising along z, 'thickness' thick
+                    //        (size = [width, rise, run])
+                    // gable: the triangle that closes a roof's end
+                    //        (size = [span, height, thickness]); it
+                    //        stops 'inset' short of the roof planes
+                    //        (default the roof's 2) so they never overlap
+                    // stairs: solid steps rising along z, 'step' high
+                    //        (size = [width, rise, run])
+                    int th = std::max(1, (int)(*t)["thickness"].value_or((int64_t)2));
+                    VoxelVolume v(s.size);
+                    uint16_t edge = gRegistry.getIDByName((*t)["edge"].value_or(std::string()));
+                    for (int z = 0; z < s.size.z; z++)
+                    for (int x = 0; x < s.size.x; x++)
+                    for (int y = 0; y < s.size.y; y++) {
+                        bool in;
+                        if (shp == "slope") {
+                            float top = (z + 1) * (float)s.size.y / s.size.z;   // surface over this row
+                            in = y < top && y >= top - th - 0.001f;
+                        } else if (shp == "stairs") {
+                            int step = std::max(1, (int)(*t)["step"].value_or((int64_t)3));
+                            int stepsN = std::max(1, s.size.y / step);
+                            int k = std::min(stepsN - 1, z * stepsN / s.size.z);
+                            in = y < (k + 1) * step;
+                        } else {
+                            int inset = (int)(*t)["inset"].value_or((int64_t)2);
+                            // distance in from the nearer end, in voxels; the roof
+                            // plane over it is that high (45°, scaled by height/half)
+                            float half = s.size.x * 0.5f;
+                            float in_ = std::min(x + 1.0f, (float)s.size.x - x);
+                            float h = in_ * (float)s.size.y / half;
+                            in = y < h - inset;
+                        }
+                        if (in) v.set(x, y, z, (edge && shp == "slope" && (x == 0 || x == s.size.x - 1)) ? edge : s.block);
+                    }
+                    v.anchor = { 0, 0, 0 };
                     base.push_back(v);
                 } else {
                     VoxelVolume v(s.size);
@@ -220,8 +303,10 @@ public:
                         s.shapes[st][r] = std::make_shared<const VoxelVolume>(
                             base[st].rotatedY(r));
 
+                if (index.count(s.name)) std::cerr << "structures.toml: " << s.name << " defined twice\n";
                 index[s.name] = s.id;
                 types.push_back(std::move(s));
+                }   // each material
             }
             std::cout << "Structure registry: " << types.size() - 1
                       << " types from " << path << "\n";
@@ -276,13 +361,14 @@ public:
     // bottom layer first; in each layer the rows run along z, the
     // characters along x. Rows may be shorter than the widest.
     // Returns "" or what's wrong.
-    static std::string modelFrom(const toml::table& t, VoxelVolume& out) {
+    //   legend value "$": the entry's block (its material, with materials = …)
+    static std::string modelFrom(const toml::table& t, VoxelVolume& out, uint16_t material = BLOCK_STONE) {
         std::unordered_map<char, uint16_t> legend;
         if (auto* lg = t["legend"].as_table())
             for (auto& [k, v] : *lg) {
                 std::string key(k.str());
                 std::string blk = v.value_or(std::string());
-                uint16_t id = gRegistry.getIDByName(blk);
+                uint16_t id = blk == "$" ? material : gRegistry.getIDByName(blk);
                 if (key.size() != 1) return "legend keys must be one character ('" + key + "')";
                 if (!id) return "unknown block '" + blk + "' in the legend";
                 legend[key[0]] = id;
@@ -323,6 +409,48 @@ public:
         auto it = index.find(name);
         return it != index.end() ? it->second : 0;
     }
+    // ── Parts ─────────────────────────────────────────────
+    // The same piece in another material (same family), or 0
+    uint16_t swap(uint16_t type, const std::string& material) const {
+        const StructureType* t = get(type);
+        if (!t || t->family.empty() || material.empty()) return 0;
+        if (t->material == material) return type;
+        for (const auto& o : types)
+            if (o.id && o.family == t->family && o.material == material) return o.id;
+        return 0;
+    }
+    // Every material a piece's family comes in (its own first)
+    std::vector<std::string> materialsOf(uint16_t type) const {
+        std::vector<std::string> out;
+        const StructureType* t = get(type);
+        if (!t) return out;
+        out.push_back(t->material);
+        for (const auto& o : types)
+            if (o.id && !t->family.empty() && o.family == t->family &&
+                std::find(out.begin(), out.end(), o.material) == out.end()) out.push_back(o.material);
+        return out;
+    }
+    // Every material used by any piece of a group (wall, roof …)
+    std::vector<std::string> materialsOfGroup(const std::string& group) const {
+        std::vector<std::string> out;
+        for (const auto& o : types)
+            if (o.id && o.group == group && !o.material.empty() &&
+                std::find(out.begin(), out.end(), o.material) == out.end()) out.push_back(o.material);
+        return out;
+    }
+    // Types with a part (or a tag) for generators
+    std::vector<uint16_t> withPart(const std::string& part, const std::string& material = "") const {
+        std::vector<uint16_t> out;
+        for (const auto& o : types)
+            if (o.id && o.part == part && (material.empty() || o.material == material)) out.push_back(o.id);
+        return out;
+    }
+
+    // Build costs on or off (structures.toml: costs = true). Off
+    // while there's no dependable way to gather materials
+    bool costsEnabled = false;
+    bool charges(const StructureType& t) const { return costsEnabled && !t.cost.empty(); }
+
     std::vector<uint16_t> buildMenu() const {
         std::vector<uint16_t> out;
         for (auto& t : types) if (t.id && t.inBuildMenu) out.push_back(t.id);
@@ -335,6 +463,30 @@ public:
     }
 
 private:
+    // "{m}_wall_4" → "plank_wall_4"; display "{M} Wall" → "Plank Wall"
+    static std::string fillMaterial(std::string s, const std::string& m, bool display) {
+        std::string mm = m;
+        if (display && !mm.empty()) mm[0] = (char)std::toupper((unsigned char)mm[0]);
+        for (const char* key : { "{m}", "{M}" }) {
+            size_t at;
+            while ((at = s.find(key)) != std::string::npos) {
+                std::string rep = (std::string(key) == "{M}" && !mm.empty()) ? mm : (display ? mm : m);
+                s.replace(at, 3, rep);
+            }
+        }
+        // clean up a doubled or dangling separator when m is empty
+        while (s.find("__") != std::string::npos) s.replace(s.find("__"), 2, "_");
+        while (!s.empty() && (s.front() == '_' || s.front() == ' ')) s.erase(s.begin());
+        return s;
+    }
+    // The name with the material slot taken out: "{m}_wall_4" → "wall_4"
+    static std::string familyOf(const std::string& nameT) {
+        if (nameT.find("{m}") == std::string::npos) return "";
+        std::string f = fillMaterial(nameT, "", false);
+        while (!f.empty() && f.back() == '_') f.pop_back();
+        return f;
+    }
+
     std::vector<StructureType> types;
     std::unordered_map<std::string, uint16_t> index;
 };

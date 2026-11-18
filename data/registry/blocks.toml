@@ -1165,3 +1165,55 @@ opacity = "full"
 flags = ["solid", "destructible"]
 on_destroy = 0
 color = [0.79, 0.63, 0.23]
+
+# ── Building materials (foundations, walls, roofs, stations) ──
+
+[[block]]
+id = 108
+name = "slate"
+material = "stone"
+hardness = 6
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.30, 0.33, 0.38]
+
+[[block]]
+id = 109
+name = "stone_bricks"
+material = "stone"
+hardness = 7
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.52, 0.52, 0.50]
+
+[[block]]
+id = 110
+name = "roof_tiles"
+material = "stone"
+hardness = 4
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.66, 0.30, 0.20]
+
+[[block]]
+id = 111
+name = "plaster"
+material = "stone"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.88, 0.85, 0.76]
+
+[[block]]
+id = 112
+name = "workbench_top"
+material = "wood"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.62, 0.46, 0.28]

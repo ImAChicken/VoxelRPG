@@ -1,0 +1,85 @@
+# Blueprint: a building made of build pieces (game/Blueprint.h).
+# Saved by the hammer's Copy tab; placed from its Blueprints tab and
+# by the village generator. Each part: its structure type, the low
+# corner of its box from the blueprint's low corner, its turn; chests
+# also keep items, or a loot table rolled when placed.
+#   front: the side the door faces, 0 north, 1 east, 2 south, 3 west
+
+name = "storehouse"
+display = "Storehouse"
+tags = ["storage", "village"]
+size = [24, 56, 24]
+front = 2
+
+[[part]]
+type = "stone_foundation"
+at = [0, 0, 0]
+rot = 0
+
+[[part]]
+type = "brick_wall_8"
+at = [0, 12, 0]
+rot = 0
+
+[[part]]
+type = "brick_wall_8"
+at = [0, 12, 0]
+rot = 1
+
+[[part]]
+type = "brick_wall_8"
+at = [22, 12, 0]
+rot = 1
+
+[[part]]
+type = "brick_doorway_8"
+at = [0, 12, 22]
+rot = 0
+
+[[part]]
+type = "wooden_chest"
+at = [2, 12, 12]
+rot = 1
+loot = "village_house"
+
+[[part]]
+type = "plank_door"
+at = [7, 12, 22]
+rot = 0
+
+[[part]]
+type = "wooden_chest"
+at = [2, 12, 2]
+rot = 0
+loot = "village_house"
+
+[[part]]
+type = "wooden_chest"
+at = [13, 12, 2]
+rot = 0
+loot = "village_house"
+
+[[part]]
+type = "plank_floor_8"
+at = [0, 42, 0]
+rot = 0
+
+[[part]]
+type = "tile_roof_8x4"
+at = [0, 44, 0]
+rot = 0
+
+[[part]]
+type = "tile_roof_8x4"
+at = [0, 44, 12]
+rot = 2
+
+[[part]]
+type = "stone_gable_8"
+at = [0, 44, 0]
+rot = 1
+
+[[part]]
+type = "stone_gable_8"
+at = [22, 44, 0]
+rot = 1

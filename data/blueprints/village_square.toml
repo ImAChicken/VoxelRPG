@@ -1,0 +1,42 @@
+# Blueprint: a building made of build pieces (game/Blueprint.h).
+# Saved by the hammer's Copy tab; placed from its Blueprints tab and
+# by the village generator. Each part: its structure type, the low
+# corner of its box from the blueprint's low corner, its turn; chests
+# also keep items, or a loot table rolled when placed.
+#   front: the side the door faces, 0 north, 1 east, 2 south, 3 west
+
+name = "village_square"
+display = "Village Square"
+tags = ["plaza", "village"]
+size = [30, 29, 30]
+front = 2
+
+[[part]]
+type = "slate_foundation_10"
+at = [0, 0, 0]
+rot = 0
+
+[[part]]
+type = "lantern_post"
+at = [25, 12, 26]
+rot = 0
+
+[[part]]
+type = "lantern_post"
+at = [0, 12, 1]
+rot = 0
+
+[[part]]
+type = "bench"
+at = [9, 12, 25]
+rot = 0
+
+[[part]]
+type = "bench"
+at = [9, 12, 3]
+rot = 0
+
+[[part]]
+type = "campfire"
+at = [10, 12, 10]
+rot = 0

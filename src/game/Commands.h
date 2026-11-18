@@ -3,6 +3,9 @@
 #include "StructureRegistry.h"
 #include "../world/StructureManager.h"
 #include "../world/Chests.h"
+#include "../world/TerrainOps.h"
+#include "Blueprint.h"
+#include "Village.h"
 #include "DevKit.h"
 #include "GameMode.h"
 #include "ItemRegistry.h"
@@ -314,6 +317,81 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             std::string line = "saved: ";
             for (auto& n : list) line += n + "  ";
             c.log(line);
+        });
+
+    // ── Blueprints, villages, terrain ─────────────────────
+    // The same functions the hammer and the village generator
+    // use (game/Blueprint.h, game/Village.h, world/TerrainOps.h)
+    reg.add("blueprint", "blueprint [list | place <name> [turns] | save <name> | reload]",
+        "whole buildings: list them, place one at the ground you look at, or save the building you look at",
+        [aimed](C& c, const Args& a) {
+            std::string sub = a.empty() ? "list" : a[0];
+            if (sub == "list") {
+                std::string line;
+                for (const Blueprint& b : gBlueprints.list()) line += b.name + "  ";
+                c.log(line.empty() ? "no blueprints (data/blueprints)" : line);
+                return;
+            }
+            if (sub == "reload") { c.log(std::to_string(gBlueprints.load()) + " blueprints"); return; }
+            if (!c.structs || !c.dev.worldEditor()) { c.log("needs a world"); return; }
+            if (sub == "place" && a.size() >= 2) {
+                const Blueprint* bp = gBlueprints.find(a[1]);
+                if (!bp) { c.log("no blueprint " + a[1] + "  (try blueprint list)"); return; }
+                int q = a.size() > 2 ? std::atoi(a[2].c_str()) & 3 : 0;
+                glm::ivec3 at = aimed(c, true);
+                glm::ivec3 sz = bp->sizeTurned(q);
+                BlueprintStyle style;
+                auto plan = bp->plan({ at.x - sz.x / 2, at.y, at.z - sz.z / 2 }, q, &style);
+                std::string why = Blueprint::check(*c.structs, plan, true);
+                if (!why.empty()) { c.log("can't place: " + why); return; }
+                auto made = bp->paste(*c.structs, *c.dev.worldEditor(), c.chests, plan, EditSource::Command, &style, &why);
+                c.log("placed " + bp->display + ", " + std::to_string(made.size()) + " pieces" + (why.empty() ? "" : "  (" + why + ")"));
+                return;
+            }
+            if (sub == "save" && a.size() >= 2) {
+                const StructureInstance* s = c.target.hit ? c.structs->instanceAt(c.target.blockPos) : nullptr;
+                if (!s) { c.log("look at a piece of the building"); return; }
+                Blueprint bp;
+                std::string why;
+                if (!Blueprint::capture(*c.structs, s->id, c.chests, bp, why)) { c.log(why); return; }
+                bp.name = a[1]; bp.display = a[1]; bp.tags = { "player" };
+                c.log(gBlueprints.save(bp) ? "saved " + a[1] + ", " + std::to_string(bp.parts.size()) + " pieces"
+                                           : std::string("could not save"));
+                return;
+            }
+            c.log("usage: blueprint [list | place <name> [turns] | save <name> | reload]");
+        });
+    reg.add("flatten", "flatten [radius] [level]",
+        "level the ground in a circle around the block you look at (to its height, or a given level)",
+        [](C& c, const Args& a) {
+            if (!c.dev.worldEditor() || !c.target.hit) { c.log("look at the ground"); return; }
+            float r = a.empty() ? 6.0f : (float)std::atof(a[0].c_str());
+            glm::ivec3 p = c.target.blockPos;
+            int level = a.size() > 1 ? std::atoi(a[1].c_str()) : p.y + 1;
+            terrain::FlattenOptions o;
+            o.clearAbove = 24;
+            if (c.structs) {
+                StructureManager* sm = c.structs;
+                o.keep = [sm](glm::ivec3 q) { const StructureInstance* s = sm->instanceAt(q); return s && !s->natural; };
+            }
+            c.dev.worldEditor()->submit(terrain::flattenDisc(c.dev.worldEditor()->worldRef(), p.x, p.z,
+                                                             std::clamp(r, 1.0f, 48.0f), level, o, EditSource::Command));
+            c.log("levelled to " + std::to_string(level));
+        });
+    reg.add("village", "village [seed] [roads 1-4] [length]",
+        "lay out a village around you from the blueprints (game/Village.h)",
+        [](C& c, const Args& a) {
+            if (!c.structs || !c.dev.worldEditor()) { c.log("needs a world"); return; }
+            village::Options o;
+            o.seed  = a.size() > 0 ? (uint32_t)std::atoi(a[0].c_str()) : (uint32_t)std::rand();
+            o.roads = a.size() > 1 ? std::atoi(a[1].c_str()) : 3;
+            if (a.size() > 2) o.roadLen = std::clamp(std::atoi(a[2].c_str()), 30, 300);
+            glm::ivec3 at = glm::ivec3(glm::floor(c.player.position));
+            WorldEditor& ed = *c.dev.worldEditor();
+            village::Plan p = village::plan(ed.worldRef(), gBlueprints, at, o);
+            village::Built b = village::build(p, *c.structs, ed, c.chests, o, EditSource::Command);
+            c.log("village " + std::to_string(o.seed) + ": " + std::to_string(b.buildings) + " buildings, " +
+                  std::to_string(b.roads) + " roads" + (b.failed ? ", " + std::to_string(b.failed) + " didn't fit" : ""));
         });
 
     // ── Settings ──────────────────────────────────────────

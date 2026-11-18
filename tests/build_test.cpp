@@ -45,7 +45,8 @@ int main() {
     check(sm.checkPlace(F, A + glm::ivec3(24, 0, 24), 0, true).empty(), "corner to corner");
     check(sm.checkPlace(F, A + glm::ivec3(0, 12, 0), 0, true).empty(), "stacked on top");
     check(!sm.checkPlace(F, A + glm::ivec3(27, 0, 0), 0, true).empty(), "a 1 ft gap: refused");
-    check(!sm.checkPlace(F, A + glm::ivec3(24, 0, 6), 0, true).empty(), "shifted 2 ft along: refused");
+    check(sm.checkPlace(F, A + glm::ivec3(24, 0, 6), 0, true).empty(), "shifted 2 ft along: fine, on the 2 ft module");
+    check(!sm.checkPlace(F, A + glm::ivec3(24, 0, 4), 0, true).empty(), "shifted 16 in along: refused");
     check(!sm.checkPlace(F, A + glm::ivec3(24, 3, 0), 0, true).empty(), "a foot higher: refused");
     check(!sm.checkPlace(F, A + glm::ivec3(10, 0, 0), 0, true).empty(), "overlapping: refused");
     check(sm.checkPlace(F, A + glm::ivec3(24 + 13, 0, 5), 0, true).empty(), "more than 4 ft away: free again");

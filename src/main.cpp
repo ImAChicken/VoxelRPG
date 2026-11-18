@@ -66,6 +66,9 @@
 #include "game/StructureRegistry.h"
 #include "game/BuildTool.h"
 #include "ui/BuildMenuScreen.h"
+#include "ui/StationScreen.h"
+#include "game/Blueprint.h"
+#include "game/Village.h"
 #include "ui/InventoryScreen.h"
 #include "world/StructureManager.h"
 #include "world/Chests.h"
@@ -102,6 +105,7 @@ enum class GameState {
     Settings,
     BuildMenu,
     Inventory,      // the inventory screen (I)
+    Station,        // a crafting station's menu (E on a workbench …)
     Character,      // character creator
 };
 
@@ -240,7 +244,7 @@ int main() {
     gItems.addDecor(*decor::current());
 
     // Multi-block structures: building pieces, doors, trees
-    gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current());
+    gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current()); gBlueprints.load();
     buildItemIcons();   // tools, weapons and gear drawn from their models (ui/ItemIcon.h)
 
     if (!gResourcePacks.load("data/resourcepacks")) {
@@ -344,6 +348,7 @@ int main() {
     SettingsScreen  settingsScreen(window);
     CharacterScreen characterScreen(window);
     BuildMenuScreen buildMenu(window);
+    StationScreen   stationScreen(window);
     InventoryScreen inventoryScreen(window);
     bool inventoryOpenedFrame = false;
     Hud             hud;
@@ -422,6 +427,7 @@ int main() {
     // Enemies live in the simulation; their bodies to draw (by id)
     NpcManager& npcs = sim.npcs();
     EntityId talkingTo = 0;           // the NPC this player is in a menu with
+    bool pendingVillage = false;      // a new flat world with a village: built once you stand on the ground
     bool pendingKit = false;          // a new dev world: lay out the showcase chests (game/DevKit.h)
     LockOn lockOn;                    // the camera held on an enemy (TAB: game/LockOn.h)
     std::unordered_map<uint64_t, std::unique_ptr<Character>> npcBodies;
@@ -538,6 +544,7 @@ int main() {
     // the GPU meshes before the world goes away.
     auto leaveWorld = [&](bool save) {
         pendingKit = false;
+        pendingVillage = false;
         lockOn.clear();
         if (save) saveWorld();
         if (remote) remote->leave();
@@ -1255,9 +1262,19 @@ int main() {
         // Builder's Hammer: outline of the chosen structure
         // where it would go — green if it can be placed, red
         // if not — plus its anchor voxel
-        if (hands.hammerActive && hands.previewHas && rules.worldInteraction) {
+        if (hands.hammerActive && !hands.previewBoxes.empty() && rules.worldInteraction) {
+            // a blueprint or a building to copy: every piece, and the whole
+            glm::vec3 col = build.mode == HammerMode::Copy ? glm::vec3(1.0f, 0.85f, 0.3f)
+                          : hands.previewWhy.empty() ? glm::vec3(0.3f, 0.95f, 0.4f) : glm::vec3(1.0f, 0.3f, 0.25f);
+            glm::ivec3 lo(1 << 30), hi(-(1 << 30));
+            for (auto& [a, b] : hands.previewBoxes) {
+                wire(glm::vec3(a), glm::vec3(b) + 1.0f, col * 0.7f);
+                lo = glm::min(lo, a); hi = glm::max(hi, b);
+            }
+            wire(glm::vec3(lo) - 0.05f, glm::vec3(hi) + 1.05f, col);
+        } else if (hands.hammerActive && hands.previewHas && rules.worldInteraction && build.mode == HammerMode::Piece) {
             if (const StructureType* t = build.type()) {
-                const VoxelVolume& v = t->shape(0, build.rot);
+                const VoxelVolume& v = t->shape(0, build.shownRot);
                 glm::vec3 lo(hands.previewSpot - v.anchor);
                 wire(lo, lo + glm::vec3(v.size),
                      hands.previewWhy.empty() ? glm::vec3(0.3f, 0.95f, 0.4f)
@@ -1475,7 +1492,7 @@ int main() {
                 gOutlineFx.load("data/registry/outline.toml");
                 decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
                 gItems.addDecor(*decor::current());
-                gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current());
+                gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current()); gBlueprints.load();
                 buildItemIcons();   // tools, weapons and gear drawn from their models (ui/ItemIcon.h)
                 blockTable = BlockRenderTable::build(
                     gRegistry, gResourcePacks);
@@ -1581,6 +1598,7 @@ int main() {
                            mainMenu.getNewWorldFlat(),
                            mainMenu.getNewWorldDev());
                 pendingKit = mainMenu.getNewWorldKit();   // laid out once the ground under you is there
+                pendingVillage = mainMenu.getNewWorldVillage();
             } else if (r == ScreenResult::LoadWorld) {
                 // Seed and mode come from the save file
                 enterWorld(false,
@@ -1827,6 +1845,20 @@ int main() {
 
                 // A new dev world's showcase chests, once you stand on
                 // its ground (the chunks have to be there first)
+                if (pendingVillage && player.grounded && structs) {
+                    pendingVillage = false;
+                    // its square 30 ft ahead, so you don't start inside a house
+                    glm::vec3 f(player.facing.x, 0.0f, player.facing.z);
+                    f = glm::length(f) > 0.01f ? glm::normalize(f) : glm::vec3(0, 0, 1);
+                    glm::ivec3 at = glm::ivec3(glm::floor(player.position + f * 90.0f));
+                    village::Options vo;
+                    vo.seed = (uint32_t)gWorldSave.getSeed() + 1;
+                    vo.keepClear = { (int)player.position.x, (int)player.position.z };   // not on top of you
+                    vo.clearRadius = 15;
+                    village::Plan vp = village::plan(*world, gBlueprints, at, vo);
+                    village::Built vb = village::build(vp, *structs, *editor, &chests, vo, EditSource::Command);
+                    say("a village ahead: " + std::to_string(vb.buildings) + " buildings");
+                }
                 if (pendingKit && player.grounded && structs) {
                     pendingKit = false;
                     int n = devkit::placeKit(*structs, chests, player.position, player.facing, say);
@@ -1907,6 +1939,20 @@ int main() {
                         }
                     }
 
+                    // E on a station → its menu
+                    if (hands.openStation) {
+                        uint32_t sid = hands.openStation;
+                        hands.openStation = 0;
+                        const StructureType* st = nullptr;
+                        structs->forEachInstance([&](const StructureInstance& si) { if (si.id == sid) st = gStructures.get(si.type); });
+                        if (st) {
+                            stationScreen.setStation(st);
+                            stationScreen.onEnter();
+                            gState = GameState::Station;
+                            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                        }
+                    }
+
                     // Hammer right click → build menu
                     if (hands.wantBuildMenu) {
                         hands.wantBuildMenu = false;
@@ -1958,6 +2004,18 @@ int main() {
             // Closed with ` or Esc → back to the game
             if (!console.open) {
                 gState = GameState::Playing;
+                camera.firstMouse = true;
+                gInput.resetMouseDelta(window);
+            }
+
+        } else if (gState == GameState::Station) {
+
+            drawWorld();
+            ScreenResult r = stationScreen.update(*gRenderer->getUIRenderer(), dt);
+            if (r == ScreenResult::CloseMenu || gInput.isPressed(InputAction::Pause) ||
+                gInput.isPressed(InputAction::Interact)) {
+                gState = GameState::Playing;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 camera.firstMouse = true;
                 gInput.resetMouseDelta(window);
             }

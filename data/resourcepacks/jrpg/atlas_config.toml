@@ -666,3 +666,33 @@ name    = "chest_lock"
 top     = [3, 13]
 side    = [3, 13]
 bottom  = [3, 13]
+
+[[face_map]]
+name    = "slate"
+top     = [0, 14]
+side    = [0, 14]
+bottom  = [0, 14]
+
+[[face_map]]
+name    = "stone_bricks"
+top     = [1, 14]
+side    = [1, 14]
+bottom  = [1, 14]
+
+[[face_map]]
+name    = "roof_tiles"
+top     = [2, 14]
+side    = [2, 14]
+bottom  = [2, 14]
+
+[[face_map]]
+name    = "plaster"
+top     = [3, 14]
+side    = [3, 14]
+bottom  = [3, 14]
+
+[[face_map]]
+name    = "workbench_top"
+top     = [4, 14]
+side    = [4, 14]
+bottom  = [4, 14]
