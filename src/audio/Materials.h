@@ -51,7 +51,7 @@ public:
         if (id == 0 || id >= gRegistry.size()) return "air";
         const VoxelTypeDef& d = gRegistry.get(id);
         if (d.name == "snow") return "snow";
-        if (d.name == "glass") return "glass";
+        if (d.name.find("glass") != std::string::npos) return "glass";
         if (d.name == "sand" || d.name == "gravel") return d.name;
         if (d.name.find("leaves") != std::string::npos) return "leaves";
         if (d.flags & VF_PLANT) return "plant";

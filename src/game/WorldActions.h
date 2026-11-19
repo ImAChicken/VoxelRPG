@@ -59,6 +59,7 @@ struct WorldRequest {
     glm::ivec3  lo{ 0 }, hi{ 0 };
     int         rot = 0, mode = 0;
     std::string name;
+    std::string spec;                  // Piece: its own sizes and blocks (game/PieceSpec.h)
     BlueprintStyle style;
     glm::vec3   point{ 0.0f }, dir{ 0.0f };
     float       speed = 0.0f;
@@ -165,14 +166,16 @@ public:
         const StructureType* t = gStructures.get(type);
         if (!t || !t->inBuildMenu) { say("no such piece"); return; }
         uint32_t support = 0;
-        std::string why = structs.checkPlace(type, r.lo, r.rot & 3, survival, &support);
+        const std::string spec = gStructures.normalize(*t, PieceSpec::parse(r.spec));
+        std::string why = structs.checkPlace(type, r.lo, r.rot & 3, survival, &support, spec);
         if (!why.empty()) { say(why); return; }
         if (survival && gStructures.charges(*t)) {
-            for (auto& [item, cnt] : t->cost)
+            auto cost = gStructures.costOf(*t, spec);      // a bigger piece costs more
+            for (auto& [item, cnt] : cost)
                 if (player.inventory.count(item) < cnt) { say("needs " + std::to_string(cnt) + " " + gItems.get(item).displayName); return; }
-            for (auto& [item, cnt] : t->cost) player.inventory.take(item, cnt);
+            for (auto& [item, cnt] : cost) player.inventory.take(item, cnt);
         }
-        structs.place(type, r.lo, r.rot & 3, src, support);
+        structs.place(type, r.lo, r.rot & 3, src, support, spec);
     }
 
     // ── Builder's Hammer: a blueprint ─────────────────────
@@ -431,7 +434,7 @@ public:
             if (survival)
                 for (auto& g : gone)
                     if (const StructureType* gt = gStructures.get(g.type); gt && gStructures.charges(*gt))
-                        for (auto& [item, n] : gt->cost)
+                        for (auto& [item, n] : gStructures.costOf(*gt, g.spec))
                             player.inventory.add(item, n);
             return;
         }

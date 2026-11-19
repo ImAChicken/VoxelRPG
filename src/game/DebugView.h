@@ -47,9 +47,12 @@
 //            grey: asleep), how near a player must be (dim), and
 //            a label with their count and next spawn
 //   steering context steering in fights (npc/ContextSteering.h):
-//            16 rays round each NPC — green out to its interest,
-//            red out to its danger — the way it chose (yellow,
-//            long) and a line to the spot it steers for (white)
+//            a ring round each NPC with a spoke in toward it on
+//            each of the 16 ways, as long and thick as that way's
+//            weight (interest less danger), coloured blue → yellow
+//            → green as it gets heavier; red spokes out from the
+//            ring where danger wins; the way it took (white, to the
+//            middle) and a line to the spot it steers for
 //   pad      the controller, bottom left of the screen: its
 //            buttons lit while held — or while the key bound to the
 //            same action is (input/PadLayout.h) — sticks, layer
@@ -297,16 +300,43 @@ inline void build(DebugDraw& dd, Simulation& sim, const Woodcutting* wood, const
             if (n->dead() || sim.now() - n->steerAt > 0.5f) continue;       // not steering just now
             const steer::Map& m = n->steerMap;
             glm::vec3 o = n->position + glm::vec3(0, 1.0f, 0);
-            const float R = 8.0f;                                            // a full ray: 8 voxels
+            const float R = 8.0f;                                            // the ring: 8 voxels out
+            dd.circle(o, R, WHITE, 0.35f, 48);
+            // weight → colour: weak blue, middling yellow, strong green;
+            // where danger outweighs the wish, red
+            auto ramp = [](float w) {
+                w = glm::clamp(w, 0.0f, 1.0f);
+                return w < 0.5f ? glm::mix(glm::vec3(0.25f, 0.45f, 1.0f), glm::vec3(1.0f, 0.9f, 0.2f), w * 2.0f)
+                                : glm::mix(glm::vec3(1.0f, 0.9f, 0.2f), glm::vec3(0.2f, 1.0f, 0.3f), (w - 0.5f) * 2.0f);
+            };
+            // a thick line: parallel strands across it, more the heavier it is
+            auto thick = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, float w, float alpha) {
+                glm::vec3 side = glm::normalize(glm::cross(b - a + glm::vec3(1e-4f), glm::vec3(0, 1, 0)));
+                int k = 1 + (int)std::lround(glm::clamp(w, 0.0f, 1.0f) * 4.0f);
+                for (int j = 0; j < k; j++) {
+                    glm::vec3 off = side * ((j - (k - 1) * 0.5f) * 0.12f);
+                    dd.line(a + off, b + off, c, alpha);
+                }
+            };
+            // each axis: a spoke from the ring in toward the NPC, as long and
+            // thick as that way's weight (what the chooser scores: interest
+            // less danger); danger winning: a red spoke out from the ring
             for (int i = 0; i < steer::DIRS; i++) {
                 glm::vec2 d = steer::dirOf(i);
-                glm::vec3 d3(d.x, 0, d.y);
-                if (m.interest[i] > 0.01f) dd.line(o, o + d3 * (R * m.interest[i]), GREEN, 0.9f);
-                if (m.danger[i] > 0.01f) dd.line(o + glm::vec3(0, 0.6f, 0), o + glm::vec3(0, 0.6f, 0) + d3 * (R * m.danger[i]), RED, 0.9f);
+                glm::vec3 d3(d.x, 0, d.y), rim = o + d3 * R;
+                float want = m.interest[i] * (1.0f - m.danger[i]);
+                if (m.danger[i] > m.interest[i] && m.danger[i] > 0.05f)
+                    thick(rim, rim + d3 * (R * 0.5f * m.danger[i]), RED, m.danger[i], 0.9f);
+                else if (want > 0.01f)
+                    thick(rim, rim - d3 * (R * want), ramp(want), want, 0.95f);
+                else
+                    dd.line(rim, rim - d3 * 0.6f, WHITE, 0.3f);             // a tick: no weight this way
             }
+            // the way it took: white, all the way to the middle
             if (m.chosen >= 0) {
-                glm::vec3 c(m.move.x, 0, m.move.y);
-                if (glm::length(c) > 1e-3f) dd.line(o + glm::vec3(0, 1.2f, 0), o + glm::vec3(0, 1.2f, 0) + glm::normalize(c) * (R * 1.5f), YELLOW, 1.0f);
+                glm::vec2 d = steer::dirOf(m.chosen);
+                glm::vec3 d3(d.x, 0, d.y);
+                thick(o + d3 * R, o, WHITE, 0.6f, 1.0f);
             }
             dd.line(o, n->steerGoal + glm::vec3(0, 1.0f, 0), WHITE, 0.35f);
             dd.cross(n->steerGoal + glm::vec3(0, 0.5f, 0), 1.0f, WHITE, 0.7f);

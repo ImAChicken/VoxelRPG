@@ -65,7 +65,7 @@
 //                 waits for their ChunkData instead of generating them
 namespace proto {
 
-constexpr uint32_t VERSION = 3;       // 2: Request, the names in Welcome; 3: off hands (Loadout, BodyState)
+constexpr uint32_t VERSION = 4;       // 2: Request, the names in Welcome; 3: off hands (Loadout, BodyState); 4: a piece's spec in Request
 constexpr int TICK_HZ = 60;            // the simulation
 constexpr int SNAPSHOT_EVERY = 3;      // ticks between snapshots (20 Hz)
 constexpr int INPUT_REDUNDANCY = 4;    // inputs repeated in each Input packet (loss)
@@ -262,6 +262,7 @@ inline std::vector<uint8_t> request(const WorldRequest& q, const IdMap* ids = nu
     w.var(q.style.materials.size());
     for (auto& [k, v] : q.style.materials) { w.str(k); w.str(v); }
     w.vec3(q.point); w.vec3(q.dir); w.f32(q.speed);
+    w.str(q.spec); w.str(q.style.palette.text());
     return w.buf;
 }
 inline bool readRequest(wire::Reader& r, WorldRequest& q) {
@@ -275,6 +276,7 @@ inline bool readRequest(wire::Reader& r, WorldRequest& q) {
     uint64_t n = r.var();
     for (uint64_t i = 0; i < n && i < 64 && r.ok(); i++) { std::string k = r.str(64); q.style.materials[k] = r.str(64); }
     q.point = r.vec3(); q.dir = r.vec3(); q.speed = r.f32();
+    q.spec = r.str(1024); q.style.palette = PieceSpec::parse(r.str(1024));
     if (!std::isfinite(q.speed) || !std::isfinite(q.point.x + q.point.y + q.point.z) || !std::isfinite(q.dir.x + q.dir.y + q.dir.z)) return false;
     q.speed = std::clamp(q.speed, 0.0f, 400.0f);
     return r.ok();

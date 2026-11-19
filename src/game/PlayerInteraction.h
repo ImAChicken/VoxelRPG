@@ -95,6 +95,13 @@ public:
 
     // Set when the hammer's right click asks for the build menu
     bool wantBuildMenu = false;
+    // The hammer taking a piece down (held right button): s held so far
+    // (< 0: not held), the piece, and whether it's done this hold
+    static constexpr float DISMANTLE_HOLD = 0.6f;
+    float    dismantleHeld = -1.0f;
+    uint32_t dismantleId = 0;
+    bool     dismantleDone = false;
+    float dismantleProgress() const { return dismantleId && !dismantleDone && dismantleHeld >= 0.0f ? std::min(1.0f, dismantleHeld / DISMANTLE_HOLD) : -1.0f; }
 
     // Cube tools (pickaxe, dev Cube Tool): outlines to draw
     bool    cubeBreakShown = false, cubePlaceShown = false;
@@ -512,7 +519,54 @@ private:
                     bool survival, EditSource src, float dt) {
         hammerActive = true;
         previewBoxes.clear();
-        if (gInput.isPressed(InputAction::UseRight)) wantBuildMenu = true;
+        // Right button (RT): a tap opens the build menu; held on a placed
+        // piece, it takes the piece down (Survival: its cost back, like
+        // breaking it; what rested on it falls too)
+        {
+            StructureInstance* aimed = target.hit ? structs.instanceAt(target.blockPos) : nullptr;
+            const StructureType* at = aimed ? structs.typeOf(*aimed) : nullptr;
+            const bool takeable = at && (at->kind == StructureKind::Build || at->kind == StructureKind::Door ||
+                                         at->kind == StructureKind::Station);
+            if (takeable && dismantleHeld < 0.0f) aimLabel += "   hold {use_right}: take down";
+            if (gInput.isPressed(InputAction::UseRight)) { dismantleHeld = 0.0f; dismantleId = takeable ? aimed->id : 0; dismantleDone = false; }
+            if (dismantleHeld >= 0.0f && gInput.isHeld(InputAction::UseRight)) {
+                dismantleHeld += dt;
+                // still on the same piece, held long enough: down it comes
+                if (dismantleId && !dismantleDone && (!takeable || aimed->id != dismantleId)) dismantleId = 0;   // looked away
+                if (dismantleId && !dismantleDone && dismantleHeld >= DISMANTLE_HOLD) {
+                    submit(request(WorldRequest::Op::Break, player.activeInventory().heldDef().id), player, editor, structs);
+                    dismantleDone = true;
+                }
+            }
+            if (dismantleHeld >= 0.0f && !gInput.isHeld(InputAction::UseRight)) {
+                if (!dismantleDone && dismantleHeld < DISMANTLE_HOLD * 0.6f) wantBuildMenu = true;   // a tap
+                dismantleHeld = -1.0f;
+                dismantleId = 0;
+            }
+        }
+        // A copied building whose palettes could be fewer: asked once, on
+        // the blueprint only (the building itself is never changed)
+        if (!mergeAsk.empty()) {
+            const Blueprint* bp = gBlueprints.find(mergeAsk);
+            if (!bp) { mergeAsk.clear(); }
+            else {
+                previewHas = false;
+                previewWhy = "";
+                aimLabel = std::to_string(bp->palettes.size()) + " palettes in " + bp->display + ": " +
+                           std::to_string(bp->mergeable()) + " can merge (they never disagree).  {use_left}: merge them   {tool_cancel}: keep them";
+                if (gInput.isPressed(InputAction::UseLeft)) {
+                    Blueprint b = *bp;
+                    int n = b.mergePalettes();
+                    say(gBlueprints.save(b) ? "merged: " + std::to_string(b.palettes.size()) + " palette" + (b.palettes.size() == 1 ? "" : "s") +
+                                              " (" + std::to_string(n) + " fewer)" : "could not save the blueprint");
+                    mergeAsk.clear();
+                } else if (gInput.isPressed(InputAction::ToolCancel)) {
+                    say("kept " + std::to_string(bp->palettes.size()) + " palettes");
+                    mergeAsk.clear();
+                }
+                return;
+            }
+        }
         if (build.mode == HammerMode::Copy)      { copyKeys(structs, build); return; }
         if (build.mode == HammerMode::Blueprint) { blueprintKeys(player, editor, structs, build, survival, src, dt); return; }
         const StructureType* t = build.type();
@@ -525,7 +579,8 @@ private:
         if (!build.locked) build.shownRot = build.rot;
         if (gInput.isPressed(InputAction::ToolCancel))  build.locked = false;
 
-        const VoxelVolume& shape = t->shape(0, build.shownRot);
+        std::string spec = build.spec();            // its own sizes and the equipped palette
+        if (!build.locked) build.shownSpec = spec;
         glm::ivec3 fwd = std::fabs(lookDir.x) > std::fabs(lookDir.z)
             ? glm::ivec3(lookDir.x > 0 ? 1 : -1, 0, 0)
             : glm::ivec3(0, 0, lookDir.z > 0 ? 1 : -1);
@@ -537,11 +592,13 @@ private:
             glm::ivec3 spot = target.blockPos + glm::ivec3(target.normal);
             int snapRot = build.rot;
             if (structs.snapTo(build.selected, build.rot, target.blockPos, glm::ivec3(target.normal),
-                               lookDir, spot, snapRot)) {
-                // against the piece aimed at (StructureManager::snapTo)
+                               lookDir, spot, snapRot, &spec)) {
+                // against the piece aimed at (StructureManager::snapTo); a
+                // door comes back sized to its doorway
                 build.shownRot = snapRot;
+                build.shownSpec = spec;
             } else if (t->foundation && structs.alignFoundation(build.selected, build.rot, target.blockPos,
-                                                         glm::ivec3(target.normal), spot)) {
+                                                         glm::ivec3(target.normal), spot, build.shownSpec)) {
                 // lined up with the foundation beside it (StructureManager::alignFoundation)
             } else if (t->snap > 0) {
                 // on the grid of the foundation it's aimed at (floors
@@ -552,6 +609,7 @@ private:
                     glm::ivec3 hi;
                     structs.bounds(*f, g0, hi);
                 }
+                const VoxelVolume& shape = gStructures.shape(build.selected, build.shownSpec, 0, build.shownRot);
                 glm::ivec3 o = spot - shape.anchor - g0;
                 o.x = floorDiv(o.x, t->snap) * t->snap;
                 o.z = floorDiv(o.z, t->snap) * t->snap;
@@ -583,11 +641,11 @@ private:
         // Can it go there?
         uint32_t support = 0;
         previewWhy = previewHas ? structs.checkPlace(build.selected, build.spot,
-                                                     build.shownRot, survival, &support)
+                                                     build.shownRot, survival, &support, build.shownSpec)
                                 : "aim at the ground";
         const bool pay = survival && gStructures.charges(*t);
         if (previewWhy.empty() && pay)
-            for (auto& [item, cnt] : t->cost) {
+            for (auto& [item, cnt] : gStructures.costOf(*t, build.shownSpec)) {
                 int have = player.inventory.count(item);
                 if (have < cnt) {
                     previewWhy = "needs " + std::to_string(cnt) + " " +
@@ -601,7 +659,7 @@ private:
         if (gInput.isPressed(InputAction::UseLeft)) {
             if (!previewWhy.empty()) { say(previewWhy); return; }
             WorldRequest q = request(WorldRequest::Op::Piece, player.activeInventory().heldDef().id);
-            q.name = t->name; q.lo = build.spot; q.rot = build.shownRot;
+            q.name = t->name; q.lo = build.spot; q.rot = build.shownRot; q.spec = build.shownSpec;
             submit(q, player, editor, structs);      // pays, checks again, places (WorldActions::placePiece)
         }
         (void)src; (void)support;
@@ -650,6 +708,8 @@ private:
     Blueprint copyShown;
     glm::ivec3 copyLo{ 0 };
 
+    std::string mergeAsk;          // a just-copied blueprint whose palettes could merge (asking)
+
     void copyKeys(StructureManager& structs, BuildTool& build) {
         previewHas = false;
         const StructureInstance* a = target.hit ? structs.instanceAt(target.blockPos) : nullptr;
@@ -677,6 +737,7 @@ private:
             if (gBlueprints.save(bp)) {
                 say("saved as " + bp.name + " - ready to place");
                 build.selectBlueprint(bp.name);
+                if (bp.mergeable() > 0) mergeAsk = bp.name;    // ask before merging any palettes
             } else say("could not save the blueprint");
             copyFor = 0;
         }
@@ -686,6 +747,7 @@ private:
     void blueprintKeys(Player& player, WorldEditor& editor, StructureManager& structs, BuildTool& build,
                        bool survival, EditSource src, float dt) {
         const Blueprint* bp = build.chosenBlueprint();
+        if (const BuildPalette* pal = gBuildPalettes.find(build.style.paletteName)) build.style.palette = pal->spec;   // kept up with edits
         if (!bp) {
             previewHas = false;
             previewWhy = "{use_right}: choose a blueprint";

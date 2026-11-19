@@ -255,6 +255,14 @@ public:
             ui.drawRect(x + 2, y + 2, (w - 4) * (hands.treeHealth / hands.treeMax), 8, green);
         }
 
+        // ── The hammer taking a piece down (right button held) ─
+        if (float dp = hands.dismantleProgress(); dp >= 0.0f) {
+            float w = 200.0f, x = (sw - w) * 0.5f, y = sh * 0.5f - 60.0f;
+            ui.drawText("Taking it down", x, y - 18, theme.textHover, 2);
+            ui.drawRect(x, y, w, 12, SHADOW);
+            ui.drawRect(x + 2, y + 2, (w - 4) * dp, 8, theme.accent);
+        }
+
         // ── Builder's Hammer: what it will build ──────────
         if (hands.hammerActive && build) {
             const StructureType* t = build->type();
@@ -482,7 +490,7 @@ private:
         const bool devOk = d.is(IC_DEV) && player.mode != GameMode::Survival;
         // what the triggers / mouse buttons do with this in hand
         std::string left = "use / place", right = "break";
-        if (d.is(IC_TOOL) && d.tool == ToolKind::Hammer)   { left = "build"; right = "choose a piece"; }
+        if (d.is(IC_TOOL) && d.tool == ToolKind::Hammer)   { left = "build"; right = "tap: choose a piece, hold: take one down"; }
         else if (d.is(IC_TOOL) && d.tool == ToolKind::Hoe)   { left = "shape the ground"; right = ""; }
         else if (d.is(IC_TOOL) && d.tool == ToolKind::Blast) { left = "blast"; right = "big blast"; }
         else if (devOk) {

@@ -114,7 +114,9 @@ sections, then read only the range you need.
   - `world/StructureManager.h` → `snapTo()`: where the hammer puts a piece against the one aimed at (walls on edges, doors in doorways, roofs on ceilings); walls share corner voxels (`sharesCorners`)
   - `game/BuildTool.h`: hammer state and modes (Piece / Blueprint / Copy), the blueprint style
   - `game/PlayerInteraction.h` → `hammerKeys()`, `blueprintKeys()`, `copyKeys()`: aiming, snapping, placing
-  - `ui/BuildMenuScreen.h`: the build menu (Pieces tab by group, Blueprints tab with style)
+  - `ui/BuildMenuScreen.h`: the build menu (Pieces tab by group with the chosen piece's sizes, Palettes tab, Blueprints tab with style)
+  - made pieces: `game/PieceSpec.h` (a placed piece's own sizes and role blocks, as text `w=24;h=36;fill=whitewash`); types with `shape = "wall" | "pillar"`, doors and plain foundations have a `model`; `gStructures.resolve` (clamps: doors at least 9 x 21), `normalize` ("" = the type as it is), `shape(type, spec, state, rot)` (cached), `costOf`; `StructureInstance::spec`, `StructureManager::shapeOf`; checkPlace / place / snapTo take a spec. Never use `t->shape(...)` for a placed instance
+  - palettes: `game/Palettes.h` (`gBuildPalettes`, curated in `data/registry/palettes.toml` with each role's choices, a player's in `data/palettes/`); `gStructures.applyPalette` (roles the piece has; the finish only on plain walls), `paletteOf` / `shapeOnly` (the Copy tool); `BuildTool::palette / height / sizes / specFor`; `BlueprintStyle::palette`; `Blueprint::palettes`, `mergeable`, `mergePalettes` (only when the player says yes); `village::pickPalette`
   - `ui/StationScreen.h`: what E on a station opens (placeholder until crafting)
   - parts: each piece has `part` (wall_door), `group` (wall), `material` (stone), `family`; `materials = {..}` in structures.toml makes one type per material; `gStructures.swap(type, material)`; `costs = false` at the top turns charging off
   - tests: `tests/build_test.cpp`, `tests/parts_test.cpp` (a house by snapping)

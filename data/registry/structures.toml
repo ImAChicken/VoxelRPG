@@ -71,7 +71,9 @@ costs = false
 
 # ── Building pieces ───────────────────────────────────────
 # Sizes: 1 ft = 3 voxels. Everything is on a 2 ft (6 voxel) module.
-#   foundations  2, 4, 6, 8 and 10 ft square, 4 ft deep
+#   foundations  any whole feet: one per material in the menu, sized
+#                there (8 x 8 x 4 ft as it comes); the fixed 2 - 10 ft
+#                ones stay for saved worlds and blueprints
 #   walls        10 ft tall (good headroom under a ceiling), 8 in
 #                thick, 2 / 4 / 8 ft wide; doorways 3 ft 4 in x 8 ft
 #   floors       8 in thick, sit on top of walls as ceilings / lofts
@@ -79,7 +81,7 @@ costs = false
 #                10 ft from eave to ridge (half the house's width)
 #
 # Foundations rest on the ground and hold others up. One within 4 ft
-# of another must line up with it on the 2 ft module (side by side,
+# of another must line up with it on the 1 ft module (side by side,
 # edges flush, or stacked). They sink into earth and stone to level
 # uneven ground.
 [[structure]]
@@ -88,7 +90,7 @@ display = "{M} Foundation 2 ft"
 part = "foundation"
 materials = { stone = "stone", slate = "slate" }
 kind = "build"
-menu = true
+menu = false             # kept for saved worlds and blueprints: the one foundation resizes
 size = [6, 12, 6]
 foundation = true
 cost = { stone = 6 }
@@ -99,7 +101,7 @@ display = "{M} Foundation 4 ft"
 part = "foundation"
 materials = { stone = "stone", slate = "slate" }
 kind = "build"
-menu = true
+menu = false             # kept for saved worlds and blueprints: the one foundation resizes
 size = [12, 12, 12]
 foundation = true
 cost = { stone = 24 }
@@ -110,7 +112,7 @@ display = "{M} Foundation 6 ft"
 part = "foundation"
 materials = { stone = "stone", slate = "slate" }
 kind = "build"
-menu = true
+menu = false             # kept for saved worlds and blueprints: the one foundation resizes
 size = [18, 12, 18]
 foundation = true
 cost = { stone = 54 }
@@ -118,7 +120,7 @@ cost = { stone = 54 }
 # The 8 ft one keeps its old name (stone_foundation) for saved worlds
 [[structure]]
 name = "{m}_foundation"
-display = "{M} Foundation 8 ft"
+display = "{M} Foundation"
 family = "foundation_8"
 part = "foundation"
 materials = { stone = "stone", slate = "slate" }
@@ -134,7 +136,7 @@ display = "{M} Foundation 10 ft"
 part = "foundation"
 materials = { stone = "stone", slate = "slate" }
 kind = "build"
-menu = true
+menu = false             # kept for saved worlds and blueprints: the one foundation resizes
 size = [30, 12, 30]
 foundation = true
 cost = { stone = 150 }
@@ -146,7 +148,8 @@ display = "{M} Wall 2 ft"
 part = "wall"
 materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
 kind = "build"
-menu = true
+shape = "wall"            # plain both sides (an inner wall)
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
 size = [6, 30, 2]
 needs_support = true
 cost = { planks = 6 }
@@ -157,17 +160,19 @@ display = "{M} Wall 4 ft"
 part = "wall"
 materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
 kind = "build"
-menu = true
+shape = "wall"            # plain both sides (an inner wall)
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
 size = [12, 30, 2]
 needs_support = true
 cost = { planks = 12 }
 
 [[structure]]
 name = "{m}_wall_8"
-display = "{M} Wall 8 ft"
+display = "{M} Wall"
 part = "wall"
 materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
 kind = "build"
+shape = "wall"            # plain both sides (an inner wall)
 menu = true
 size = [24, 30, 2]
 needs_support = true
@@ -179,21 +184,23 @@ display = "{M} Doorway 4 ft"
 part = "wall_door"
 materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
 kind = "build"
-menu = true
+shape = "wall"            # plain both sides (an inner wall)
+opening = "door"
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
 size = [12, 30, 2]
-hole = [1, 0, 0, 10, 24, 2]
 needs_support = true
 cost = { planks = 6 }
 
 [[structure]]
 name = "{m}_doorway_8"
-display = "{M} Doorway 8 ft"
+display = "{M} Doorway"
 part = "wall_door"
 materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
 kind = "build"
+shape = "wall"            # plain both sides (an inner wall)
+opening = "door"
 menu = true
 size = [24, 30, 2]
-hole = [7, 0, 0, 10, 24, 2]
 needs_support = true
 cost = { planks = 18 }
 
@@ -203,23 +210,312 @@ display = "{M} Window Wall 4 ft"
 part = "wall_window"
 materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
 kind = "build"
-menu = true
+shape = "wall"            # plain both sides (an inner wall)
+opening = "window"
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
 size = [12, 30, 2]
-hole = [3, 12, 0, 6, 9, 2]
 needs_support = true
 cost = { planks = 10 }
 
 [[structure]]
 name = "{m}_window_8"
-display = "{M} Window Wall 8 ft"
+display = "{M} Window Wall"
 part = "wall_window"
 materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
 kind = "build"
+shape = "wall"            # plain both sides (an inner wall)
+opening = "window"
 menu = true
 size = [24, 30, 2]
-hole = [6, 12, 0, 12, 9, 2]
 needs_support = true
 cost = { planks = 20 }
+
+# ── Exterior walls (shape = "wall": StructureRegistry::wallModel) ──
+# Three voxels thick (an outside face, the core, an inside face), so
+# the outside can carry frames and inlays and the inside its own
+# finish. The hammer turns the outside away from the foundation they
+# stand on (turn the piece to swap). Same 4 / 8 ft widths and 10 ft
+# height as the plain walls (those stay 2 thick: inner walls).
+#   outside  timber | plinth | inlay | frame | plain
+#   inside   paint | panel | plain
+#   opening  door (10 x 24 through it, framed both faces, a lintel; a
+#            door piece fits) | window (framed both faces, a cross
+#            outside, 'glass' set back in the core)
+#   post / beam / base / panel / paint / inlay / glass: the blocks
+#            (defaults timber_post, timber_beam, stone_bricks, wainscot,
+#            plaster, bricks; glass none)
+# Timber: half-timbered outside (dark posts every 4 ft, sill, mid rail, top plate, braces), painted plaster inside
+[[structure]]
+name = "{m}_timber_wall_4"
+display = "{M} Timber Wall 4 ft"
+part = "wall"
+materials = { plaster = "plaster", brick = "bricks" }
+kind = "build"
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
+shape = "wall"
+outside = "timber"
+inside = "paint"
+size = [12, 30, 3]
+needs_support = true
+cost = { planks = 16 }
+
+[[structure]]
+name = "{m}_timber_wall_8"
+display = "{M} Timber Wall"
+part = "wall"
+materials = { plaster = "plaster", brick = "bricks" }
+kind = "build"
+menu = true
+shape = "wall"
+outside = "timber"
+inside = "paint"
+size = [24, 30, 3]
+needs_support = true
+cost = { planks = 32 }
+
+[[structure]]
+name = "{m}_timber_window_4"
+display = "{M} Timber Window Wall 4 ft"
+part = "wall_window"
+materials = { plaster = "plaster", brick = "bricks" }
+kind = "build"
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
+shape = "wall"
+outside = "timber"
+inside = "paint"
+opening = "window"
+glass = "leaded_glass"
+size = [12, 30, 3]
+needs_support = true
+cost = { planks = 16 }
+
+[[structure]]
+name = "{m}_timber_window_8"
+display = "{M} Timber Window Wall"
+part = "wall_window"
+materials = { plaster = "plaster", brick = "bricks" }
+kind = "build"
+menu = true
+shape = "wall"
+outside = "timber"
+inside = "paint"
+opening = "window"
+glass = "leaded_glass"
+size = [24, 30, 3]
+needs_support = true
+cost = { planks = 32 }
+
+[[structure]]
+name = "{m}_timber_doorway_4"
+display = "{M} Timber Doorway 4 ft"
+part = "wall_door"
+materials = { plaster = "plaster", brick = "bricks" }
+kind = "build"
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
+shape = "wall"
+outside = "timber"
+inside = "paint"
+opening = "door"
+size = [12, 30, 3]
+needs_support = true
+cost = { planks = 12 }
+
+[[structure]]
+name = "{m}_timber_doorway_8"
+display = "{M} Timber Doorway"
+part = "wall_door"
+materials = { plaster = "plaster", brick = "bricks" }
+kind = "build"
+menu = true
+shape = "wall"
+outside = "timber"
+inside = "paint"
+opening = "door"
+size = [24, 30, 3]
+needs_support = true
+cost = { planks = 24 }
+
+# Stone-based: a stone-brick base outside under a rail; panelled inside (wainscot to waist height, plaster above)
+[[structure]]
+name = "{m}_plinth_wall_4"
+display = "{M} Stone-based Wall 4 ft"
+part = "wall"
+materials = { plank = "planks", plaster = "plaster" }
+kind = "build"
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
+shape = "wall"
+outside = "plinth"
+inside = "panel"
+size = [12, 30, 3]
+needs_support = true
+cost = { planks = 16 }
+
+[[structure]]
+name = "{m}_plinth_wall_8"
+display = "{M} Stone-based Wall"
+part = "wall"
+materials = { plank = "planks", plaster = "plaster" }
+kind = "build"
+menu = true
+shape = "wall"
+outside = "plinth"
+inside = "panel"
+size = [24, 30, 3]
+needs_support = true
+cost = { planks = 32 }
+
+[[structure]]
+name = "{m}_plinth_window_4"
+display = "{M} Stone-based Window Wall 4 ft"
+part = "wall_window"
+materials = { plank = "planks", plaster = "plaster" }
+kind = "build"
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
+shape = "wall"
+outside = "plinth"
+inside = "panel"
+opening = "window"
+glass = "leaded_glass"
+size = [12, 30, 3]
+needs_support = true
+cost = { planks = 16 }
+
+[[structure]]
+name = "{m}_plinth_window_8"
+display = "{M} Stone-based Window Wall"
+part = "wall_window"
+materials = { plank = "planks", plaster = "plaster" }
+kind = "build"
+menu = true
+shape = "wall"
+outside = "plinth"
+inside = "panel"
+opening = "window"
+glass = "leaded_glass"
+size = [24, 30, 3]
+needs_support = true
+cost = { planks = 32 }
+
+[[structure]]
+name = "{m}_plinth_doorway_4"
+display = "{M} Stone-based Doorway 4 ft"
+part = "wall_door"
+materials = { plank = "planks", plaster = "plaster" }
+kind = "build"
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
+shape = "wall"
+outside = "plinth"
+inside = "panel"
+opening = "door"
+size = [12, 30, 3]
+needs_support = true
+cost = { planks = 12 }
+
+[[structure]]
+name = "{m}_plinth_doorway_8"
+display = "{M} Stone-based Doorway"
+part = "wall_door"
+materials = { plank = "planks", plaster = "plaster" }
+kind = "build"
+menu = true
+shape = "wall"
+outside = "plinth"
+inside = "panel"
+opening = "door"
+size = [24, 30, 3]
+needs_support = true
+cost = { planks = 24 }
+
+# Inlaid: a band of brick diamonds outside at waist height between rails; painted inside
+[[structure]]
+name = "{m}_inlay_wall_4"
+display = "{M} Inlaid Wall 4 ft"
+part = "wall"
+materials = { stone = "stone_bricks", plank = "planks" }
+kind = "build"
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
+shape = "wall"
+outside = "inlay"
+inside = "paint"
+size = [12, 30, 3]
+needs_support = true
+cost = { planks = 16 }
+
+[[structure]]
+name = "{m}_inlay_wall_8"
+display = "{M} Inlaid Wall"
+part = "wall"
+materials = { stone = "stone_bricks", plank = "planks" }
+kind = "build"
+menu = true
+shape = "wall"
+outside = "inlay"
+inside = "paint"
+size = [24, 30, 3]
+needs_support = true
+cost = { planks = 32 }
+
+[[structure]]
+name = "{m}_inlay_window_4"
+display = "{M} Inlaid Window Wall 4 ft"
+part = "wall_window"
+materials = { stone = "stone_bricks", plank = "planks" }
+kind = "build"
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
+shape = "wall"
+outside = "inlay"
+inside = "paint"
+opening = "window"
+glass = "leaded_glass"
+size = [12, 30, 3]
+needs_support = true
+cost = { planks = 16 }
+
+[[structure]]
+name = "{m}_inlay_window_8"
+display = "{M} Inlaid Window Wall"
+part = "wall_window"
+materials = { stone = "stone_bricks", plank = "planks" }
+kind = "build"
+menu = true
+shape = "wall"
+outside = "inlay"
+inside = "paint"
+opening = "window"
+glass = "leaded_glass"
+size = [24, 30, 3]
+needs_support = true
+cost = { planks = 32 }
+
+[[structure]]
+name = "{m}_inlay_doorway_4"
+display = "{M} Inlaid Doorway 4 ft"
+part = "wall_door"
+materials = { stone = "stone_bricks", plank = "planks" }
+kind = "build"
+menu = false             # one of each in the menu, resized there (the _8); kept for saves
+shape = "wall"
+outside = "inlay"
+inside = "paint"
+opening = "door"
+size = [12, 30, 3]
+needs_support = true
+cost = { planks = 12 }
+
+[[structure]]
+name = "{m}_inlay_doorway_8"
+display = "{M} Inlaid Doorway"
+part = "wall_door"
+materials = { stone = "stone_bricks", plank = "planks" }
+kind = "build"
+menu = true
+shape = "wall"
+outside = "inlay"
+inside = "paint"
+opening = "door"
+size = [24, 30, 3]
+needs_support = true
+cost = { planks = 24 }
 
 # Gables: the triangle that closes the end of a 45 degree roof, set on
 # the end wall. Span = the house's width
@@ -278,6 +574,22 @@ display = "{M} Post 10 ft"
 part = "pillar"
 materials = { wood = "log_y", stone = "cobblestone", brick = "stone_bricks" }
 kind = "build"
+shape = "pillar"
+menu = true
+size = [3, 30, 3]
+needs_support = true
+cost = { planks = 4 }
+
+[[structure]]
+name = "{m}_column"
+display = "{M} Column 10 ft"
+part = "pillar"
+materials = { wood = "timber_post", stone = "stone_bricks", fieldstone = "fieldstone" }
+kind = "build"
+shape = "pillar"
+style = "based"             # a stone foot, a cap (the palette's base and beam)
+base = "fieldstone"
+beam = "timber_beam"
 menu = true
 size = [3, 30, 3]
 needs_support = true
@@ -414,6 +726,35 @@ display = "{M} Door"
 part = "door"
 materials = { plank = "planks" }
 kind = "door"
+menu = true
+size = [10, 24, 1]
+needs_support = true
+cost = { planks = 8 }
+
+# Ledged: boards with three ledges and braces (the palette's beam);
+# framed: a frame round the edge and a middle rail. Any size a
+# doorway is (the hammer sizes a door to the doorway it goes in)
+[[structure]]
+name = "{m}_ledged_door"
+display = "{M} Ledged Door"
+part = "door"
+materials = { plank = "planks", dark = "dark_planks" }
+kind = "door"
+style = "ledged"
+beam = "timber_beam"
+menu = true
+size = [10, 24, 1]
+needs_support = true
+cost = { planks = 8 }
+
+[[structure]]
+name = "{m}_framed_door"
+display = "{M} Framed Door"
+part = "door"
+materials = { plank = "planks", dark = "dark_planks" }
+kind = "door"
+style = "framed"
+beam = "timber_beam"
 menu = true
 size = [10, 24, 1]
 needs_support = true

@@ -702,3 +702,59 @@ name    = "ice"
 top     = [15, 15]
 side    = [15, 15]
 bottom  = [15, 15]
+
+# Wall parts (tools/gen_wall_textures.py)
+[[face_map]]
+name    = "timber_post"
+top     = [5, 3]
+side    = [4, 3]
+bottom  = [5, 3]
+
+[[face_map]]
+name    = "timber_beam"
+top     = [6, 3]
+side    = [6, 3]
+bottom  = [6, 3]
+
+[[face_map]]
+name    = "wainscot"
+top     = [7, 3]
+side    = [7, 3]
+bottom  = [7, 3]
+
+[[face_map]]
+name    = "leaded_glass"
+top     = [8, 3]
+side    = [8, 3]
+bottom  = [8, 3]
+
+# Palette blocks (tools/gen_palette_textures.py)
+[[face_map]]
+name    = "whitewash"
+top     = [9, 3]
+side    = [9, 3]
+bottom  = [9, 3]
+
+[[face_map]]
+name    = "ochre_plaster"
+top     = [10, 3]
+side    = [10, 3]
+bottom  = [10, 3]
+
+[[face_map]]
+name    = "dark_planks"
+top     = [11, 3]
+side    = [11, 3]
+bottom  = [11, 3]
+
+[[face_map]]
+name    = "fieldstone"
+top     = [12, 3]
+side    = [12, 3]
+bottom  = [12, 3]
+
+[[face_map]]
+name    = "herringbone_bricks"
+top     = [13, 3]
+side    = [13, 3]
+bottom  = [13, 3]

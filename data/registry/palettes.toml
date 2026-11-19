@@ -1,0 +1,146 @@
+# ══════════════════════════════════════════════════════════
+# Building palettes (game/Palettes.h)
+# ══════════════════════════════════════════════════════════
+# A palette is what a building is made of: a block for each role of
+# a made piece (walls, posts and doors: structures.toml shape =
+# "wall" / "pillar", kind = "door") and a finish for plain walls.
+# The Builder's Hammer equips one (build menu, Palettes tab), and a
+# village dresses all its buildings in one.
+#
+# Roles:
+#   fill    the wall itself (its core)
+#   post    upright timbers on the outside; a post's shaft
+#   beam    rails, sills, frames and trim; a post's cap; a door's ledges
+#   base    the stone plinth under a wall; a post's foot
+#   inlay   the diamonds in an inlaid wall's band
+#   paint   the inside face
+#   panel   the boards below the inside rail
+#   glass   window glass ("none": open)
+#   door    door boards
+# Finish (plain walls only: the timber, plinth and inlay walls keep
+# their own, in the palette's blocks):
+#   outside  plain | timber | plinth | inlay | frame
+#   inside   plain | paint | panel
+#
+# A player's own palettes and edits are saved to data/palettes/
+# (Reset in the menu deletes the edit: this file's palette is back).
+
+# What the palette editor offers for each role, in order
+[choices]
+fill  = ["whitewash", "plaster", "ochre_plaster", "planks", "dark_planks", "fieldstone", "cobblestone",
+         "stone_bricks", "bricks", "limestone", "sandstone_cream", "sandstone_red", "slate", "mud"]
+post  = ["timber_post", "dark_log", "log_y", "birch_log", "stone_bricks", "fieldstone", "limestone",
+         "sandstone_red", "slate"]
+beam  = ["timber_beam", "dark_planks", "planks", "stone_bricks", "limestone", "sandstone_orange", "slate"]
+base  = ["fieldstone", "stone_bricks", "cobblestone", "limestone", "slate", "sandstone_red", "bricks"]
+inlay = ["herringbone_bricks", "bricks", "slate", "roof_tiles", "stone_bricks", "dark_planks", "ochre_plaster"]
+paint = ["plaster", "whitewash", "ochre_plaster", "wainscot", "planks", "dark_planks", "stone_bricks"]
+panel = ["wainscot", "dark_planks", "planks", "stone_bricks", "fieldstone"]
+glass = ["leaded_glass", "glass", "none"]
+door  = ["dark_planks", "planks", "wainscot", "timber_beam"]
+
+# ── The curated palettes ──────────────────────────────────
+[[palette]]
+name    = "tudor"
+display = "Tudor"
+outside = "timber"
+inside  = "paint"
+fill    = "whitewash"
+post    = "timber_post"
+beam    = "timber_beam"
+base    = "fieldstone"
+inlay   = "herringbone_bricks"
+paint   = "plaster"
+panel   = "wainscot"
+glass   = "leaded_glass"
+door    = "dark_planks"
+
+[[palette]]
+name    = "ochre_farmhouse"
+display = "Ochre Farmhouse"
+outside = "timber"
+inside  = "panel"
+fill    = "ochre_plaster"
+post    = "dark_log"
+beam    = "dark_planks"
+base    = "fieldstone"
+inlay   = "bricks"
+paint   = "whitewash"
+panel   = "planks"
+glass   = "glass"
+door    = "planks"
+
+[[palette]]
+name    = "fieldstone_cottage"
+display = "Fieldstone Cottage"
+outside = "plinth"
+inside  = "paint"
+fill    = "fieldstone"
+post    = "dark_log"
+beam    = "dark_planks"
+base    = "stone_bricks"
+inlay   = "slate"
+paint   = "whitewash"
+panel   = "dark_planks"
+glass   = "leaded_glass"
+door    = "dark_planks"
+
+[[palette]]
+name    = "brick_townhouse"
+display = "Brick Townhouse"
+outside = "inlay"
+inside  = "panel"
+fill    = "bricks"
+post    = "stone_bricks"
+beam    = "limestone"
+base    = "stone_bricks"
+inlay   = "herringbone_bricks"
+paint   = "plaster"
+panel   = "dark_planks"
+glass   = "glass"
+door    = "dark_planks"
+
+[[palette]]
+name    = "birch_lodge"
+display = "Birch Lodge"
+outside = "frame"
+inside  = "plain"
+fill    = "planks"
+post    = "birch_log"
+beam    = "dark_planks"
+base    = "cobblestone"
+inlay   = "dark_planks"
+paint   = "planks"
+panel   = "wainscot"
+glass   = "glass"
+door    = "planks"
+
+[[palette]]
+name    = "desert_sandstone"
+display = "Desert Sandstone"
+outside = "frame"
+inside  = "paint"
+fill    = "sandstone_cream"
+post    = "sandstone_red"
+beam    = "sandstone_orange"
+base    = "sandstone_red"
+inlay   = "sandstone_red"
+paint   = "ochre_plaster"
+panel   = "planks"
+glass   = "none"
+door    = "planks"
+
+[[palette]]
+name    = "slate_keep"
+display = "Slate Keep"
+outside = "plinth"
+inside  = "panel"
+fill    = "stone_bricks"
+post    = "slate"
+beam    = "dark_planks"
+base    = "slate"
+inlay   = "slate"
+paint   = "plaster"
+panel   = "dark_planks"
+glass   = "leaded_glass"
+door    = "dark_planks"

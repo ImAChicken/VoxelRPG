@@ -255,7 +255,7 @@ int main() {
     gItems.addDecor(*decor::current());
 
     // Multi-block structures: building pieces, doors, trees
-    gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current()); gBlueprints.load();
+    gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current()); gBlueprints.load(); gBuildPalettes.load();
     buildItemIcons();   // tools, weapons and gear drawn from their models (ui/ItemIcon.h)
 
     if (!gResourcePacks.load("data/resourcepacks")) {
@@ -1368,7 +1368,7 @@ int main() {
             wire(glm::vec3(lo) - 0.05f, glm::vec3(hi) + 1.05f, col);
         } else if (hands.hammerActive && hands.previewHas && rules.worldInteraction && build.mode == HammerMode::Piece) {
             if (const StructureType* t = build.type()) {
-                const VoxelVolume& v = t->shape(0, build.shownRot);
+                const VoxelVolume& v = gStructures.shape(t->id, build.shownSpec, 0, build.shownRot);
                 glm::vec3 lo(hands.previewSpot - v.anchor);
                 wire(lo, lo + glm::vec3(v.size),
                      hands.previewWhy.empty() ? glm::vec3(0.3f, 0.95f, 0.4f)
@@ -1667,7 +1667,7 @@ int main() {
                 gOutlineFx.load("data/registry/outline.toml");
                 decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
                 gItems.addDecor(*decor::current());
-                gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current()); gBlueprints.load();
+                gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current()); gBlueprints.load(); gBuildPalettes.load();
                 buildItemIcons();   // tools, weapons and gear drawn from their models (ui/ItemIcon.h)
                 blockTable = BlockRenderTable::build(
                     gRegistry, gResourcePacks);
@@ -2052,6 +2052,7 @@ int main() {
                     vo.seed = (uint32_t)gWorldSave.getSeed() + 1;
                     vo.keepClear = { (int)player.position.x, (int)player.position.z };   // not on top of you
                     vo.clearRadius = 15;
+                    village::pickPalette(vo);
                     village::Plan vp = village::plan(*world, gBlueprints, at, vo);
                     village::Built vb = village::build(vp, *structs, *editor, &chests, vo, EditSource::Command);
                     say("a village ahead: " + std::to_string(vb.buildings) + " buildings");

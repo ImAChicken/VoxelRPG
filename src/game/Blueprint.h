@@ -46,6 +46,8 @@ struct BlueprintPart {
     std::string type;                 // structure type name
     glm::ivec3  at  = { 0, 0, 0 };    // low corner, from the blueprint's low corner
     int         rot = 0;
+    std::string spec;                 // a made piece's own sizes (and blocks, in older files) (game/PieceSpec.h)
+    int         palette = -1;         // which of the blueprint's palettes it's in (-1: none)
     // chests (structure types with slots)
     std::vector<std::pair<std::string, int>> items;   // item name, count
     std::string loot;                 // a loot table to roll when placed
@@ -61,6 +63,12 @@ struct BlueprintStyle {
     bool rollLoot = false;            // chests: roll their loot table (if any) instead of the saved items
     bool sitePrep = true;             // level the ground under it first
     int  sink = 0;                    // voxels its foundations sit below the ground (3 = 1 ft)
+    // A palette: a block per role, and a wall finish (outside / inside),
+    // laid over every made piece (walls, posts, doors) as it goes down,
+    // so one village is whitewash and dark timber, the next fieldstone
+    // (data/registry/palettes.toml). Empty: as saved
+    PieceSpec palette;
+    std::string paletteName;          // its name, for the menu (game/Palettes.h)
 
     std::string materialFor(const std::string& group) const {
         auto it = materials.find(group);
@@ -74,6 +82,7 @@ struct BlueprintPlacement {
     int        rot = 0;
     glm::ivec3 lo = { 0, 0, 0 }, hi = { 0, 0, 0 };   // its box in the world
     size_t     part = 0;              // index into Blueprint::parts
+    std::string spec;                 // its own sizes and blocks, the style's palette laid over
 };
 
 struct Blueprint {
@@ -83,6 +92,11 @@ struct Blueprint {
     glm::ivec3  size = { 0, 0, 0 };
     int         front = 2;            // the side its door faces: 0 north (-z), 1 east, 2 south, 3 west
     std::vector<BlueprintPart> parts;
+    // The palettes its pieces are made in (blocks and wall finish,
+    // game/Palettes.h): the Copy tool keeps one per different look.
+    // Ones that never disagree (say the walls' palette and the doors')
+    // can be merged into one when the player says so (mergePalettes)
+    std::vector<PieceSpec> palettes;
 
     bool hasTag(const std::string& t) const { return std::find(tags.begin(), tags.end(), t) != tags.end(); }
 
@@ -98,9 +112,71 @@ struct Blueprint {
         for (const BlueprintPart& p : parts) {
             uint16_t id = styled(p, style);
             if (const StructureType* t = gStructures.get(id))
-                for (auto& [item, n] : t->cost) out[item] += n;
+                for (auto& [item, n] : gStructures.costOf(*t, specFor(p, *t, style))) out[item] += n;
         }
         return out;
+    }
+
+    // A part's spec under a style: its own, the palette's blocks (the
+    // roles its kind of piece has) and wall finish laid over
+    std::string specFor(const BlueprintPart& p, const StructureType& t, const BlueprintStyle* style) const {
+        if (!t.sizable()) return "";
+        PieceSpec s = PieceSpec::parse(p.spec);
+        if (p.palette >= 0 && p.palette < (int)palettes.size()) {
+            PieceSpec pal = palettes[p.palette];
+            // restyled into another material (stone walls for plank): the
+            // roles that were just the old type's own take the new type's
+            const StructureType* was = gStructures.get(gStructures.find(p.type));
+            if (was && was->id != t.id)
+                for (auto it = pal.blocks.begin(); it != pal.blocks.end();)
+                    it = was->defaults.block(it->first) == it->second ? pal.blocks.erase(it) : std::next(it);
+            s = gStructures.applyPalette(t, s, pal);
+        }
+        if (style && !style->palette.empty()) s = gStructures.applyPalette(t, s, style->palette);
+        return gStructures.normalize(t, s);
+    }
+
+    // ── Palettes ──────────────────────────────────────────
+    // Two palettes that never set one role (or finish) two ways
+    static bool agree(const PieceSpec& a, const PieceSpec& b) {
+        for (auto& [role, block] : a.blocks) {
+            auto it = b.blocks.find(role);
+            if (it != b.blocks.end() && it->second != block) return false;
+        }
+        if (!a.outside.empty() && !b.outside.empty() && a.outside != b.outside) return false;
+        if (!a.inside.empty() && !b.inside.empty() && a.inside != b.inside) return false;
+        return true;
+    }
+    // Which palettes would go if the ones that agree were merged, as
+    // a map old index → new (fewer when some can merge). Greedy: each
+    // joins the first earlier group it agrees with all of
+    std::vector<int> mergePlan(std::vector<PieceSpec>* merged = nullptr) const {
+        std::vector<int> to(palettes.size(), -1);
+        std::vector<PieceSpec> groups;
+        for (size_t i = 0; i < palettes.size(); i++) {
+            for (size_t g = 0; g < groups.size() && to[i] < 0; g++)
+                if (agree(groups[g], palettes[i])) { groups[g] = PieceSpec::over(groups[g], palettes[i]); to[i] = (int)g; }
+            if (to[i] < 0) { to[i] = (int)groups.size(); groups.push_back(palettes[i]); }
+        }
+        if (merged) *merged = groups;
+        return to;
+    }
+    // How many palettes merging would save (0: nothing to merge)
+    int mergeable() const {
+        std::vector<PieceSpec> g;
+        mergePlan(&g);
+        return (int)palettes.size() - (int)g.size();
+    }
+    // Merge the palettes that agree. The pieces look the same as
+    // before (no two of them disagreed), only grouped; asked for by the
+    // player, never done on its own
+    int mergePalettes() {
+        std::vector<PieceSpec> g;
+        std::vector<int> to = mergePlan(&g);
+        int saved = (int)palettes.size() - (int)g.size();
+        for (BlueprintPart& p : parts) if (p.palette >= 0 && p.palette < (int)to.size()) p.palette = to[p.palette];
+        palettes = g;
+        return saved;
     }
 
     // The type a part becomes under a style
@@ -136,13 +212,23 @@ struct Blueprint {
             uint16_t id = styled(p, style);
             const StructureType* t = gStructures.get(id);
             if (!t) { if (missing) missing->push_back(p.type); continue; }
-            glm::ivec3 s = t->shape(0, p.rot).size;
+            const std::string spec = specFor(p, *t, style);
+            glm::ivec3 s = gStructures.shape(id, spec, 0, p.rot).size;
             glm::ivec2 a = turn(p.at.x, p.at.z), b = turn(p.at.x + s.x - 1, p.at.z + s.z - 1);
             glm::ivec3 lo(std::min(a.x, b.x), p.at.y, std::min(a.y, b.y));
             int r = (p.rot + q) & 3;
-            const VoxelVolume& v = t->shape(0, r);
+            // a wall with an outside: turned so it faces away from the
+            // building's middle (a half-turn keeps its box)
+            if (gStructures.faced(*t, spec)) {
+                glm::ivec2 mid(sizeTurned(q).x, sizeTurned(q).z);
+                glm::ivec3 sz = gStructures.shape(id, spec, 0, r).size;
+                glm::ivec2 c2 = glm::ivec2(lo.x, lo.z) * 2 + glm::ivec2(sz.x, sz.z) - mid;   // from the middle, doubled
+                glm::ivec2 out = StructureManager::outsideDir(r);
+                if (out.x * c2.x + out.y * c2.y < 0) r = (r + 2) & 3;
+            }
+            const VoxelVolume& v = gStructures.shape(id, spec, 0, r);
             BlueprintPlacement pl;
-            pl.type = id; pl.rot = r; pl.part = i;
+            pl.type = id; pl.rot = r; pl.part = i; pl.spec = spec;
             pl.lo = at + lo;
             pl.hi = pl.lo + v.size - 1;
             pl.origin = pl.lo + v.anchor;
@@ -175,12 +261,12 @@ struct Blueprint {
         for (const BlueprintPlacement& p : plan) {
             const StructureType* t = gStructures.get(p.type);
             if (!sitePrep) {
-                std::string why = sm.checkPlace(p.type, p.origin, p.rot, false);
+                std::string why = sm.checkPlace(p.type, p.origin, p.rot, false, nullptr, p.spec);
                 if (!why.empty()) return t->displayName + ": " + why;
                 continue;
             }
             if (p.lo.y < 0 || p.hi.y >= WORLD_HEIGHT) return "out of the world's height";
-            const VoxelVolume& v = t->shape(0, p.rot);
+            const VoxelVolume& v = gStructures.shape(p.type, p.spec, 0, p.rot);
             for (const Near& n : near) {
                 if (!overlap(n.lo, n.hi, p.lo, p.hi)) continue;
                 glm::ivec3 a = glm::max(n.lo, p.lo), b = glm::min(n.hi, p.hi);
@@ -231,13 +317,13 @@ struct Blueprint {
         int failed = 0;
         for (const BlueprintPlacement& p : plan) {
             uint32_t sup = 0;
-            std::string w = sm.checkPlace(p.type, p.origin, p.rot, false, &sup);
+            std::string w = sm.checkPlace(p.type, p.origin, p.rot, false, &sup, p.spec);
             if (!w.empty()) {
                 if (why && why->empty()) *why = gStructures.get(p.type)->displayName + ": " + w;
                 failed++;
                 continue;
             }
-            StructureInstance* s = sm.place(p.type, p.origin, p.rot, src, sup);
+            StructureInstance* s = sm.place(p.type, p.origin, p.rot, src, sup, p.spec);
             if (!s) continue;
             made.push_back(s->id);
             const BlueprintPart& part = parts[p.part];
@@ -272,7 +358,7 @@ struct Blueprint {
         auto boxOf = [&](const StructureInstance& s, Box& b) {
             const StructureType* t = sm.typeOf(s);
             if (!t || s.natural || t->kind == StructureKind::Tree) return false;
-            const VoxelVolume& v = t->shape(0, s.rot);
+            const VoxelVolume& v = StructureManager::shapeOf(s, 0);
             b.id = s.id;
             b.lo = s.origin - v.anchor;
             b.hi = b.lo + v.size - 1;
@@ -307,6 +393,7 @@ struct Blueprint {
         for (const Box& b : got) { lo = glm::min(lo, b.lo); hi = glm::max(hi, b.hi); }
 
         out.parts.clear();
+        out.palettes.clear();
         out.size = hi - lo + 1;
         if (worldLo) *worldLo = lo;
         for (const Box& b : got) {
@@ -316,6 +403,15 @@ struct Blueprint {
             p.type = t->name;
             p.at   = b.lo - lo;
             p.rot  = s->rot;
+            // its palette (the same look as another piece: the same one),
+            // and its own sizes
+            if (t->sizable()) {
+                PieceSpec look = gStructures.paletteOf(*t, s->spec);
+                auto it = std::find(out.palettes.begin(), out.palettes.end(), look);
+                p.palette = (int)(it - out.palettes.begin());
+                if (it == out.palettes.end()) out.palettes.push_back(look);
+                p.spec = gStructures.shapeOnly(*t, s->spec).text();
+            }
             if (chests && ChestStore::holds(t))
                 if (const Container* c = const_cast<ChestStore*>(chests)->find(s->id)) {
                     p.label = c->label;
@@ -357,7 +453,7 @@ struct Blueprint {
                 if (!t) continue;
                 bool hit = pass == 0 ? t->kind == StructureKind::Door : t->part == "wall_door";
                 if (!hit) continue;
-                glm::ivec3 s = t->shape(0, p.rot).size;
+                glm::ivec3 s = gStructures.shape(t->id, p.spec, 0, p.rot).size;
                 int c[4] = { p.at.z, bp.size.x - (p.at.x + s.x), bp.size.z - (p.at.z + s.z), p.at.x };
                 return int(std::min_element(c, c + 4) - c);
             }
@@ -382,7 +478,8 @@ struct Blueprint {
         f << "# Blueprint: a building made of build pieces (game/Blueprint.h).\n"
              "# Saved by the hammer's Copy tab; placed from its Blueprints tab and\n"
              "# by the village generator. Each part: its structure type, the low\n"
-             "# corner of its box from the blueprint's low corner, its turn; chests\n"
+             "# corner of its box from the blueprint's low corner, its turn; a made\n"
+             "# piece (wall, post, door) its own sizes and blocks (spec); chests\n"
              "# also keep items, or a loot table rolled when placed.\n"
              "#   front: the side the door faces, 0 north, 1 east, 2 south, 3 west\n\n";
         f << "name = \"" << name << "\"\n";
@@ -392,9 +489,13 @@ struct Blueprint {
         f << "]\n";
         f << "size = [" << size.x << ", " << size.y << ", " << size.z << "]\n";
         f << "front = " << front << "\n";
+        for (size_t i = 0; i < palettes.size(); i++)
+            f << "\n[[palette]]   # " << i << "\nspec = \"" << palettes[i].text() << "\"\n";
         for (const BlueprintPart& p : parts) {
             f << "\n[[part]]\ntype = \"" << p.type << "\"\nat = [" << p.at.x << ", " << p.at.y << ", " << p.at.z
               << "]\nrot = " << p.rot << "\n";
+            if (!p.spec.empty()) f << "spec = \"" << p.spec << "\"\n";
+            if (p.palette >= 0) f << "palette = " << p.palette << "\n";
             if (!p.items.empty()) {
                 f << "items = [";
                 for (size_t i = 0; i < p.items.size(); i++)
@@ -427,6 +528,10 @@ struct Blueprint {
                 size = { (*a)[0].value_or(0), (*a)[1].value_or(0), (*a)[2].value_or(0) };
             front = tbl["front"].value_or(2) & 3;
             parts.clear();
+            palettes.clear();
+            if (auto* arr = tbl["palette"].as_array())
+                for (auto& node : *arr)
+                    if (auto* t = node.as_table()) palettes.push_back(PieceSpec::parse((*t)["spec"].value_or(std::string())));
             if (auto* arr = tbl["part"].as_array())
                 for (auto& node : *arr) {
                     auto* t = node.as_table();
@@ -438,6 +543,8 @@ struct Blueprint {
                     p.rot   = (*t)["rot"].value_or(0) & 3;
                     p.loot  = (*t)["loot"].value_or(std::string());
                     p.label = (*t)["label"].value_or(std::string());
+                    p.spec  = (*t)["spec"].value_or(std::string());
+                    p.palette = (*t)["palette"].value_or(-1);
                     if (auto* items = (*t)["items"].as_array())
                         for (auto& it : *items)
                             if (auto* pr = it.as_array(); pr && pr->size() == 2)
@@ -448,7 +555,7 @@ struct Blueprint {
             if (size == glm::ivec3(0)) {
                 for (const BlueprintPart& p : parts)
                     if (const StructureType* t = gStructures.get(gStructures.find(p.type)))
-                        size = glm::max(size, p.at + t->shape(0, p.rot).size);
+                        size = glm::max(size, p.at + gStructures.shape(t->id, p.spec, 0, p.rot).size);
             }
         }
     }

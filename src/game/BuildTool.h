@@ -1,6 +1,7 @@
 #pragma once
 #include "StructureRegistry.h"
 #include "Blueprint.h"
+#include "Palettes.h"
 #include <glm/glm.hpp>
 #include <cstdlib>
 #include <ostream>
@@ -39,8 +40,32 @@ struct BuildTool {
     int        rot      = 0;      // quarter turns (T)
     int        shownRot = 0;      // the turn actually used: a snap (walls on an
                                   // edge, roofs on a wall) may turn the piece
+    std::string shownSpec;        // the spec actually used (a door snapped into a
+                                  // doorway takes the doorway's size)
     bool       locked   = false;
     glm::ivec3 spot     = {0, 0, 0};
+
+    // ── Made pieces (walls, posts, doors: game/PieceSpec.h) ──
+    //   palette  the equipped palette (Palettes tab; "": each piece
+    //            as it comes)
+    //   height   one height for every wall and post (0: each its own),
+    //            so a storey's walls match
+    //   sizes    a piece's own width and opening, by type name
+    std::string palette;
+    int         height = 0;
+    std::map<std::string, PieceSpec> sizes;
+
+    // What the chosen piece is placed with (normalized)
+    std::string specFor(const StructureType& t) const {
+        if (!t.sizable()) return "";
+        PieceSpec p;
+        auto it = sizes.find(t.name);
+        if (it != sizes.end()) p = it->second;
+        if (height > 0 && (t.model == "wall" || t.model == "pillar")) p.h = height;
+        if (const BuildPalette* pal = gBuildPalettes.find(palette)) p = gStructures.applyPalette(t, p, pal->spec);
+        return gStructures.normalize(t, p);
+    }
+    std::string spec() const { const StructureType* t = type(); return t ? specFor(*t) : std::string(); }
 
     const StructureType* type() const { return gStructures.get(selected); }
 
@@ -61,6 +86,9 @@ struct BuildTool {
         out << "build.rot=" << rot << "\n";
         if (!blueprint.empty()) out << "build.blueprint=" << blueprint << "\n";
         out << "build.mode=" << (int)mode << "\n";
+        if (!palette.empty()) out << "build.palette=" << palette << "\n";
+        if (height) out << "build.height=" << height << "\n";
+        for (auto& [name, p] : sizes) if (!p.empty()) out << "build.size." << name << "=" << p.text() << "\n";
     }
     bool read(const std::string& key, const std::string& value) {
         if (key == "build.type") {       // the old 4 ft foundation → the new one
@@ -69,8 +97,14 @@ struct BuildTool {
         }
         if (key == "build.rot")  { rot = std::atoi(value.c_str()) & 3;  return true; }
         if (key == "build.blueprint") { blueprint = value; return true; }
+        if (key == "build.palette") { palette = value; return true; }
+        if (key == "build.height") { height = std::clamp(std::atoi(value.c_str()), 0, 90); return true; }
+        if (key.rfind("build.size.", 0) == 0) { sizes[key.substr(11)] = PieceSpec::parse(value); return true; }
         if (key == "build.mode") { int m = std::atoi(value.c_str()); mode = m == 1 ? HammerMode::Blueprint : HammerMode::Piece; return true; }
         return false;
     }
-    void reset() { selected = gStructures.find("stone_foundation"); rot = 0; locked = false; mode = HammerMode::Piece; blueprint.clear(); }
+    void reset() {
+        selected = gStructures.find("stone_foundation"); rot = 0; locked = false; mode = HammerMode::Piece; blueprint.clear();
+        palette.clear(); height = 0; sizes.clear();
+    }
 };

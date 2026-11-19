@@ -323,7 +323,7 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
     // ── Blueprints, villages, terrain ─────────────────────
     // The same functions the hammer and the village generator
     // use (game/Blueprint.h, game/Village.h, world/TerrainOps.h)
-    reg.add("blueprint", "blueprint [list | place <name> [turns] | save <name> | reload]",
+    reg.add("blueprint", "blueprint [list | place <name> [turns] [palette] | save <name> | reload]",
         "whole buildings: list them, place one at the ground you look at, or save the building you look at",
         [aimed](C& c, const Args& a) {
             std::string sub = a.empty() ? "list" : a[0];
@@ -342,6 +342,11 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
                 glm::ivec3 at = aimed(c, true);
                 glm::ivec3 sz = bp->sizeTurned(q);
                 BlueprintStyle style;
+                if (a.size() > 3) {
+                    const BuildPalette* pal = gBuildPalettes.find(a[3]);
+                    if (!pal) { c.log("no palette " + a[3]); return; }
+                    style.palette = pal->spec; style.paletteName = pal->name;
+                }
                 auto plan = bp->plan({ at.x - sz.x / 2, at.y, at.z - sz.z / 2 }, q, &style);
                 std::string why = Blueprint::check(*c.structs, plan, true);
                 if (!why.empty()) { c.log("can't place: " + why); return; }
@@ -360,7 +365,7 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
                                            : std::string("could not save"));
                 return;
             }
-            c.log("usage: blueprint [list | place <name> [turns] | save <name> | reload]");
+            c.log("usage: blueprint [list | place <name> [turns] [palette] | save <name> | reload]");
         });
     reg.add("flatten", "flatten [radius] [level]",
         "level the ground in a circle around the block you look at (to its height, or a given level)",
@@ -379,7 +384,7 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
                                                              std::clamp(r, 1.0f, 48.0f), level, o, EditSource::Command));
             c.log("levelled to " + std::to_string(level));
         });
-    reg.add("village", "village [seed] [roads 1-4] [length]",
+    reg.add("village", "village [seed] [roads 1-4] [length] [palette]",
         "lay out a village around you from the blueprints (game/Village.h)",
         [](C& c, const Args& a) {
             if (!c.structs || !c.dev.worldEditor()) { c.log("needs a world"); return; }
@@ -387,11 +392,12 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             o.seed  = a.size() > 0 ? (uint32_t)std::atoi(a[0].c_str()) : (uint32_t)std::rand();
             o.roads = a.size() > 1 ? std::atoi(a[1].c_str()) : 3;
             if (a.size() > 2) o.roadLen = std::clamp(std::atoi(a[2].c_str()), 30, 300);
+            village::pickPalette(o, a.size() > 3 ? a[3] : std::string());
             glm::ivec3 at = glm::ivec3(glm::floor(c.player.position));
             WorldEditor& ed = *c.dev.worldEditor();
             village::Plan p = village::plan(ed.worldRef(), gBlueprints, at, o);
             village::Built b = village::build(p, *c.structs, ed, c.chests, o, EditSource::Command);
-            c.log("village " + std::to_string(o.seed) + ": " + std::to_string(b.buildings) + " buildings, " +
+            c.log("village " + std::to_string(o.seed) + " (" + o.style.paletteName + "): " + std::to_string(b.buildings) + " buildings, " +
                   std::to_string(b.roads) + " roads" + (b.failed ? ", " + std::to_string(b.failed) + " didn't fit" : ""));
         });
 

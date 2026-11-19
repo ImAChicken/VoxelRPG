@@ -55,6 +55,8 @@ struct StructureInstance {
     bool       natural = false;       // a generated tree
     float      age     = 0.0f;        // s since it was placed (types with a lifetime: StructureManager::tick)
     int        cellX = 0, cellZ = 0;  // natural trees: grid cell
+    std::string spec;                 // a made piece's own sizes and blocks (game/PieceSpec.h;
+                                      // normalized: "" is the type as it is)
 };
 
 class StructureManager {
@@ -72,6 +74,10 @@ public:
     const StructureType* typeOf(const StructureInstance& s) const {
         return gStructures.get(s.type);
     }
+    // Its shape in a state (its own, for a piece with its own spec)
+    static const VoxelVolume& shapeOf(const StructureInstance& s, int state) {
+        return gStructures.shape(s.type, s.spec, state, s.rot);
+    }
 
     // The voxel box an instance covers, [lo, hi]
     void bounds(const StructureInstance& s, glm::ivec3& lo, glm::ivec3& hi) const {
@@ -81,7 +87,7 @@ public:
         // whether open or closed
         lo = glm::ivec3(1 << 30); hi = glm::ivec3(-(1 << 30));
         for (int st = 0; st < t->states; st++) {
-            const VoxelVolume& v = t->shape(st, s.rot);
+            const VoxelVolume& v = shapeOf(s, st);
             glm::ivec3 o = s.origin - v.anchor;
             lo = glm::min(lo, o);
             hi = glm::max(hi, o + v.size - glm::ivec3(1));
@@ -92,7 +98,7 @@ public:
     bool owns(const StructureInstance& s, glm::ivec3 p) const {
         const StructureType* t = typeOf(s);
         if (!t) return false;
-        const VoxelVolume& v = t->shape(s.state, s.rot);
+        const VoxelVolume& v = shapeOf(s, s.state);
         glm::ivec3 q = p - s.origin + v.anchor;
         return v.inside(q.x, q.y, q.z) && v.at(q.x, q.y, q.z) != BLOCK_AIR;
     }
@@ -179,7 +185,7 @@ public:
     // crosshair lines them up by itself.
     static constexpr int FOUNDATION_NEAR = 12;
     static constexpr int FOUNDATION_SNAP = 24;
-    static constexpr int MODULE = 6;           // the 2 ft building grid
+    static constexpr int MODULE = 3;           // the 1 ft building grid (foundations come in any whole feet)
 
     // Empty voxels between two boxes along their farthest-apart
     // axis (-1 or less: they overlap on every axis)
@@ -206,11 +212,14 @@ public:
         for (const StructureInstance* f : foundationsNear(o, o + v.size - 1, FOUNDATION_NEAR)) {
             glm::ivec3 flo, fhi;
             bounds(*f, flo, fhi);
-            // on the 2 ft module (foundations come in 2 to 10 ft),
+            // on the 1 ft module (foundations come in any whole feet),
             // at the same level or stacked
             glm::ivec3 step = fhi - flo + 1, d = o - flo;
             if (d.x % MODULE || d.z % MODULE || d.y % step.y)
                 return "must line up with the foundation next to it";
+            // touching it (side by side, corner to corner, stacked), or well apart
+            if (gapBetween(o, o + v.size - 1, flo, fhi) > 0)
+                return "must touch the foundation next to it (or be 4 ft away)";
         }
         return "";
     }
@@ -219,10 +228,11 @@ public:
     // foundation within FOUNDATION_SNAP. Aiming at a foundation's
     // face picks the slot on that side (the top: stacked).
     // Returns false (spot unchanged) with none in range.
-    bool alignFoundation(uint16_t type, int rot, glm::ivec3 aimed, glm::ivec3 normal, glm::ivec3& spot) const {
+    bool alignFoundation(uint16_t type, int rot, glm::ivec3 aimed, glm::ivec3 normal, glm::ivec3& spot,
+                         const std::string& spec = "") const {
         const StructureType* t = gStructures.get(type);
         if (!t || !t->foundation) return false;
-        const VoxelVolume& v = t->shape(0, rot);
+        const VoxelVolume& v = gStructures.shape(type, spec, 0, rot);
         if (const StructureInstance* hit = instanceAt(aimed); hit && typeOf(*hit) && typeOf(*hit)->foundation) {
             glm::ivec3 flo, fhi;
             bounds(*hit, flo, fhi);
@@ -260,8 +270,24 @@ public:
     //            from them; T flips it)
     //   rotPick  the hammer's own rotation (T): used where the
     //            snap leaves a choice
+    // Which way a faced wall's outside points after q quarter turns
+    // (unturned: -z): found by turning a two-voxel marker the same way
+    // the shapes are turned, so it always agrees with VoxelVolume
+    static glm::ivec2 outsideDir(int q) {
+        VoxelVolume m({ 1, 1, 2 });
+        m.set(0, 0, 0, 1);
+        VoxelVolume r = m.rotatedY(q);
+        glm::ivec3 s = r.size;
+        for (int z = 0; z < s.z; z++) for (int x = 0; x < s.x; x++)
+            if (r.at(x, 0, z) == 1) return s.x > 1 ? glm::ivec2(x == 0 ? -1 : 1, 0) : glm::ivec2(0, z == 0 ? -1 : 1);
+        return { 0, -1 };
+    }
+
+    //   spec     the piece's own sizes (in); a door going into a
+    //            doorway comes back sized to fit its hole (out)
     bool snapTo(uint16_t type, int rotPick, glm::ivec3 aimed, glm::ivec3 normal,
-                glm::vec3 lookDir, glm::ivec3& spot, int& rot) const {
+                glm::vec3 lookDir, glm::ivec3& spot, int& rot, std::string* spec = nullptr) const {
+        std::string own = spec ? *spec : std::string();
         const StructureType* t = gStructures.get(type);
         const StructureInstance* a = instanceAt(aimed);
         if (!t || !a || a->natural) return false;
@@ -272,10 +298,11 @@ public:
         const glm::ivec3 asz = ahi - alo + 1;
         auto place = [&](int r, glm::ivec3 lo) {
             rot = r & 3;
-            spot = lo + t->shape(0, rot).anchor;
+            spot = lo + gStructures.shape(type, own, 0, rot).anchor;
+            if (spec) *spec = own;
             return true;
         };
-        auto sizeAt = [&](int r) { return t->shape(0, r & 3).size; };
+        auto sizeAt = [&](int r) { return gStructures.shape(type, own, 0, r & 3).size; };
         const bool onTop = normal.y > 0;
         const std::string& g = t->group;
 
@@ -284,6 +311,14 @@ public:
             glm::ivec3 hlo, hhi;
             if (holeOf(*a, hlo, hhi)) {
                 int r = (a->rot + (rotPick & 2)) & 3;
+                // sized to the hole: as wide as it is along the wall, as high
+                if (t->sizable()) {
+                    glm::ivec3 hs = hhi - hlo + 1;
+                    PieceSpec p = PieceSpec::parse(own);
+                    p.w = (r % 2 == 0) ? hs.x : hs.z;
+                    p.h = hs.y;
+                    own = gStructures.normalize(*t, p);
+                }
                 glm::ivec3 sz = sizeAt(r);
                 glm::ivec3 lo = hlo;
                 // centred in the hole's thickness
@@ -310,6 +345,15 @@ public:
             if (nearest * 3 <= std::min(asz.x, asz.z)) {
                 bool alongX = nearest == dzl || nearest == dzh;      // an edge running along x
                 int r = alongX ? (rotPick & 2) : 1 + (rotPick & 2);
+                if (gStructures.faced(*t, own)) {
+                    // a decorated wall: its outside away from the floor it stands on
+                    // (turn it: a quarter-turn pair picks the other side by hand)
+                    glm::ivec2 want = nearest == dzl ? glm::ivec2(0, -1) : nearest == dzh ? glm::ivec2(0, 1)
+                                    : nearest == dxl ? glm::ivec2(-1, 0) : glm::ivec2(1, 0);
+                    int base = alongX ? 0 : 1;
+                    r = outsideDir(base) == want ? base : base + 2;
+                    if (rotPick & 2) r = (r + 2) & 3;
+                }
                 glm::ivec3 sz = sizeAt(r);
                 glm::ivec3 lo;
                 lo.y = y;
@@ -416,7 +460,7 @@ public:
     bool holeOf(const StructureInstance& s, glm::ivec3& lo, glm::ivec3& hi) const {
         const StructureType* t = typeOf(s);
         if (!t) return false;
-        const VoxelVolume& v = t->shape(0, s.rot);
+        const VoxelVolume& v = shapeOf(s, 0);
         glm::ivec3 o = s.origin - v.anchor;
         lo = glm::ivec3(1 << 30); hi = glm::ivec3(-(1 << 30));
         bool any = false;
@@ -436,10 +480,11 @@ public:
     //   strictSupport — Survival: pieces that need support
     //                   must touch a foundation structure
     std::string checkPlace(uint16_t type, glm::ivec3 origin, int rot,
-                           bool strictSupport, uint32_t* supportOut = nullptr) const {
+                           bool strictSupport, uint32_t* supportOut = nullptr,
+                           const std::string& spec = "") const {
         const StructureType* t = gStructures.get(type);
         if (!t) return "unknown structure";
-        const VoxelVolume& v = t->shape(0, rot);
+        const VoxelVolume& v = gStructures.shape(type, spec, 0, rot);
         glm::ivec3 o = origin - v.anchor;
         if (o.y < 0 || o.y + v.size.y > WORLD_HEIGHT) return "out of the world's height";
 
@@ -480,12 +525,14 @@ public:
     }
 
     // Place an instance. Assumes checkPlace() passed.
+    //   spec  a made piece's own sizes and blocks (normalized here)
     StructureInstance* place(uint16_t type, glm::ivec3 origin, int rot,
-                             EditSource src, uint32_t support) {
+                             EditSource src, uint32_t support, const std::string& spec = "") {
         const StructureType* t = gStructures.get(type);
         if (!t) return nullptr;
         StructureInstance s;
         s.type = type; s.origin = origin; s.rot = rot & 3;
+        s.spec = spec.empty() ? std::string() : gStructures.normalize(*t, PieceSpec::parse(spec));
         s.health = t->health; s.support = support;
         editor.submit(writeShape(s, 0, src, t->displayName));
         StructureInstance* made = &add(s);
@@ -529,7 +576,7 @@ public:
         const StructureType* t = typeOf(s);
         if (!t || t->kind != StructureKind::Door) return "not a door";
         int next = 1 - s.state;
-        const VoxelVolume& to = t->shape(next, s.rot);
+        const VoxelVolume& to = shapeOf(s, next);
         glm::ivec3 o = s.origin - to.anchor;
         for (int y = 0; y < to.size.y; y++)
         for (int z = 0; z < to.size.z; z++)
@@ -579,7 +626,7 @@ public:
               std::vector<VoxelPiece>& wood, std::vector<VoxelPiece>& foliage) {
         const StructureType* t = typeOf(s);
         if (!t) return;
-        const VoxelVolume& v = t->shape(s.state, s.rot);
+        const VoxelVolume& v = shapeOf(s, s.state);
         glm::ivec3 o = s.origin - v.anchor;
         EditBatch b;
         b.source = src;
@@ -637,6 +684,7 @@ public:
               << " " << s.health << " " << s.support << " " << (s.natural ? 1 : 0)
               << " " << s.cellX << " " << s.cellZ;
             if (ages && t->lifetime > 0.0f) f << " " << s.age;
+            if (!s.spec.empty()) f << " spec=" << s.spec;
             f << "\n";
         }
         for (int64_t k : feltNatural)
@@ -666,8 +714,13 @@ public:
                 s.type = gStructures.find(name);
                 s.natural = nat != 0;
                 if (!s.type || !in) continue;          // type removed from the registry
-                float age = 0.0f;
-                if (in >> age) s.age = age;            // (only types with a lifetime write one)
+                std::string more;                      // an age (types with a lifetime), a spec
+                while (in >> more) {
+                    if (more.rfind("spec=", 0) == 0) {
+                        const StructureType* t = gStructures.get(s.type);
+                        s.spec = gStructures.normalize(*t, PieceSpec::parse(more.substr(5)));
+                    } else s.age = (float)std::atof(more.c_str());
+                }
                 nextId = std::max(nextId, s.id + 1);
                 index(s);
                 instances[s.id] = s;
@@ -726,7 +779,7 @@ private:
         // voxels back without the instance that owns them
         b.undoable = false;
         const StructureType* t = typeOf(s);
-        const VoxelVolume& v = t->shape(st, s.rot);
+        const VoxelVolume& v = shapeOf(s, st);
         glm::ivec3 o = s.origin - v.anchor;
         bool tree = t->kind == StructureKind::Tree;
         for (int y = 0; y < v.size.y; y++)
@@ -751,7 +804,7 @@ private:
         b.label    = label;
         b.undoable = false;
         const StructureType* t = typeOf(s);
-        const VoxelVolume& v = t->shape(s.state, s.rot);
+        const VoxelVolume& v = shapeOf(s, s.state);
         glm::ivec3 o = s.origin - v.anchor;
         for (int y = 0; y < v.size.y; y++)
         for (int z = 0; z < v.size.z; z++)
@@ -783,7 +836,7 @@ private:
     uint16_t voxelOf(const StructureInstance& s, glm::ivec3 p) const {
         const StructureType* t = typeOf(s);
         if (!t) return BLOCK_AIR;
-        const VoxelVolume& v = t->shape(s.state, s.rot);
+        const VoxelVolume& v = shapeOf(s, s.state);
         glm::ivec3 q = p - s.origin + v.anchor;
         return v.inside(q.x, q.y, q.z) ? v.at(q.x, q.y, q.z) : BLOCK_AIR;
     }
@@ -859,7 +912,8 @@ private:
             auto r = instances.find(rid);
             if (r == instances.end()) continue;
             const StructureType* rt = typeOf(r->second);
-            const VoxelVolume& v = rt->shape(r->second.state, r->second.rot);
+            (void)rt;
+            const VoxelVolume& v = shapeOf(r->second, r->second.state);
             // The removed piece is already gone, so anything
             // that only stood on it no longer traces back to
             // a foundation and is refused here

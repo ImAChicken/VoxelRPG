@@ -277,18 +277,20 @@ int main() {
               "too far, an item she doesn't carry, the wrong tool: refused");
         check(A.w->notices.size() >= 3 && A.w->notices[0] == "too far away", "  and she's told why (\"" + (A.w->notices.empty() ? std::string() : A.w->notices[0]) + "\")");
 
-        // the hammer: a foundation, paid for from her pack
-        uint16_t F = gStructures.find("stone_foundation_2");
+        // the hammer: a foundation sized 2 x 2 ft (its spec goes with the
+        // request), paid for from her pack by its size
+        uint16_t F = gStructures.find("stone_foundation");
+        const std::string small = gStructures.normalize(*gStructures.get(F), PieceSpec::parse("w=6;d=6"));
         glm::ivec3 spot = me + glm::ivec3(-14, 0, 6);
         bool found = false;
         for (int dy = -4; dy <= 4 && !found; dy++)
-            if (session.structs->checkPlace(F, spot + glm::ivec3(0, dy, 0), 0, true).empty()) { spot.y += dy; found = true; }
+            if (session.structs->checkPlace(F, spot + glm::ivec3(0, dy, 0), 0, true, nullptr, small).empty()) { spot.y += dy; found = true; }
         size_t n0 = session.structs->count();
         const bool costsWere = gStructures.costsEnabled;
         gStructures.costsEnabled = true;                                     // (data/registry has building free)
         int stone = sa->inventory.count(STONE_IT);
         WorldRequest piece = ask(WorldRequest::Op::Piece, HAMMER, spot);
-        piece.name = "stone_foundation_2"; piece.lo = spot;
+        piece.name = "stone_foundation"; piece.lo = spot; piece.spec = small;
         A.w->request(piece);
         A.w->notices.clear();
         tickAll(30);

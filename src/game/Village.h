@@ -1,5 +1,6 @@
 #pragma once
 #include "Blueprint.h"
+#include "Palettes.h"
 #include "../world/StructureManager.h"
 #include "../world/TerrainOps.h"
 #include "../world/WorldEditor.h"
@@ -45,11 +46,22 @@ struct Options {
     glm::ivec2 keepClear{ 0 };
     int        clearRadius = 0;
     BlueprintStyle style = sunk();   // applied to every building (foundations 2 ft into the ground)
+                                     // and its palette: one for the whole village (pickPalette)
     static BlueprintStyle sunk() { BlueprintStyle s; s.sink = 6; return s; }
     // How often each kind of building comes up (by tag)
     std::vector<std::pair<std::string, int>> weights = {
         { "house", 6 }, { "storage", 2 }, { "work", 2 }, { "smithy", 1 } };
 };
+
+// One of the curated palettes for a village, by its seed (game/Palettes.h):
+// every wall, post and door in it is made the same way
+inline void pickPalette(Options& o, const std::string& name = "") {
+    std::vector<const BuildPalette*> curated;
+    for (const BuildPalette& p : gBuildPalettes.list()) if (p.curated) curated.push_back(&p);
+    const BuildPalette* pick = name.empty() ? nullptr : gBuildPalettes.find(name);
+    if (!pick && !curated.empty()) pick = curated[(o.seed * 2654435761u >> 8) % curated.size()];
+    if (pick) { o.style.palette = pick->spec; o.style.paletteName = pick->name; }
+}
 
 struct Lot {
     const Blueprint* bp = nullptr;
