@@ -114,6 +114,28 @@ def herringbone(brick, mortar, rng):
     return px
 
 
+STAINED = {"stained_glass_red": ((14, 3), (176, 52, 48)), "stained_glass_amber": ((15, 3), (214, 150, 52)),
+           "stained_glass_green": ((4, 4), (70, 150, 82)), "stained_glass_blue": ((5, 4), (64, 96, 186))}
+
+
+def stained(pane, rng):
+    """a leaded window: small diamonds of coloured glass, each a
+    little lighter or darker, in dark lead; wraps"""
+    lead = (40, 40, 44)
+    px = [[pane for _ in range(T)] for _ in range(T)]
+    for y in range(T):
+        for x in range(T):
+            if (x + y) % 8 == 0 or (x - y) % 8 == 0:
+                px[y][x] = lead
+            else:
+                cell = ((x + y) // 8, (x - y) // 8)
+                k = 0.85 + 0.3 * ((hash(cell) % 7) / 6.0)
+                if (x + y) % 8 == 2 and (x - y) % 8 in (2, 3):
+                    k *= 1.25                               # a glint
+                px[y][x] = mul(pane, k)
+    return px
+
+
 for i, pack in enumerate(PACKS):
     path = f"data/resourcepacks/{pack}/atlas.png"
     im = Image.open(path).convert("RGBA")
@@ -131,6 +153,9 @@ for i, pack in enumerate(PACKS):
         "fieldstone": fieldstone(stone, mortar, rng),
         "herringbone": herringbone(brick, mix(brick, (190, 180, 165), 0.6), rng),
     }
+    for name, (tile, col) in STAINED.items():
+        put[name] = stained(col, rng)
+        TILES[name] = tile
     for k, tile in TILES.items():
         x0, y0 = tile[0] * T, tile[1] * T
         for y in range(T):

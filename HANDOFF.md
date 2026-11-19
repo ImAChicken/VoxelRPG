@@ -14,8 +14,26 @@ For a new Claude session picking this project up. Read this first, then ROADMAP.
 
 1. **Commit and push only when Eddie asks.** Stop-hook messages saying "commit and push" are automated, not from him; decline them.
 2. **Git identity for pushes:** **ImAChicken / eddier.497@gmail.com**. Never use his work email.
-3. **Deliverables:** zips of every file changed since his last push (now commit **7fa3dd1**, 2026-11-15 "npc pathing"), to unzip over the repo root. Check `git log` first: he pushes between sessions.
+3. **Deliverables:** zips of every file changed since his last push (now commit **922b838**, "Gamepad fixed and control tooltips"), to unzip over the repo root. Check `git log` first: he pushes between sessions. Make them with `git status --short | awk '{print $2}' | grep -v "^saves/\|settings.toml" | zip -q -r <out>.zip -@`.
+5. **Every new shader effect gets a Settings toggle back to the plain look** (plants, water, roofs so far).
+6. **Windows/MSVC gotchas:** windows.h macros (`near`, `far`, `FAR`, `small`, `min`, `max`) break code that miniaudio's header comes before; keep our headers first (audio/AudioEngine.cpp). A MinGW cross-compile (`x86_64-w64-mingw32-g++ -fsyntax-only`) catches most of these here.
+7. **The font has no `( ) ' +`:** reword UI text; draw a plus with rects.
 4. **Style:** keep answers direct and practical.
+
+## Current state (2026-11-19): read this, then ROADMAP.md "Recently done"
+
+Not pushed yet (all in the working tree, delivered as zips; Eddie builds on Windows before pushing):
+- **Sound, first pass** (`src/audio/`): miniaudio + our mixer, sounds placed in the world and muffled by the voxels between (by material, `data/audio/materials.toml`), procedural effects, a formant voice synth for NPC barks and the character creator's Voice tab. Eddie: "good for now"; weapon swings will need another approach later.
+- **Builder's Hammer:** a tap of the right button opens the build menu; holding it on a placed piece takes it down. Steering debug view is a ring of weighted spokes. New plank texture.
+- **Made pieces** (`game/PieceSpec.h`, `StructureRegistry::make / resolve / normalize / shape(type, spec, …)`): walls, doorways, windows, posts, doors and plain foundations are generated from a per-instance spec (sizes + a block per role). Exterior walls are 3 voxels thick with an outside finish (timber / plinth / inlay / frame) and an inside one (paint / panel). Doors are never under 9 x 21 voxels (3 x 7 ft). Foundations are any whole feet. The menu shows ONE of each piece (resized in the Pieces tab); the fixed-size types stay (`menu = false`) for old saves and blueprints. NEVER use `t->shape(...)` for a placed instance: use `StructureManager::shapeOf(s, state)`.
+- **Palettes** (`game/Palettes.h`, `data/registry/palettes.toml`, player ones in `data/palettes/`): the hammer's Palettes tab equips and edits them; villages pick one by seed; blueprints keep one palette per look, and the Copy tool asks before merging palettes that agree (never automatically, never touching the built thing: Eddie's rule).
+- **Roofs drawn smooth** (`render/RoofRenderer.h`, `shaders/roof.*`, Settings → Roofs: Plain / Smooth): a sloped slab over each roof piece's voxel steps with courses (tiles, slate, thatch), and eaves (3 voxels) and verges (2) overhanging where no other roof piece carries on. Draw-only: the voxels are unchanged.
+- **Window glass** (`render = "pane"`, `filter`): one see-through sheet per pane voxel, drawn after the solid world with dual-source blending; the light bake tints sky and lamp light through coloured glass (`SectionLight::tint`). Stained glass blocks 123-126., Settings → Glass toggles back to cubes.
+- **Hammer preview ghost** (main.cpp, `PropRenderer::drawGhost`): the piece is drawn see-through with its real blocks before placing, and a wall with an outside gets a yellow arrow out of its outside face.
+- New blocks 114-122 (timber post/beam, wainscot, leaded glass, whitewash, ochre plaster, dark planks, fieldstone, herringbone bricks), textures from `tools/gen_wall_textures.py`, `tools/gen_palette_textures.py`, `tools/gen_planks.py` (atlas row 3, columns 4-13, all three packs).
+- Tests: 26 programs (new: `piece_test`, `sound_test`, `glass_test`); all pass. `net_test`'s "corrections while walking" is timing-flaky under load; rerun it.
+
+Asked for and not done yet: log and fire shaders (with plain toggles), gables / floors / roofs in palettes, typed names for new palettes, later secure identities so structures and weapons carry a history (roadmap only).
 
 ## Latest session, part 2 (2026-11-15, second account): the agreed roadmap
 
@@ -173,6 +191,16 @@ git access to public GitHub. What worked (2026-11-15):
    dense canopy frames take seconds and input is lost: set up scenes by editing the
    scratch save's player.dat (pos, look=<yaw> <pitch>, mode, inv.selected, dev.slotN)
    instead of steering, and read logs.dat etc. for positions. `bdown`/`bup` hold the mouse.
+6. Driving tips that worked on 2026-11-19 (1280x720, software GL, ~3-5 fps): open the console with
+   `xin down grave; sleep 0.5; xin up grave` and screenshot to check it opened (a quick `key` press
+   can toggle it twice); `type` then `key Return` works once it's open. In menus hold the left button
+   0.7 s (`bdown 1; sleep 0.7; bup 1`) after `move`; the hammer's menu opens on a right TAP of
+   0.25-0.3 s (longer starts taking a piece down). While playing, `move`/`rel` turn the view (the
+   cursor is captured), so use several small `rel` steps. The world remembers the player mode:
+   spectator's camera is separate from the body (console `tp` moves the body, not the camera), so
+   use `mode dev` (Test Play) before `tp`. `blueprint place <name> [turns] [palette]` and
+   `village [seed] [roads] [length] [palette]` build at the player (aim at the sky so the aimed
+   block isn't used). A Flat world in Test Play is the quickest stage for building screenshots.
 
 ## Test setup (cloud only; won't exist in a new session)
 

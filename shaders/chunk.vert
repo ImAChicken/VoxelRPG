@@ -33,6 +33,7 @@ out      vec2  vSpriteUV;      // sprites: position in the picture, in tiles (0 
 flat out float vSprite;        // 1 for sprite quads (flowers, reeds)
 out      vec3  vSpriteNormal;  // sprites: the rounded clump's normal here
 out      float vSpriteLow;     // sprites: 0 at the ground .. 1 at the top (the base is shaded)
+flat out float vPane;          // 1 for window glass sheets (Mesher.h panes)
 
 float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -49,6 +50,28 @@ void main() {
     vec3 local = vec3(aPosFace.xyz);
     uint face  = aPosFace.w;
 
+    vPane = 0.0;
+    // ── Panes: one sheet through the middle of the voxels (Mesher.h panes()) ──
+    if (face >= 8u) {
+        vec3 n;
+        if (face == 8u) { local.z += 0.5; vFacePos = vec2(local.x, -local.y); n = vec3(0, 0, 1); }
+        else            { local.x += 0.5; vFacePos = vec2(local.z, -local.y); n = vec3(1, 0, 0); }
+        vPane = 1.0;
+        vSprite = 0.0;
+        vSpriteUV = vec2(0.0);
+        vSpriteNormal = n;
+        vSpriteLow = 1.0;
+        vTile  = vec2(aTile.xy);
+        vShade = 0.8;
+        vGlow  = float(aTile.z & 1u);
+        vNormal = n;
+        vLocal = local;
+        vec3 w = local + uChunkOrigin;
+        vWorld = w;
+        vDist  = length(w - uCamPos);
+        gl_Position = uProjection * uView * vec4(w, 1.0);
+        return;
+    }
     // ── Sprites: two crossed pictures (see Mesher.h sprites()) ──
     if (face >= 6u) {
         local.xz -= 8.0;

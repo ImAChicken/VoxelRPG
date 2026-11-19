@@ -56,6 +56,16 @@ struct VoxelTypeDef {
     bool    sprite      = false;
     uint8_t spriteWidth = 1;
 
+    // render = "pane": one flat see-through sheet through the middle
+    // of the voxel (window glass), turned along the wall it's in, drawn
+    // after the solid world (render/Mesher.h panes). filter = [r, g, b]
+    // (0-1): what it lets through of each colour: light baked through it
+    // is tinted (world/LightBake.h, like leaves tint the sky green), and
+    // the world seen through it too. 1, 1, 1 (the default): clear
+    bool    pane        = false;
+    float   filter[3]   = {1, 1, 1};
+    bool filters() const { return filter[0] < 0.999f || filter[1] < 0.999f || filter[2] < 0.999f; }
+
     bool isSolid()       const { return flags & VF_SOLID; }
     bool isFluid()       const { return flags & VF_FLUID; }
     bool isDestructible()const { return flags & VF_DESTRUCTIBLE; }
@@ -148,6 +158,10 @@ public:
                 def.lightPass = def.opacity == VoxelOpacity::Full ? 15 : def.opacity == VoxelOpacity::Partial ? 1
                               : def.opacity == VoxelOpacity::Translucent ? 1 : 0;
                 def.sprite = (*tbl2)["render"].value_or(std::string()) == "sprite";
+                def.pane = (*tbl2)["render"].value_or(std::string()) == "pane";
+                if (auto* f = (*tbl2)["filter"].as_array())
+                    for (int k = 0; k < 3 && k < (int)f->size(); k++)
+                        def.filter[k] = std::clamp((float)(*f)[k].value_or(1.0), 0.0f, 1.0f);
                 def.spriteWidth = (uint8_t)std::clamp<int64_t>((*tbl2)["sprite_width"].value_or((int64_t)1), 1, 5) | 1;
                 if (auto lp = (*tbl2)["light_pass"].value<std::string>()) {
                     if (*lp == "clear") def.lightPass = 0;

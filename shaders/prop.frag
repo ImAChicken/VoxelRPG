@@ -23,6 +23,7 @@ uniform float uVoxelsPerTile;
 uniform vec3  uSkyLight, uLightDir, uAmbient;
 uniform vec3  uFogHorizon, uFogSunGlow, uSunDir;
 uniform float uFogDensity, uNight;
+uniform float uAlpha;       // < 1: a ghost (the hammer's preview of a piece)
 
 vec3 fogColor(vec3 viewDir) {
     float s = pow(max(dot(viewDir, uSunDir), 0.0), 6.0);
@@ -47,5 +48,5 @@ void main() {
     vec3 rgb = color.rgb * lit;
     vec3 viewDir = normalize(vWorld - uCamPos);
     float fog = 1.0 - exp(-vDist * uFogDensity);
-    outColor = vec4(mix(rgb, fogColor(viewDir), fog), color.a);
+    outColor = vec4(mix(rgb, fogColor(viewDir), fog), color.a * uAlpha);
 }

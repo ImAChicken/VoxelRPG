@@ -129,6 +129,12 @@ public:
         if (s.lightTex[sy]) return s.lightTex[sy];
         return uniformTexture(s.lightValue[sy]);
     }
+    // The sky's colour through window glass for one section
+    // (light::SectionLight::tint), or 0 where it came through none
+    GLuint getTintTexture(int cx, int sy, int cz) const {
+        if (!ChunkManager::inWorld(cx, cz) || sy < 0 || sy >= SECTIONS) return 0;
+        return slots[(size_t)world.index(cx, cz)].tintTex[sy];
+    }
     // The water flow texture for a column (light::ColumnLight::flow),
     // or 0 if nothing flows there
     GLuint getFlowTexture(int cx, int cz) const {
@@ -225,6 +231,7 @@ private:
         bool      hasLight  = false;
         bool      needLight = true;
         GLuint    lightTex[SECTIONS] = {};
+        GLuint    tintTex[SECTIONS] = {};
         uint16_t  lightValue[SECTIONS] = {};
         std::array<std::vector<uint16_t>, SECTIONS> lightCpu;
         GLuint    canopyTex = 0;
@@ -234,6 +241,7 @@ private:
         void cleanupMeshes() { for (auto& m : mesh) m.cleanup(); }
         void freeLight() {
             for (GLuint& t : lightTex) if (t) { glDeleteTextures(1, &t); t = 0; }
+            for (GLuint& t : tintTex) if (t) { glDeleteTextures(1, &t); t = 0; }
             for (auto& v : lightCpu) { v.clear(); v.shrink_to_fit(); }
             if (canopyTex) { glDeleteTextures(1, &canopyTex); canopyTex = 0; }
             if (flowTex) { glDeleteTextures(1, &flowTex); flowTex = 0; }
@@ -315,6 +323,21 @@ private:
         for (int sy = 0; sy < SECTIONS; sy++) {
             const auto& sl = L.sections[(size_t)sy];
             s.lightValue[sy] = sl.value;
+            if (sl.tint.empty()) {
+                if (s.tintTex[sy]) { glDeleteTextures(1, &s.tintTex[sy]); s.tintTex[sy] = 0; }
+            } else {
+                if (!s.tintTex[sy]) glGenTextures(1, &s.tintTex[sy]);
+                glBindTexture(GL_TEXTURE_3D, s.tintTex[sy]);
+                glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+                glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA4, light::TEX, light::TEX, light::TEX, 0, GL_RGBA,
+                             GL_UNSIGNED_SHORT_4_4_4_4, sl.tint.data());
+                glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+                glBindTexture(GL_TEXTURE_3D, 0);
+            }
             if (sl.uniform) {
                 if (s.lightTex[sy]) { glDeleteTextures(1, &s.lightTex[sy]); s.lightTex[sy] = 0; }
                 s.lightCpu[sy].clear(); s.lightCpu[sy].shrink_to_fit();

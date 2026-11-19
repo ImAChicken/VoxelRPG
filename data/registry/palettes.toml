@@ -36,7 +36,7 @@ base  = ["fieldstone", "stone_bricks", "cobblestone", "limestone", "slate", "san
 inlay = ["herringbone_bricks", "bricks", "slate", "roof_tiles", "stone_bricks", "dark_planks", "ochre_plaster"]
 paint = ["plaster", "whitewash", "ochre_plaster", "wainscot", "planks", "dark_planks", "stone_bricks"]
 panel = ["wainscot", "dark_planks", "planks", "stone_bricks", "fieldstone"]
-glass = ["leaded_glass", "glass", "none"]
+glass = ["leaded_glass", "glass", "stained_glass_amber", "stained_glass_red", "stained_glass_green", "stained_glass_blue", "none"]
 door  = ["dark_planks", "planks", "wainscot", "timber_beam"]
 
 # ── The curated palettes ──────────────────────────────────

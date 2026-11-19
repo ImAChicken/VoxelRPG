@@ -120,6 +120,8 @@ public:
         v3("uFogHorizon", fl.sky.horizon); v3("uFogSunGlow", fl.sky.sunGlow); v3("uSunDir", fl.sky.sunDir);
         f1("uFogDensity", fl.fogDensity); f1("uNight", fl.sky.night);
         atlas.bind(0);
+        glUniform1f(glGetUniformLocation(p, "uAlpha"), 1.0f);
+        locAlpha = glGetUniformLocation(p, "uAlpha");
         locModel = glGetUniformLocation(p, "uModel");
         locFlat = glGetUniformLocation(p, "uFlat");
         locFlatLight = glGetUniformLocation(p, "uFlatLight");
@@ -145,6 +147,19 @@ public:
         glBindVertexArray(m.vao);
         glDrawArrays(GL_TRIANGLES, 0, m.count);
     }
+    // A see-through mesh (a ghost: the hammer's preview), drawn over
+    // the world without hiding what's behind it
+    void drawGhost(const Mesh& m, const glm::mat4& model, float alpha) {
+        if (!m.count) return;
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        glUniform1f(locAlpha, alpha);
+        draw(m, model);
+        glUniform1f(locAlpha, 1.0f);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+    }
     void end() { glBindVertexArray(0); }
 
 private:
@@ -155,6 +170,7 @@ private:
     Shader shader;
     std::shared_ptr<const BlockRenderTable> table;
     std::unordered_map<uint16_t, Mesh> cubes;
+    GLint locAlpha = -1;
     GLint locModel = -1, locFlat = -1, locFlatLight = -1, locFlatShade = -1;
 
     static int64_t key(glm::ivec3 p) {

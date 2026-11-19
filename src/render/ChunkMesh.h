@@ -19,8 +19,8 @@ public:
     ChunkMesh(ChunkMesh&& o) noexcept
         : vao(o.vao), vbo(o.vbo)
         , opaqueCount(o.opaqueCount)
-        , cutoutCount(o.cutoutCount)
-    { o.vao = 0; o.vbo = 0; o.opaqueCount = 0; o.cutoutCount = 0; }
+        , cutoutCount(o.cutoutCount), paneCount(o.paneCount)
+    { o.vao = 0; o.vbo = 0; o.opaqueCount = 0; o.cutoutCount = 0; o.paneCount = 0; }
 
     ChunkMesh& operator=(ChunkMesh&& o) noexcept {
         if (this != &o) {
@@ -28,16 +28,18 @@ public:
             vao = o.vao; vbo = o.vbo;
             opaqueCount = o.opaqueCount;
             cutoutCount = o.cutoutCount;
+            paneCount = o.paneCount;
             o.vao = 0; o.vbo = 0;
-            o.opaqueCount = 0; o.cutoutCount = 0;
+            o.opaqueCount = 0; o.cutoutCount = 0; o.paneCount = 0;
         }
         return *this;
     }
 
     void upload(const ChunkMeshData& data) {
         opaqueCount = (GLsizei)data.opaqueCount;
+        paneCount = (GLsizei)data.paneCount;
         cutoutCount = (GLsizei)(data.vertices.size()
-                                - data.opaqueCount);
+                                - data.opaqueCount - data.paneCount);
 
         if (data.vertices.empty()) {
             // Nothing to draw — release any old buffers
@@ -86,20 +88,30 @@ public:
         glDrawArrays(GL_TRIANGLES, opaqueCount, cutoutCount);
     }
 
+    // Window glass: see-through sheets, drawn after all solid chunks
+    void drawPanes() const {
+        if (vao == 0 || paneCount == 0) return;
+        glBindVertexArray(vao);
+        glDrawArrays(GL_TRIANGLES, opaqueCount + cutoutCount, paneCount);
+    }
+
     void cleanup() {
         releaseBuffers();
         opaqueCount = 0;
         cutoutCount = 0;
+        paneCount = 0;
     }
 
-    bool    isEmpty()     const { return opaqueCount + cutoutCount == 0; }
+    bool    isEmpty()     const { return opaqueCount + cutoutCount + paneCount == 0; }
     bool    hasCutout()   const { return cutoutCount > 0; }
-    GLsizei vertexCount() const { return opaqueCount + cutoutCount; }
+    bool    hasPanes()    const { return paneCount > 0; }
+    GLsizei vertexCount() const { return opaqueCount + cutoutCount + paneCount; }
 
 private:
     GLuint  vao = 0, vbo = 0;
     GLsizei opaqueCount = 0;
     GLsizei cutoutCount = 0;
+    GLsizei paneCount = 0;
 
     void releaseBuffers() {
         if (vao) { glDeleteVertexArrays(1, &vao); vao = 0; }

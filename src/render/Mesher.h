@@ -50,8 +50,9 @@ struct ChunkVertex {
 //                                drawn two-sided so you see
 //                                the far side through the gaps
 struct ChunkMeshData {
-    std::vector<ChunkVertex> vertices;
+    std::vector<ChunkVertex> vertices;   // solid, then cut-out, then panes
     uint32_t opaqueCount = 0;
+    uint32_t paneCount = 0;              // the last ones: see-through sheets (window glass)
 
     uint32_t quadCount() const {
         return (uint32_t)vertices.size() / 6;
@@ -69,6 +70,7 @@ struct BlockRenderInfo {
     bool    cutout   = false;   // has see-through pixels (leaves)
     bool    glow     = false;   // gives off light: drawn at full brightness
     bool    sprite   = false;   // crossed flat pictures (flowers, reeds), not a cube
+    bool    pane     = false;   // one see-through sheet through the voxel (window glass)
     uint8_t spriteW  = 1;       // voxels wide
     uint8_t spanW    = 1, spanH = 1;   // atlas tiles the picture covers
 };
@@ -80,9 +82,11 @@ struct BlockRenderTable {
         return blocks[id < blocks.size() ? id : 0];
     }
 
+    //   panes  false: glass drawn as plain cubes (Settings → Glass: Plain)
     static std::shared_ptr<const BlockRenderTable> build(
             const VoxelRegistry&       registry,
-            const ResourcePackManager& packs) {
+            const ResourcePackManager& packs,
+            bool                       panes = true) {
         auto table = std::make_shared<BlockRenderTable>();
         table->blocks.resize(std::max<size_t>(registry.size(), 1));
 
@@ -96,6 +100,8 @@ struct BlockRenderTable {
             info.glow   = def.glows();
             info.sprite  = def.sprite;
             info.spriteW = def.spriteWidth;
+            info.pane    = def.pane && panes;
+            if (info.pane) info.opaque = info.cutout = false;
             info.spanW   = (uint8_t)uv.spanW;
             info.spanH   = (uint8_t)uv.spanH;
             if (info.sprite) info.opaque = info.cutout = false;
@@ -172,11 +178,15 @@ public:
         sweep(s, table, 0,    1, 2,  +1,   FACE_EAST,   out.vertices);
 
         sprites(in, s, table);
+        s.panes.clear();
+        panes(in, s, table);
 
-        // Solid quads first, cut-out quads after
+        // Solid quads first, cut-out quads after, see-through panes last
         out.opaqueCount = (uint32_t)out.vertices.size();
         out.vertices.insert(out.vertices.end(),
                             s.cutout.begin(), s.cutout.end());
+        out.paneCount = (uint32_t)s.panes.size();
+        out.vertices.insert(out.vertices.end(), s.panes.begin(), s.panes.end());
     }
 
 private:
@@ -199,6 +209,7 @@ private:
         std::vector<uint16_t>    vol;      // padded volume
         std::vector<uint16_t>    mask;     // one slice of faces
         std::vector<ChunkVertex> cutout;   // two-sided quads
+        std::vector<ChunkVertex> panes;    // see-through sheets
     };
 
     // One set of buffers per thread, reused for every chunk
@@ -288,7 +299,7 @@ private:
                         // doesn't wall off a reed standing in it.
                         const BlockRenderInfo& oi = table.get(other);
                         show = ((other == BLOCK_AIR) || !oi.opaque) &&
-                               !table.get(id).sprite &&
+                               !table.get(id).sprite && !table.get(id).pane &&
                                !(id == BLOCK_WATER && oi.sprite);
                     }
                     row[i] = show ? id : (uint16_t)0;
@@ -330,6 +341,57 @@ private:
                                 (size_t)w * sizeof(uint16_t));
                 i += w;
             }
+        }
+    }
+
+    // ── Panes ─────────────────────────────────────────────
+    // Window glass: one flat sheet through the middle of each pane
+    // voxel instead of a cube, turned along the wall it's set in (the
+    // way with more solid or pane neighbours either side). Runs along
+    // a row are one quad. face 8: the sheet spans x and y, at z + 0.5
+    // (the shader adds the half); face 9: spans z and y, at x + 0.5.
+    // Drawn after everything solid, two-sided, see-through
+    // (shaders/chunk.frag)
+    static void panes(const MeshInput& in, Scratch& s, const BlockRenderTable& table) {
+        const RleData& r = *in.center;
+        bool any = false;
+        for (uint16_t t : r.types) if (table.get(t).pane) { any = true; break; }
+        if (!any) return;
+        auto solidish = [&](uint16_t id) { return id != BLOCK_AIR && (table.get(id).opaque || table.get(id).pane); };
+        auto alongX = [&](int x, int y, int z) {
+            int nx = solidish(s.vol[(size_t)pidx(x - 1, y, z)]) + solidish(s.vol[(size_t)pidx(x + 1, y, z)]);
+            int nz = solidish(s.vol[(size_t)pidx(x, y, z - 1)]) + solidish(s.vol[(size_t)pidx(x, y, z + 1)]);
+            return nx >= nz;
+        };
+        auto quad = [&](uint8_t face, int x0, int y0, int z0, int x1, int y1, int z1, const BlockRenderInfo& info) {
+            auto v = [&](int x, int y, int z) {
+                return ChunkVertex{ (uint8_t)x, (uint8_t)y, (uint8_t)z, face, info.tileX[FACE_NORTH], info.tileY[FACE_NORTH],
+                                    (uint8_t)(info.glow ? 1 : 0), 0 };
+            };
+            ChunkVertex a = v(x0, y0, z0), b = v(x1, y0, z1), c = v(x1, y1, z1), d = v(x0, y1, z0);
+            s.panes.insert(s.panes.end(), { a, b, c, a, c, d });
+        };
+        for (int y = 0; y < DIM; y++) {
+            // sheets along x: runs along x in each z row
+            for (int z = 0; z < DIM; z++)
+                for (int x = 0; x < DIM;) {
+                    uint16_t id = s.vol[(size_t)pidx(x, y, z)];
+                    if (!table.get(id).pane || !alongX(x, y, z)) { x++; continue; }
+                    int x1 = x + 1;
+                    while (x1 < DIM && s.vol[(size_t)pidx(x1, y, z)] == id && alongX(x1, y, z)) x1++;
+                    quad(8, x, y, z, x1, y + 1, z, table.get(id));
+                    x = x1;
+                }
+            // sheets along z
+            for (int x = 0; x < DIM; x++)
+                for (int z = 0; z < DIM;) {
+                    uint16_t id = s.vol[(size_t)pidx(x, y, z)];
+                    if (!table.get(id).pane || alongX(x, y, z)) { z++; continue; }
+                    int z1 = z + 1;
+                    while (z1 < DIM && s.vol[(size_t)pidx(x, y, z1)] == id && !alongX(x, y, z1)) z1++;
+                    quad(9, x, y, z, x, y + 1, z1, table.get(id));
+                    z = z1;
+                }
         }
     }
 

@@ -25,7 +25,15 @@ in      vec2  vSpriteUV;
 flat in float vSprite;
 in      vec3  vSpriteNormal;
 in      float vSpriteLow;
+flat in float vPane;
 uniform int   uPlantStyle;
+// Window glass (blocks.toml render = "pane", filter): uTint is the
+// colour the sky light came through glass in (world/LightBake.h tint;
+// white where none). uPanePass 1: drawing the panes themselves, with
+// dual-source blending (OpenGLRenderer::beginPanes): outColor is the
+// pane's own light, outFilter what it lets through of what's behind
+uniform sampler3D uTint;
+uniform int       uPanePass;
 // Water (Settings: Water): 0 plain, 1 moving. uFlow: which way it
 // runs over each cell column (world/LightBake.h flow; rivers from
 // the generator), uWaterTiles: water's top and side tiles
@@ -34,7 +42,8 @@ uniform sampler2D uFlow;
 uniform vec4      uWaterTiles;
 uniform float     uTime;
 
-out vec4 outColor;
+layout(location = 0, index = 0) out vec4 outColor;
+layout(location = 0, index = 1) out vec4 outFilter;
 
 uniform sampler2D uAtlas;
 uniform vec2  uTileUV;          // size of one tile in atlas UVs
@@ -97,6 +106,7 @@ void main() {
 
     // Cut-out pixels (gaps between leaves)
     if (color.a < 0.1) discard;
+    outFilter = vec4(0.0);
 
     // light half a voxel out in front of the face, so a face takes
     // the light of the air it faces
@@ -121,6 +131,7 @@ void main() {
         float shade = clamp(above / 5.0, 0.0, 1.0);
         skyTint = mix(vec3(1.0), vec3(0.30, 0.50, 0.24), shade);
     }
+    skyTint *= texture(uTint, tc / 66.0).rgb;       // through coloured glass
     vec3 block = L.rgb * L.rgb * 1.5;
     // sun / moon side brighter, the rest lit by the sky dome
     vec3 nrm = vNormal;
@@ -137,4 +148,21 @@ void main() {
     float fog = fogAmount(vDist);
     if (vGlow > 0.5) fog *= 0.3;                 // lights shine through the haze
     outColor = vec4(mix(rgb, fogColor(viewDir), fog), color.a);
+
+    if (vPane > 0.5) {
+        // Glass: the lead and frame (dark texels) are solid; the panes
+        // mostly let through what's behind, filtered by their colour
+        // (the texel's own hue), with a little of their own colour and
+        // a sheen toward the sky
+        float lum = max(color.r, max(color.g, color.b));
+        float solid = color.a < 0.99 ? color.a : smoothstep(0.42, 0.28, lum);
+        float own = mix(0.16, 1.0, solid);
+        vec3 hue = color.rgb / max(lum, 0.05);
+        vec3 pass = mix(vec3(1.0), hue, 0.65) * 0.86 * (1.0 - own);
+        float sheen = pow(1.0 - abs(dot(normalize(vNormal), -viewDir)), 3.0) * 0.25 * (1.0 - solid);
+        vec3 c = rgb * own + uSkyLight * sky * sheen;
+        outColor = vec4(mix(c, fogColor(viewDir) * own, fog), 1.0);
+        outFilter = vec4(mix(pass, vec3(1.0 - own), fog), 1.0);
+        if (uPanePass == 0) discard;              // (never drawn with the solid world)
+    }
 }

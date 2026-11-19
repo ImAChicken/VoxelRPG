@@ -37,6 +37,8 @@ public:
         addChoice("Hair mesh", &gSettings.charHairMesh, { "Voxels", "Shards", "Soft shards" });
         addChoice("Plants", &gSettings.plantStyle, { "Plain", "Windy" });
         addChoice("Water", &gSettings.waterStyle, { "Plain", "Moving" });
+        addChoice("Roofs", &gSettings.roofStyle, { "Plain", "Smooth" });
+        addChoice("Glass", &gSettings.glassStyle, { "Plain", "Panes" });
         addChoice("Auto save", &gSettings.autosave, { "Off", "On" });
         addChoice("Control hints", &gSettings.controlHints, { "Off", "On" });
         // ── Sound ─────────────────────────────────────────

@@ -662,6 +662,8 @@ public:
     // Every placed instance (spawners: main.cpp keeps the
     // simulation's list in step with these)
     template <class F> void forEachInstance(F f) const { for (const auto& [id, s] : instances) f(s); }
+    // Goes up whenever an instance comes or goes (render/RoofRenderer.h rebuilds then)
+    uint64_t revision() const { return rev; }
 
     // ── Save / load ───────────────────────────────────────
     bool save(const std::string& worldFolder) const {
@@ -699,7 +701,7 @@ public:
     // copy, from the server). Voxels aren't touched: they come with
     // the chunks.
     void read(std::istream& f) {
-        instances.clear(); byChunk.clear(); feltNatural.clear(); nextId = 1;
+        instances.clear(); byChunk.clear(); feltNatural.clear(); nextId = 1; ++rev;
         std::string line;
         while (std::getline(f, line)) {
             std::istringstream in(line);
@@ -738,6 +740,7 @@ private:
     const TerrainGenerator& gen;
 
     std::unordered_map<uint32_t, StructureInstance> instances;
+    uint64_t rev = 0;
     std::unordered_map<int64_t, std::vector<uint32_t>> byChunk;   // chunk → ids
     std::unordered_set<int64_t> feltNatural;                      // cells already cut
     uint32_t nextId = 1;
@@ -753,6 +756,7 @@ private:
 
     // List the instance under every chunk its box touches
     void index(const StructureInstance& s) {
+        ++rev;
         glm::ivec3 lo, hi;
         bounds(s, lo, hi);
         for (int cx = ChunkManager::chunkCoord(lo.x); cx <= ChunkManager::chunkCoord(hi.x); cx++)
@@ -760,6 +764,7 @@ private:
             byChunk[key(cx, cz)].push_back(s.id);
     }
     void unindex(const StructureInstance& s) {
+        ++rev;
         glm::ivec3 lo, hi;
         bounds(s, lo, hi);
         for (int cx = ChunkManager::chunkCoord(lo.x); cx <= ChunkManager::chunkCoord(hi.x); cx++)

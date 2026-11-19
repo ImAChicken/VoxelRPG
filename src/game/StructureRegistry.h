@@ -56,6 +56,8 @@ struct StructureType {
     std::string   displayName;     // "Stone Foundation"
     StructureKind kind = StructureKind::Build;
     bool          inBuildMenu  = false;
+    bool          slope = false;   // a roof plane (shape = "slope"): drawn smooth over its
+    int           slopeThick = 2;  // voxels (render/RoofRenderer.h); its thickness
     bool          faced = false;   // a wall with an outside face (shape = "wall"): the
                                    // unturned piece's outside faces -z (outsideDir)
     // A made piece (StructureRegistry::make): "wall", "pillar", "door"
@@ -664,6 +666,7 @@ public:
                     // stairs: solid steps rising along z, 'step' high
                     //        (size = [width, rise, run])
                     int th = std::max(1, (int)(*t)["thickness"].value_or((int64_t)2));
+                    if (shp == "slope") { s.slope = true; s.slopeThick = th; }
                     VoxelVolume v(s.size);
                     uint16_t edge = gRegistry.getIDByName((*t)["edge"].value_or(std::string()));
                     for (int z = 0; z < s.size.z; z++)

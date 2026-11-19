@@ -161,6 +161,8 @@ name = "glass"
 material = "stone"
 hardness = 1
 opacity = "none"
+render = "pane"               # one flat see-through sheet (render/Mesher.h panes)
+filter = [0.92, 0.97, 1.0]    # what it lets through of red, green, blue (light baked through it, and the view)
 flags = ["solid", "destructible"]
 on_destroy = 0
 color = [0.80, 0.90, 0.95]
@@ -1272,6 +1274,8 @@ name = "leaded_glass"
 material = "stone"
 hardness = 1
 opacity = "none"
+render = "pane"
+filter = [0.86, 0.95, 0.90]
 flags = ["solid", "destructible"]
 on_destroy = 0
 color = [0.70, 0.82, 0.80]
@@ -1331,3 +1335,54 @@ opacity = "full"
 flags = ["solid", "destructible"]
 on_destroy = 0
 color = [0.62, 0.32, 0.24]
+
+# ── Stained glass: window panes that colour the light through them ──
+# (render = "pane", filter: world/LightBake.h tints the sky and lamp
+# light that comes through; tools/gen_palette_textures.py)
+[[block]]
+id = 123
+name = "stained_glass_red"
+material = "stone"
+hardness = 1
+opacity = "none"
+render = "pane"
+filter = [0.95, 0.30, 0.28]
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.69, 0.20, 0.19]
+
+[[block]]
+id = 124
+name = "stained_glass_amber"
+material = "stone"
+hardness = 1
+opacity = "none"
+render = "pane"
+filter = [1.0, 0.72, 0.30]
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.84, 0.59, 0.20]
+
+[[block]]
+id = 125
+name = "stained_glass_green"
+material = "stone"
+hardness = 1
+opacity = "none"
+render = "pane"
+filter = [0.35, 0.85, 0.42]
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.27, 0.59, 0.32]
+
+[[block]]
+id = 126
+name = "stained_glass_blue"
+material = "stone"
+hardness = 1
+opacity = "none"
+render = "pane"
+filter = [0.32, 0.48, 1.0]
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.25, 0.38, 0.73]

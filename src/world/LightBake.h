@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -55,8 +56,26 @@ struct SectionLight {
     bool     uniform = true;
     uint16_t value   = pack(15, 0, 0, 0);
     std::vector<uint16_t> cells;      // TEX³ when not uniform
+    // The colour the sky light here came through (window glass,
+    // blocks.toml filter): RGBA4 like the cells, r, g, b what's left
+    // of each colour (15: all of it), a 15. TEX³, or empty when the
+    // section's sky came through no glass (the shader takes white)
+    std::vector<uint16_t> tint;
     static size_t at(int x, int y, int z) { return ((size_t)z * TEX + y) * TEX + x; }
 };
+
+// A filter as RGBA4 (r, g, b 0-15, a 15), and two filters one after the other
+constexpr uint16_t CLEAR = 0xFFFF;
+inline uint16_t filterOf(const float f[3]) {
+    auto q = [](float v) { return std::clamp((int)std::lround(v * 15.0f), 0, 15); };
+    return (uint16_t)((q(f[0]) << 12) | (q(f[1]) << 8) | (q(f[2]) << 4) | 15);
+}
+inline uint16_t through(uint16_t a, uint16_t b) {
+    if (a == CLEAR) return b;
+    if (b == CLEAR) return a;
+    auto m = [&](int sh) { return (((a >> sh) & 15) * ((b >> sh) & 15) + 7) / 15; };
+    return (uint16_t)((m(12) << 12) | (m(8) << 8) | (m(4) << 4) | 15);
+}
 
 // A glowing spot, for distant lights: world position of the
 // cell's centre and its colour
@@ -98,12 +117,14 @@ struct LightTable {
     std::vector<uint16_t> glow;       // packed r<<8|g<<4|b
     std::vector<uint8_t>  skipTop;    // left out of the ground summary: plants, leaves, trunks
     std::vector<uint8_t>  leaf;       // leaves of any kind: filter the sky (green) instead of blocking it
+    std::vector<uint16_t> filter;     // window glass: what of each colour gets through (CLEAR: all)
     static std::shared_ptr<const LightTable> build(const VoxelRegistry& reg) {
         auto t = std::make_shared<LightTable>();
         t->pass.assign(std::max<size_t>(reg.size(), 1), 15);
         t->glow.assign(t->pass.size(), 0);
         t->skipTop.assign(t->pass.size(), 0);
         t->leaf.assign(t->pass.size(), 0);
+        t->filter.assign(t->pass.size(), CLEAR);
         for (size_t i = 0; i < reg.size(); i++) {
             const VoxelTypeDef& d = reg.get((uint16_t)i);
             t->leaf[i] = d.material == "organic" && d.opacity == VoxelOpacity::Partial;
@@ -112,6 +133,7 @@ struct LightTable {
                             (d.material == "organic" && d.opacity == VoxelOpacity::Partial);   // every kind of leaves
             t->pass[i] = i == 0 ? 0 : d.lightPass;
             t->glow[i] = (uint16_t)((d.light[0] << 8) | (d.light[1] << 4) | d.light[2]);
+            if (d.filters()) t->filter[i] = filterOf(d.filter);
         }
         return t;
     }
@@ -126,9 +148,11 @@ public:
     // cx, cz: the column (for emitter world positions)
     static void bake(const Snap9& cols, const LightTable& lt, int cx, int cz, ColumnLight& out) {
         thread_local std::vector<uint8_t>  opq, passv, leafv;
-        thread_local std::vector<uint16_t> glowv, L;
+        thread_local std::vector<uint16_t> glowv, L, filt, T;
         const size_t N = (size_t)RX * RX * RY;
         opq.assign(N, 0); passv.assign(N, 0); glowv.assign(N, 0); leafv.assign(N, 0);
+        bool anyFilter = false;              // any tinted glass near: then the tint is worked out
+        filt.clear();
         auto ci = [](int x, int y, int z) { return ((size_t)y * RX + x) * RX + z; };
         int topCell = 0;
         out.topY.fill(0); out.topId.fill(0); out.emitters.clear();
@@ -156,6 +180,10 @@ public:
                     if (p >= 15) opq[c]++;
                     else passv[c] = std::max(passv[c], p);
                     if (id < lt.leaf.size() && lt.leaf[id] && leafv[c] < 255) leafv[c]++;
+                    if (id < lt.filter.size() && lt.filter[id] != CLEAR) {
+                        if (!anyFilter) { filt.assign(N, CLEAR); anyFilter = true; }
+                        filt[c] = lt.filter[id];         // (a pane is one voxel thick: once per cell)
+                    }
                     uint16_t g = id < lt.glow.size() ? lt.glow[id] : 0;
                     if (g) {
                         uint16_t& e = glowv[c];
@@ -179,6 +207,10 @@ public:
                         size_t c = ci((ox * D + x + MARGIN * CELL) / CELL, (y0 + y) / CELL, (oz * D + z + MARGIN * CELL) / CELL);
                         if (p >= 15) opq[c] = 8; else passv[c] = std::max(passv[c], p);
                         if (id < lt.leaf.size() && lt.leaf[id]) leafv[c] = 8;
+                        if (id < lt.filter.size() && lt.filter[id] != CLEAR) {
+                            if (!anyFilter) { filt.assign(N, CLEAR); anyFilter = true; }
+                            filt[c] = lt.filter[id];
+                        }
                     }
                     topCell = std::max(topCell, (y0 + D) / CELL - 1);
                     if (center)
@@ -219,9 +251,11 @@ public:
         out.canopy.clear();
         bool anyLeaf = false;
         std::vector<uint16_t> canopy((size_t)TEX * TEX * 3, 0);
+        if (anyFilter) T.assign(N, CLEAR);
         for (int x = 0; x < RX; x++)
         for (int z = 0; z < RX; z++) {
             int s = 15;
+            uint16_t tint = CLEAR;          // the glass the sky has come down through
             int tx = x - (MARGIN - 1), tz = z - (MARGIN - 1);
             bool record = tx >= 0 && tx < TEX && tz >= 0 && tz < TEX;
             uint16_t* cn = record ? &canopy[((size_t)tz * TEX + tx) * 3] : nullptr;
@@ -238,8 +272,10 @@ public:
                         }
                     }
                     s = p >= 15 ? 0 : std::max(0, s - p);
+                    if (anyFilter && filt[c] != CLEAR) tint = through(tint, filt[c]);
                 }
                 L[c] = (uint16_t)s;
+                if (anyFilter) T[c] = tint;
                 if (s == 0 && y < topCell) {
                     // rest of the column below stays dark (already 0)
                     break;
@@ -263,7 +299,8 @@ public:
         }
         if (anyLeaf) out.canopy.swap(canopy);
         spread(q, passv, L, [](uint16_t v) { return (int)(v & 15); },
-               [](uint16_t v, int s) { return (uint16_t)((v & ~15) | s); }, ci);
+               [](uint16_t v, int s) { return (uint16_t)((v & ~15) | s); }, ci,
+               anyFilter ? &filt : nullptr, anyFilter ? &T : nullptr);
 
         // ── glowing blocks: each colour floods out ────────
         q.clear();
@@ -279,7 +316,7 @@ public:
                 out.emitters.push_back({ cx * D + (x - MARGIN) * CELL + 1, y * CELL + 1, cz * D + (z - MARGIN) * CELL + 1,
                                          (uint8_t)(g >> 8), (uint8_t)((g >> 4) & 15), (uint8_t)(g & 15) });
         }
-        spreadRGB(q, passv, L, ci);
+        spreadRGB(q, passv, L, ci, anyFilter ? &filt : nullptr);
 
         // ── out: one texture's worth per section ──────────
         for (int sy = 0; sy < SECTIONS; sy++) {
@@ -301,6 +338,26 @@ public:
             }
             sl.uniform = same;
             sl.value = first;
+            sl.tint.clear();
+            if (anyFilter && cy0 <= topCell + 1) {
+                // the sky's colour through glass, where any of it is tinted
+                bool tinted = false;
+                auto tAt = [&](int x, int y, int z) -> uint16_t {
+                    if (y < 0 || y >= RY) return CLEAR;
+                    return T[ci(x, y, z)];
+                };
+                for (int y = 0; y < TEX && !tinted; y++)
+                for (int x = 0; x < TEX && !tinted; x++)
+                for (int z = 0; z < TEX; z++)
+                    if (tAt(MARGIN - 1 + x, cy0 + y, MARGIN - 1 + z) != CLEAR) { tinted = true; break; }
+                if (tinted) {
+                    sl.tint.resize((size_t)TEX * TEX * TEX);
+                    for (int z = 0; z < TEX; z++)
+                    for (int y = 0; y < TEX; y++)
+                    for (int x = 0; x < TEX; x++)
+                        sl.tint[SectionLight::at(x, y, z)] = tAt(MARGIN - 1 + x, cy0 + y, MARGIN - 1 + z);
+                }
+            }
             if (same) { sl.cells.clear(); sl.cells.shrink_to_fit(); continue; }
             sl.cells.resize((size_t)TEX * TEX * TEX);
             for (int z = 0; z < TEX; z++)
@@ -311,9 +368,12 @@ public:
     }
 
 private:
+    // filt / T (with glass near): the sky takes on each glass's colour
+    // as it spreads through it, and keeps it
     template <class Get, class Set, class CI>
     static void spread(std::vector<int>& q, const std::vector<uint8_t>& passv, std::vector<uint16_t>& L,
-                       Get get, Set set, CI ci) {
+                       Get get, Set set, CI ci,
+                       const std::vector<uint16_t>* filt = nullptr, std::vector<uint16_t>* T = nullptr) {
         static const int N6[6][3] = {{1,0,0},{-1,0,0},{0,0,1},{0,0,-1},{0,1,0},{0,-1,0}};
         for (size_t h = 0; h < q.size(); h++) {
             int c = q[h];
@@ -327,12 +387,19 @@ private:
                 int p = passv[n];
                 if (p >= 15) continue;
                 int nv = v - 1 - p;
-                if (nv > get(L[n])) { L[n] = set(L[n], nv); q.push_back((int)n); }
+                if (nv > get(L[n])) {
+                    L[n] = set(L[n], nv);
+                    if (T) (*T)[n] = through((*T)[(size_t)c], (*filt)[n]);
+                    q.push_back((int)n);
+                }
             }
         }
     }
+    // filt (with glass near): a lamp's light through coloured glass
+    // keeps only what the glass lets through of each colour
     template <class CI>
-    static void spreadRGB(std::vector<int>& q, const std::vector<uint8_t>& passv, std::vector<uint16_t>& L, CI ci) {
+    static void spreadRGB(std::vector<int>& q, const std::vector<uint8_t>& passv, std::vector<uint16_t>& L, CI ci,
+                          const std::vector<uint16_t>* filt = nullptr) {
         static const int N6[6][3] = {{1,0,0},{-1,0,0},{0,0,1},{0,0,-1},{0,1,0},{0,-1,0}};
         for (size_t h = 0; h < q.size(); h++) {
             int c = q[h];
@@ -347,7 +414,12 @@ private:
                 int p = passv[n];
                 if (p >= 15) continue;
                 uint16_t w = L[n];
-                int nr = std::max(rOf(w), r - 1 - p), ng = std::max(gOf(w), g - 1 - p), nb = std::max(bOf(w), b - 1 - p);
+                int fr = r - 1 - p, fg = g - 1 - p, fb = b - 1 - p;
+                if (filt && (*filt)[n] != CLEAR) {
+                    uint16_t f = (*filt)[n];
+                    fr = fr * ((f >> 12) & 15) / 15; fg = fg * ((f >> 8) & 15) / 15; fb = fb * ((f >> 4) & 15) / 15;
+                }
+                int nr = std::max(rOf(w), fr), ng = std::max(gOf(w), fg), nb = std::max(bOf(w), fb);
                 if (nr != rOf(w) || ng != gOf(w) || nb != bOf(w)) {
                     L[n] = pack(skyOf(w), nr, ng, nb);
                     q.push_back((int)n);

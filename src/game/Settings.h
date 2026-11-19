@@ -46,6 +46,8 @@ struct GameSettings {
     int plantStyle    = 1;   // 0 plain crossed pictures, 1 natural: each plant a little off its
                              // spot, rounded light, swaying in the wind (shaders/chunk.vert)
     int waterStyle    = 1;   // 0 plain, 1 moving: rivers run downstream, still water ripples
+    int glassStyle    = 1;   // 0 plain cubes, 1 panes: one see-through sheet, tinting what's behind
+    int roofStyle     = 1;   // 0 plain voxels, 1 smooth: one sloped surface with courses and overhanging eaves
 
     // Saving: ordinary worlds save themselves every few minutes
     // (dev worlds never do: see world/WorldSaveManager.h)
@@ -70,7 +72,7 @@ struct GameSettings {
         renderDistance   = DEF_RENDER_DISTANCE;
         eyeHeight        = DEF_EYE_HEIGHT;
         charEdges = 1; charLineColor = 0; charHairMesh = 1;
-        plantStyle = 1; waterStyle = 1;
+        plantStyle = 1; waterStyle = 1; roofStyle = 1; glassStyle = 1;
         autosave = 1;
         controlHints = 1;
         masterVolume = 0.8f; effectsVolume = 1.0f; voiceVolume = 1.0f; ambienceVolume = 0.7f; soundWalls = 1;
@@ -88,6 +90,8 @@ struct GameSettings {
         charHairMesh  = std::clamp(charHairMesh, 0, 2);
         plantStyle    = std::clamp(plantStyle, 0, 1);
         waterStyle    = std::clamp(waterStyle, 0, 1);
+        roofStyle     = std::clamp(roofStyle, 0, 1);
+        glassStyle    = std::clamp(glassStyle, 0, 1);
         autosave      = std::clamp(autosave, 0, 1);
         controlHints  = std::clamp(controlHints, 0, 1);
         for (float* v : { &masterVolume, &effectsVolume, &voiceVolume, &ambienceVolume }) *v = std::clamp(*v, 0.0f, 1.0f);
@@ -109,6 +113,8 @@ struct GameSettings {
             charHairMesh  = (int)t["characters"]["hair_mesh"].value_or((int64_t)charHairMesh);
             plantStyle    = (int)t["world"]["plants"].value_or((int64_t)plantStyle);
             waterStyle    = (int)t["world"]["water"].value_or((int64_t)waterStyle);
+            roofStyle     = (int)t["world"]["roofs"].value_or((int64_t)roofStyle);
+            glassStyle    = (int)t["world"]["glass"].value_or((int64_t)glassStyle);
             autosave      = (int)t["game"]["autosave"].value_or((int64_t)autosave);
             controlHints  = (int)t["game"]["control_hints"].value_or((int64_t)controlHints);
             masterVolume   = (float)t["sound"]["master"].value_or((double)masterVolume);
@@ -143,7 +149,9 @@ struct GameSettings {
           << "hair_mesh  = " << charHairMesh  << "   # 0 voxels, 1 shards, 2 soft shards\n\n"
           << "[world]\n"
           << "plants = " << plantStyle << "   # 0 plain pictures, 1 natural: off-grid, rounded light, wind\n"
-          << "water  = " << waterStyle << "   # 0 plain, 1 moving: rivers run downstream\n\n"
+          << "water  = " << waterStyle << "   # 0 plain, 1 moving: rivers run downstream\n"
+          << "glass  = " << glassStyle << "   # 0 plain cubes, 1 panes: see-through sheets that tint what's behind\n"
+          << "roofs  = " << roofStyle << "   # 0 plain voxels, 1 smooth: sloped, with courses and overhanging eaves\n\n"
           << "[game]\n"
           << "autosave = " << autosave << "   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)\n"
           << "control_hints = " << controlHints << "   # 0 off, 1 on: what the buttons do now, bottom right\n\n"

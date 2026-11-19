@@ -77,6 +77,7 @@
 #include "sim/Simulation.h"
 #include "game/DebugView.h"
 #include "render/PropRenderer.h"
+#include "render/RoofRenderer.h"
 #include "render/BoxRenderer.h"
 #include "worldgen/WorldType.h"
 #include "render/Sky.h"
@@ -288,7 +289,7 @@ int main() {
     // What the mesher needs to know about each block:
     // which atlas tiles it uses and whether it is see-through
     std::shared_ptr<const BlockRenderTable> blockTable =
-        BlockRenderTable::build(gRegistry, gResourcePacks);
+        BlockRenderTable::build(gRegistry, gResourcePacks, gSettings.glassStyle == 1);
 
     // ── Characters ────────────────────────────────────────
     // The player's body (drawn in third person) and the one
@@ -312,11 +313,13 @@ int main() {
     if (!blobs.init()) std::cerr << "Box renderer failed to start\n";
     PropRenderer props;                       // logs, wood, leaves: drawn like the world
     if (!props.init()) std::cerr << "Prop renderer failed to start\n";
+    RoofRenderer roofs;                       // roofs drawn smooth, eaves overhanging (Settings → Roofs)
+    if (!roofs.init()) std::cerr << "Roof renderer failed to start\n";
     DebugDraw debugDraw;                      // the debug overlay's lines (F3, game/DebugView.h)
     if (!debugDraw.init()) std::cerr << "Debug lines failed to start\n";
     std::vector<std::array<glm::vec3, 3>> axeTrail;   // the last axe swing's blade, for the overlay
     bool wasSwinging = false;
-    props.setBlocks(blockTable);
+    props.setBlocks(blockTable); roofs.setBlocks(blockTable);
     auto playerBody  = std::make_unique<Character>();
     auto previewBody = std::make_unique<Character>();
 
@@ -438,6 +441,9 @@ int main() {
     // Meshes for woodcutting's logs (by log id), drawn like the
     // world (render/PropRenderer.h)
     std::unordered_map<uint32_t, PropRenderer::Mesh> logMeshes;
+    PropRenderer::Mesh ghost;                 // the hammer's piece as it will be (a ghost)
+    std::string ghostKey;
+    glm::ivec3 ghostLitAt(1 << 30);
     auto dropWoodMeshes = [&]() {
         for (auto& [k, m] : logMeshes) m.release();
         logMeshes.clear();
@@ -982,7 +988,7 @@ int main() {
                 if (!mesh || mesh->isEmpty()) continue;
                 glr->drawMesh(*mesh, origin + glm::vec3(0.0f, (float)(sy * VOXEL_DIM), 0.0f),
                               streamer->getLightTexture(cx, sy, cz), streamer->getCanopyTexture(cx, cz),
-                              streamer->getFlowTexture(cx, cz));
+                              streamer->getFlowTexture(cx, cz), streamer->getTintTexture(cx, sy, cz));
             }
         }
 
@@ -1174,6 +1180,60 @@ int main() {
                            { 0.5f, std::max(0.6f, H * 0.2f), 0.6f }, yaw, glm::vec3(0.05f, 0.07f, 0.05f));
         };
 
+        // ── Roofs: one sloped surface over each roof piece's
+        //    steps, eaves overhanging (render/RoofRenderer.h) ─
+        if (gSettings.roofStyle == 1 && structs && streamer && glr->hasAtlas()) {
+            glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
+                                              Camera::NEAR_PLANE, Camera::FAR_PLANE);
+            PropLightFn lightAt = [&](glm::vec3 p) {
+                uint16_t L = streamer->lightAt(p.x, p.y, p.z);
+                PropLightSample s;
+                s.r = (uint8_t)light::rOf(L); s.g = (uint8_t)light::gOf(L); s.b = (uint8_t)light::bOf(L);
+                s.sky = (uint8_t)light::skyOf(L);
+                s.shade = std::clamp(streamer->canopyAt(p.x, p.y, p.z), 0.0f, 1.0f);
+                return s;
+            };
+            roofs.draw(*structs, glr->getViewMatrix(), proj, camera.position, glr->getAtlas(), lightAt);
+        }
+
+        // ── The hammer's piece, as it will be: a ghost of its voxels,
+        //    so the outside (timber, inlay) and the inside (paint,
+        //    panels) can be told apart before it's placed ─
+        if (hands.hammerActive && hands.previewHas && rules.worldInteraction && build.mode == HammerMode::Piece &&
+            streamer && glr->hasAtlas()) {
+            if (const StructureType* t = build.type()) {
+                std::string key = std::to_string(t->id) + "|" + build.shownSpec + "|" + std::to_string(build.shownRot);
+                const VoxelVolume& v = gStructures.shape(t->id, build.shownSpec, 0, build.shownRot);
+                if (key != ghostKey) {
+                    std::vector<VoxelPiece> pieces;
+                    for (int y = 0; y < v.size.y; y++) for (int z = 0; z < v.size.z; z++) for (int x = 0; x < v.size.x; x++)
+                        if (uint16_t b = v.at(x, y, z)) pieces.push_back({ { x, y, z }, b });
+                    props.buildVoxels(ghost, pieces);
+                    ghostKey = key;
+                    ghostLitAt = glm::ivec3(1 << 30);
+                }
+                glm::ivec3 lo = hands.previewSpot - v.anchor;
+                glm::mat4 M = glm::translate(glm::mat4(1.0f), glm::vec3(lo));
+                glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
+                                                  Camera::NEAR_PLANE, Camera::FAR_PLANE);
+                props.begin(glr->getViewMatrix(), proj, camera.position, glr->getAtlas());
+                if (lo != ghostLitAt) {
+                    PropLightFn lightAt = [&](glm::vec3 p) {
+                        uint16_t L = streamer->lightAt(p.x, p.y, p.z);
+                        PropLightSample s;
+                        s.r = (uint8_t)light::rOf(L); s.g = (uint8_t)light::gOf(L); s.b = (uint8_t)light::bOf(L);
+                        s.sky = (uint8_t)std::max(8, (int)light::skyOf(L));   // (inside the ghost the world is solid)
+                        s.shade = 0.0f;
+                        return s;
+                    };
+                    props.relight(ghost, M, lightAt);
+                    ghostLitAt = lo;
+                }
+                props.drawGhost(ghost, M, hands.previewWhy.empty() ? 0.72f : 0.4f);
+                props.end();
+            }
+        }
+
         // ── Woodcutting: logs, wood on the ground, leaves and
         //    chips (world/Woodcutting.h), drawn like the world ─
         if (wood && glr->hasAtlas()) {
@@ -1356,6 +1416,32 @@ int main() {
         // Builder's Hammer: outline of the chosen structure
         // where it would go — green if it can be placed, red
         // if not — plus its anchor voxel
+        // Window glass, after everything solid (chunks, roofs, bodies, props), far sections first
+        // (Mesher.h panes, OpenGLRenderer::beginPanes)
+        {
+            struct PaneSec { float d; int cx, sy, cz; };
+            std::vector<PaneSec> paneSecs;
+            for (int cx = pc.x - MESH_DISTANCE; cx <= pc.x + MESH_DISTANCE; cx++)
+            for (int cz = pc.y - MESH_DISTANCE; cz <= pc.y + MESH_DISTANCE; cz++) {
+                if (!streamer->hasMesh(cx, cz)) continue;
+                for (int sy = 0; sy < SECTIONS; sy++) {
+                    const ChunkMesh* mesh = streamer->getMesh(cx, sy, cz);
+                    if (!mesh || !mesh->hasPanes()) continue;
+                    glm::vec3 c = world->chunkOrigin(cx, cz) + glm::vec3(VOXEL_DIM * 0.5f, (sy + 0.5f) * VOXEL_DIM, VOXEL_DIM * 0.5f);
+                    paneSecs.push_back({ glm::length(c - camera.position), cx, sy, cz });
+                }
+            }
+            if (!paneSecs.empty()) {
+                std::sort(paneSecs.begin(), paneSecs.end(), [](const PaneSec& a, const PaneSec& b) { return a.d > b.d; });
+                glr->beginPanes();
+                for (const PaneSec& p : paneSecs)
+                    glr->drawPanes(*streamer->getMesh(p.cx, p.sy, p.cz),
+                                   world->chunkOrigin(p.cx, p.cz) + glm::vec3(0.0f, (float)(p.sy * VOXEL_DIM), 0.0f),
+                                   streamer->getLightTexture(p.cx, p.sy, p.cz), streamer->getCanopyTexture(p.cx, p.cz),
+                                   streamer->getFlowTexture(p.cx, p.cz), streamer->getTintTexture(p.cx, p.sy, p.cz));
+                glr->endPanes();
+            }
+        }
         if (hands.hammerActive && !hands.previewBoxes.empty() && rules.worldInteraction) {
             // a blueprint or a building to copy: every piece, and the whole
             glm::vec3 col = build.mode == HammerMode::Copy ? glm::vec3(1.0f, 0.85f, 0.3f)
@@ -1373,6 +1459,23 @@ int main() {
                 wire(lo, lo + glm::vec3(v.size),
                      hands.previewWhy.empty() ? glm::vec3(0.3f, 0.95f, 0.4f)
                                               : glm::vec3(1.0f, 0.3f, 0.25f));
+                // a wall with an outside: an arrow out of its outside face
+                // (the ghost below shows the faces themselves)
+                if (gStructures.faced(*t, build.shownSpec)) {
+                    glm::ivec2 o = StructureManager::outsideDir(build.shownRot);
+                    glm::vec3 c = lo + glm::vec3(v.size) * 0.5f;
+                    glm::vec3 out(o.x, 0, o.y);
+                    glm::vec3 face = c + out * (glm::dot(glm::abs(out), glm::vec3(v.size)) * 0.5f);
+                    glm::vec3 side(-out.z, 0, out.x);
+                    glm::vec3 arrowCol(1.0f, 0.85f, 0.25f);
+                    for (int k = 0; k < 6; k++)                    // the shaft: a run of small boxes
+                        wire(face + out * (k + 0.25f) - 0.25f, face + out * (k + 0.25f) + 0.25f, arrowCol);
+                    for (int k = 1; k <= 3; k++)                   // the head
+                        for (float sd : { -1.0f, 1.0f }) {
+                            glm::vec3 q = face + out * (6.0f - k) + side * (sd * k);
+                            wire(q - 0.25f, q + 0.25f, arrowCol);
+                        }
+                }
                 wire(glm::vec3(hands.previewSpot), glm::vec3(hands.previewSpot) + 1.0f,
                      glm::vec3(1.0f));
             }
@@ -1535,6 +1638,17 @@ int main() {
         // Movement uses a capped delta so one slow frame
         // cannot fling the camera across the map
         float dt = std::min(frameTime, 0.1f);
+        // Settings → Glass changed: glass is meshed differently (panes or cubes)
+        {
+            static int glassWas = gSettings.glassStyle;
+            if (gSettings.glassStyle != glassWas) {
+                glassWas = gSettings.glassStyle;
+                blockTable = BlockRenderTable::build(gRegistry, gResourcePacks, gSettings.glassStyle == 1);
+                if (streamer) streamer->setRenderTable(blockTable);
+                props.setBlocks(blockTable); roofs.setBlocks(blockTable);
+                dropWoodMeshes();
+            }
+        }
         frameDt = dt;
         if ((gState == GameState::Playing || gState == GameState::Console) && !remote) gClock.update(dt);
 
@@ -1670,10 +1784,10 @@ int main() {
                 gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current()); gBlueprints.load(); gBuildPalettes.load();
                 buildItemIcons();   // tools, weapons and gear drawn from their models (ui/ItemIcon.h)
                 blockTable = BlockRenderTable::build(
-                    gRegistry, gResourcePacks);
+                    gRegistry, gResourcePacks, gSettings.glassStyle == 1);
                 if (streamer)
                     streamer->setRenderTable(blockTable);
-                props.setBlocks(blockTable);
+                props.setBlocks(blockTable); roofs.setBlocks(blockTable);
                 dropWoodMeshes();
                 if (streamer) streamer->setLightTable(lightTable());
                 if (gPhysics && world) gPhysics->init(*world);
@@ -1689,10 +1803,10 @@ int main() {
                 // Blocks may use different tiles now —
                 // rebuild every mesh in the background
                 blockTable = BlockRenderTable::build(
-                    gRegistry, gResourcePacks);
+                    gRegistry, gResourcePacks, gSettings.glassStyle == 1);
                 if (streamer)
                     streamer->setRenderTable(blockTable);
-                props.setBlocks(blockTable);
+                props.setBlocks(blockTable); roofs.setBlocks(blockTable);
                 dropWoodMeshes();
                 // Faces and swatches may have changed too
                 loadCharacterArt();
@@ -2433,6 +2547,8 @@ int main() {
     charRenderer.cleanup();
     dropWoodMeshes();
     props.cleanup();
+    roofs.cleanup();
+    ghost.release();
     skyRenderer.cleanup();
     distantLights.cleanup();
     session.close();

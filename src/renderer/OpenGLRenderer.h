@@ -169,6 +169,8 @@ public:
             }
             glUniform1i(glGetUniformLocation(p, "uLight"), 1);
             glUniform1i(glGetUniformLocation(p, "uCanopy"), 2);
+            glUniform1i(glGetUniformLocation(p, "uTint"), 4);
+            glUniform1i(glGetUniformLocation(p, "uPanePass"), 0);
         }
         atlas.bind(0);
 
@@ -182,20 +184,14 @@ public:
     // Draw one chunk mesh whose corner sits at 'origin'.
     // Chunks completely outside the camera's view are skipped.
     //   lightTex  the section's baked light (3D texture), or 0
-    void drawMesh(const ChunkMesh& mesh, glm::vec3 origin, GLuint lightTex = 0, GLuint canopyTex = 0, GLuint flowTex = 0) {
+    //   tintTex   the sky's colour through window glass (3D), or 0
+    void drawMesh(const ChunkMesh& mesh, glm::vec3 origin, GLuint lightTex = 0, GLuint canopyTex = 0, GLuint flowTex = 0,
+                  GLuint tintTex = 0) {
         if (!atlasLoaded || mesh.isEmpty()) return;
 
         glm::vec3 size((float)VOXEL_DIM);
         if (!boxInFrustum(origin, origin + size)) return;
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_3D, lightTex ? lightTex : fullSkyTexture());
-        glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, canopyTex ? canopyTex : noCanopyTexture());
-        glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_2D, flowTex ? flowTex : noFlowTexture());
-        glActiveTexture(GL_TEXTURE0);
-
-        glUniform3f(locChunkOrigin, origin.x, origin.y, origin.z);
+        bindSection(origin, lightTex, canopyTex, flowTex, tintTex);
 
         mesh.drawOpaque();
 
@@ -209,6 +205,48 @@ public:
 
         drawCallCount++;
         vertexCount += (int)mesh.vertexCount();
+    }
+
+    // ── Window glass ──────────────────────────────────────
+    // After every solid chunk, far to near: beginPanes, drawPanes for
+    // each section with any, endPanes. A pane both shows its own colour
+    // (the lead, a sheen) and filters what's behind it: dual-source
+    // blending, out = pane + behind * filter (shaders/chunk.frag)
+    void beginPanes() {
+        shader.use();
+        atlas.bind(0);
+        glEnable(GL_DEPTH_TEST);
+        glUniform1i(glGetUniformLocation(shader.id, "uPanePass"), 1);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_SRC1_COLOR);
+        glDepthMask(GL_FALSE);
+        glDisable(GL_CULL_FACE);
+    }
+    void drawPanes(const ChunkMesh& mesh, glm::vec3 origin, GLuint lightTex = 0, GLuint canopyTex = 0, GLuint flowTex = 0,
+                   GLuint tintTex = 0) {
+        if (!atlasLoaded || !mesh.hasPanes()) return;
+        if (!boxInFrustum(origin, origin + glm::vec3((float)VOXEL_DIM))) return;
+        bindSection(origin, lightTex, canopyTex, flowTex, tintTex);
+        mesh.drawPanes();
+    }
+    void endPanes() {
+        glUniform1i(glGetUniformLocation(shader.id, "uPanePass"), 0);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glEnable(GL_CULL_FACE);
+    }
+
+    void bindSection(glm::vec3 origin, GLuint lightTex, GLuint canopyTex, GLuint flowTex, GLuint tintTex) {
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_3D, tintTex ? tintTex : clearTintTexture());
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_3D, lightTex ? lightTex : fullSkyTexture());
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, canopyTex ? canopyTex : noCanopyTexture());
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, flowTex ? flowTex : noFlowTexture());
+        glActiveTexture(GL_TEXTURE0);
+        glUniform3f(locChunkOrigin, origin.x, origin.y, origin.z);
     }
 
     // Call after the last chunk, before any UI
@@ -320,6 +358,19 @@ private:
             glBindTexture(GL_TEXTURE_2D, 0);
         }
         return noCanopy;
+    }
+    GLuint clearTint = 0;
+    GLuint clearTintTexture() {
+        if (!clearTint) {
+            uint16_t v = 0xFFFF;   // every colour gets through
+            glGenTextures(1, &clearTint);
+            glBindTexture(GL_TEXTURE_3D, clearTint);
+            glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA4, 1, 1, 1, 0, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, &v);
+            glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glBindTexture(GL_TEXTURE_3D, 0);
+        }
+        return clearTint;
     }
     GLuint fullSkyTexture() {
         if (!fullSky) {

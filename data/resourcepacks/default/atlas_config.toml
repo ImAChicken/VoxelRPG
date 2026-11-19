@@ -758,3 +758,27 @@ name    = "herringbone_bricks"
 top     = [13, 3]
 side    = [13, 3]
 bottom  = [13, 3]
+
+[[face_map]]
+name    = "stained_glass_red"
+top     = [14, 3]
+side    = [14, 3]
+bottom  = [14, 3]
+
+[[face_map]]
+name    = "stained_glass_amber"
+top     = [15, 3]
+side    = [15, 3]
+bottom  = [15, 3]
+
+[[face_map]]
+name    = "stained_glass_green"
+top     = [4, 4]
+side    = [4, 4]
+bottom  = [4, 4]
+
+[[face_map]]
+name    = "stained_glass_blue"
+top     = [5, 4]
+side    = [5, 4]
+bottom  = [5, 4]
