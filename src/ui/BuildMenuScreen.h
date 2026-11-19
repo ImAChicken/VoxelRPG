@@ -114,7 +114,8 @@ private:
             { "foundation", "Foundations" }, { "wall", "Walls" }, { "gable", "Gables" },
             { "pillar", "Posts" }, { "beam", "Beams" }, { "floor", "Floors" }, { "roof", "Roofs" },
             { "stairs", "Stairs" }, { "door", "Doors" }, { "station", "Stations" },
-            { "furniture", "Furniture" }, { "chest", "Chests" }, { "light", "Lights" }, { "", "Other" },
+            { "furniture", "Furniture" }, { "chest", "Chests" }, { "light", "Lights" }, { "fence", "Fences" },
+            { "", "Other" },
         };
         return g;
     }
@@ -330,6 +331,21 @@ private:
             if ((d = stepper(ui, x, y, w, "Height", ft(full.h)))) own.h = full.h + 3 * d;
             y += 40;
             ui.drawText("Any whole feet. Near another, it lines up on its grid.", x, y + 4, theme.textDim, 1);
+            y += 24;
+        } else if (t.model == "floor") {
+            if ((d = stepper(ui, x, y, w, "Width", ft(full.w)))) own.w = full.w + 3 * d;
+            y += 40;
+            if ((d = stepper(ui, x, y, w, "Depth", ft(full.d)))) own.d = full.d + 3 * d;
+            y += 40;
+            ui.drawText("Any whole feet to 40: one piece can cover a hall.", x, y + 4, theme.textDim, 1);
+            y += 24;
+        } else if (t.model == "slope") {
+            if ((d = stepper(ui, x, y, w, "Length", ft(full.w)))) own.w = full.w + 3 * d;
+            y += 40;
+            ui.drawText("Along the eave, any whole feet. The palette sets its block.", x, y + 4, theme.textDim, 1);
+            y += 24;
+        } else if (t.model == "gable") {
+            ui.drawText("Its size matches a roof span. The palette sets its block.", x, y + 4, theme.textDim, 1);
             y += 24;
         } else if (!door) {
             if ((d = stepper(ui, x, y, w, pillar ? "Thickness" : "Width", pillar ? std::to_string(full.w) + " voxels" : ft(full.w))))

@@ -161,7 +161,7 @@ faction = "villagers"
 look = "villager"
 health = 60
 poise = 20
-states = ["idle", "unavailable", "alert", "flee", "return", "dead"]
+states = ["idle", "routine", "unavailable", "alert", "flee", "return", "dead"]
 idle = "wander"
 wander_radius = 24
 sight = { range = 50, fov = 160 }

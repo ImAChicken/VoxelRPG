@@ -2,6 +2,7 @@
 #include "Npc.h"
 #include "Brain.h"
 #include "States.h"
+#include "Routine.h"
 #include "Factions.h"
 #include "NpcTypes.h"
 #include "../physics/IPhysics.h"
@@ -9,7 +10,9 @@
 #include "../game/Combat.h"
 #include <glm/glm.hpp>
 #include <cmath>
+#include <algorithm>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -30,6 +33,7 @@ public:
     // A new NPC of a type at a spot; nullptr if the type is unknown
     Npc* spawn(const std::string& typeId, glm::vec3 at, glm::vec3 facing, uint32_t seed = 0) {
         registerBuiltinStates();
+        if (!npcStates().has("routine")) npcStates().add("routine", [] { return std::make_unique<npcstates::Routine>(); });
         const NpcType* t = gNpcTypes.find(typeId);
         if (!t) return nullptr;
         auto n = std::make_unique<Npc>();
@@ -146,7 +150,8 @@ public:
             std::string before = n.stateName;
             brain::think(n, world, dt);
             if (before == "unavailable" && n.stateName != "unavailable") closedMenus.push_back(n.uuid);
-            physics.moveHuman(n, n.intent, dt);
+            if (n.lying) { n.velocity = glm::vec3(0.0f); n.grounded = true; }   // in bed: held where it lies
+            else physics.moveHuman(n, n.intent, dt);
             physics.stepRagdoll(n, dt);
             n.intent.clearOneShots();
         }
@@ -185,7 +190,14 @@ public:
               << n->health << " " << n->lookSeed << " " << n->patrol.size();
             for (const auto& p : n->patrol) f << " " << p.x << " " << p.y << " " << p.z;
             if (n->spawner) f << " sp " << n->spawner;     // which spawner it belongs to
+            if (n->roamGroup) f << " roam " << n->roamGroup;   // a roaming spawn (sim/Roaming.h)
             f << " id " << n->uuid;                        // its id, the same after a reload
+            if (!n->name.empty() && n->type && n->name != n->type->name) {
+                std::string nm = n->name;
+                for (char& c : nm) if (c == ' ') c = '_';
+                f << " name " << nm;
+            }
+            n->life.write(f);                              // a villager's places (" life …", last on the line)
             f << "\n";
             if (n->pack.opened() || n->pack.loot != (n->type ? n->type->loot : "")) n->pack.write(f, "p");   // its pack, once read
         }
@@ -224,10 +236,13 @@ public:
             std::string tag;
             while (s >> tag) {
                 if (tag == "sp") s >> n->spawner;
+                else if (tag == "roam") s >> n->roamGroup;
                 else if (tag == "id") {
                     uint64_t id = 0;
                     if (s >> id && id && !find(id)) { n->uuid = id; Entity::reserveId(id); }
                 }
+                else if (tag == "name") { s >> n->name; for (char& c : n->name) if (c == '_') c = ' '; }
+                else if (tag == "life") n->life.read(s);
             }
             last = n;
             count++;
@@ -237,6 +252,12 @@ public:
     }
 
     void clear() { list.clear(); }
+    // Remove the ones a test picks; how many went
+    int removeIf(const std::function<bool(const Npc&)>& pick) {
+        size_t before = list.size();
+        list.erase(std::remove_if(list.begin(), list.end(), [&](const std::unique_ptr<Npc>& n) { return pick(*n); }), list.end());
+        return (int)(before - list.size());
+    }
     std::vector<std::unique_ptr<Npc>>& all() { return list; }
     Npc* find(EntityId id) { for (auto& n : list) if (n->uuid == id) return n.get(); return nullptr; }
 

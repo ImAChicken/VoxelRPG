@@ -1386,3 +1386,86 @@ filter = [0.32, 0.48, 1.0]
 flags = ["solid", "destructible"]
 on_destroy = 0
 color = [0.25, 0.38, 0.73]
+
+# ── Furnishings (tools/gen_furnishing_textures.py) ──────────
+# cloth for beds and pews, a rug, book shelves, iron and gilt fittings
+
+[[block]]
+id = 127
+name = "wool_white"
+material = "organic"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.89, 0.87, 0.81]
+
+[[block]]
+id = 128
+name = "wool_red"
+material = "organic"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.59, 0.16, 0.16]
+
+[[block]]
+id = 129
+name = "wool_blue"
+material = "organic"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.22, 0.30, 0.56]
+
+[[block]]
+id = 130
+name = "wool_green"
+material = "organic"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.24, 0.43, 0.26]
+
+[[block]]
+id = 131
+name = "bookshelf"
+material = "wood"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.45, 0.30, 0.20]
+
+[[block]]
+id = 132
+name = "iron_block"
+material = "metal"
+hardness = 5
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.28, 0.28, 0.30]
+
+[[block]]
+id = 133
+name = "gold_block"
+material = "metal"
+hardness = 5
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.81, 0.64, 0.26]
+
+[[block]]
+id = 134
+name = "rug_red"
+material = "organic"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.53, 0.14, 0.13]

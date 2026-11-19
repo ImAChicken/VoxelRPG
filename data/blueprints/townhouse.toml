@@ -1,0 +1,302 @@
+# Blueprint: a building made of build pieces (game/Blueprint.h).
+# Saved by the hammer's Copy tab; placed from its Blueprints tab and
+# by the village generator. Each part: its structure type, the low
+# corner of its box from the blueprint's low corner, its turn; a made
+# piece (wall, post, door) its own sizes and blocks (spec); chests
+# also keep items, or a loot table rolled when placed.
+#   front: the side the door faces, 0 north, 1 east, 2 south, 3 west
+
+name = "townhouse"
+display = "Townhouse"
+tags = ["house", "home", "village"]
+size = [48, 94, 39]
+front = 2
+
+[[palette]]   # 0
+spec = ""
+
+[[palette]]   # 1
+spec = "beam=timber_beam;door=planks"
+
+[[palette]]   # 2
+spec = "out=plain;in=plain;base=stone_bricks;beam=timber_beam;fill=planks;glass=none;inlay=bricks;paint=plaster;panel=wainscot;post=timber_post"
+
+[[palette]]   # 3
+spec = "floor=planks"
+
+[[palette]]   # 4
+spec = "roof=roof_tiles"
+
+[[palette]]   # 5
+spec = "fill=planks"
+
+[[part]]
+type = "stone_foundation"
+at = [0, 0, 0]
+rot = 0
+spec = "w=48;d=36"
+palette = 0
+
+[[part]]
+type = "crate"
+at = [25, 12, 30]
+rot = 0
+
+[[part]]
+type = "barrel"
+at = [36, 12, 30]
+rot = 0
+
+[[part]]
+type = "barrel"
+at = [41, 12, 30]
+rot = 0
+
+[[part]]
+type = "oak_stool"
+at = [2, 12, 23]
+rot = 0
+
+[[part]]
+type = "oak_chair"
+at = [13, 12, 15]
+rot = 2
+
+[[part]]
+type = "oak_chair"
+at = [8, 12, 15]
+rot = 2
+
+[[part]]
+type = "hearth"
+at = [31, 12, 17]
+rot = 0
+
+[[part]]
+type = "plank_stairs"
+at = [3, 12, 3]
+rot = 1
+
+[[part]]
+type = "plank_doorway_8"
+at = [0, 12, 34]
+rot = 0
+palette = 2
+
+[[part]]
+type = "plank_wall_8"
+at = [46, 12, 24]
+rot = 1
+spec = "w=12"
+palette = 2
+
+[[part]]
+type = "plank_window_8"
+at = [46, 12, 0]
+rot = 1
+palette = 2
+
+[[part]]
+type = "plank_wall_8"
+at = [0, 12, 24]
+rot = 1
+spec = "w=12"
+palette = 2
+
+[[part]]
+type = "plank_wall_8"
+at = [0, 12, 0]
+rot = 1
+palette = 2
+
+[[part]]
+type = "plank_window_8"
+at = [24, 12, 34]
+rot = 0
+palette = 2
+
+[[part]]
+type = "plank_window_8"
+at = [24, 12, 0]
+rot = 0
+palette = 2
+
+[[part]]
+type = "plank_wall_8"
+at = [0, 12, 0]
+rot = 0
+palette = 2
+
+[[part]]
+type = "table"
+at = [6, 12, 19]
+rot = 0
+
+[[part]]
+type = "plank_ledged_door"
+at = [7, 12, 34]
+rot = 0
+palette = 1
+
+[[part]]
+type = "table_candle"
+at = [12, 21, 23]
+rot = 0
+
+[[part]]
+type = "wall_lantern"
+at = [2, 25, 29]
+rot = 1
+
+[[part]]
+type = "wall_lantern"
+at = [2, 27, 36]
+rot = 2
+
+[[part]]
+type = "plank_floor_8"
+at = [30, 42, 0]
+rot = 0
+spec = "w=18;d=15"
+palette = 3
+
+[[part]]
+type = "plank_floor_8"
+at = [0, 42, 15]
+rot = 0
+spec = "w=48;d=21"
+palette = 3
+
+[[part]]
+type = "plank_floor_8"
+at = [0, 42, 0]
+rot = 0
+spec = "d=3"
+palette = 3
+
+[[part]]
+type = "plank_floor_8"
+at = [0, 42, 3]
+rot = 0
+spec = "w=3;d=12"
+palette = 3
+
+[[part]]
+type = "green_double_bed"
+at = [31, 44, 2]
+rot = 2
+
+[[part]]
+type = "plank_window_8"
+at = [24, 44, 0]
+rot = 0
+palette = 2
+
+[[part]]
+type = "plank_window_8"
+at = [46, 44, 0]
+rot = 1
+palette = 2
+
+[[part]]
+type = "rug"
+at = [18, 44, 26]
+rot = 0
+
+[[part]]
+type = "bookcase"
+at = [34, 44, 31]
+rot = 0
+
+[[part]]
+type = "wardrobe"
+at = [6, 44, 29]
+rot = 0
+
+[[part]]
+type = "nightstand"
+at = [26, 44, 16]
+rot = 0
+
+[[part]]
+type = "plank_window_8"
+at = [0, 44, 34]
+rot = 0
+palette = 2
+
+[[part]]
+type = "plank_wall_8"
+at = [24, 44, 34]
+rot = 0
+palette = 2
+
+[[part]]
+type = "plank_wall_8"
+at = [0, 44, 0]
+rot = 1
+palette = 2
+
+[[part]]
+type = "plank_wall_8"
+at = [0, 44, 24]
+rot = 1
+spec = "w=12"
+palette = 2
+
+[[part]]
+type = "plank_wall_8"
+at = [46, 44, 24]
+rot = 1
+spec = "w=12"
+palette = 2
+
+[[part]]
+type = "plank_wall_8"
+at = [0, 44, 0]
+rot = 0
+palette = 2
+
+[[part]]
+type = "wooden_chest"
+at = [14, 44, 18]
+rot = 0
+items = [["planks", 6], ["torch", 2]]
+label = "Clothes chest"
+
+[[part]]
+type = "wall_sconce"
+at = [29, 60, 31]
+rot = 0
+
+[[part]]
+type = "plank_floor_8"
+at = [0, 74, 0]
+rot = 0
+spec = "w=48;d=36"
+palette = 3
+
+[[part]]
+type = "tile_roof_8x6"
+at = [0, 76, 0]
+rot = 0
+spec = "w=48"
+palette = 4
+
+[[part]]
+type = "tile_roof_8x6"
+at = [0, 76, 18]
+rot = 2
+spec = "w=48"
+palette = 4
+
+[[part]]
+type = "plank_gable_12"
+at = [0, 76, 0]
+rot = 1
+palette = 5
+
+[[part]]
+type = "plank_gable_12"
+at = [46, 76, 0]
+rot = 1
+palette = 5

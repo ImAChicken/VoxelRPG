@@ -20,7 +20,63 @@ For a new Claude session picking this project up. Read this first, then ROADMAP.
 7. **The font has no `( ) ' +`:** reword UI text; draw a plus with rects.
 4. **Style:** keep answers direct and practical.
 
-## Current state (2026-11-19): read this, then ROADMAP.md "Recently done"
+## Current state (2026-11-19, latest): roaming spawns. Read this, then ROADMAP.md "Recently done"
+
+Still not pushed since 912284b; delivered as zips. Roaming enemy spawns (ROADMAP "Roaming enemy spawns"):
+- `sim/Roaming.h`: `gRoaming` (data/registry/roaming.toml: settings, groups), `Roaming` (in
+  `Simulation::roaming`, ticked after the spawners; `Simulation::roamers()` the players it's for).
+  Hooks GameSession sets in `attach()`: `biomeAt` (the generator's `column().eco`), `spotBlocked`
+  (water, built pieces from `syncSpawners`' `built` list, villagers / guards), `worldSpawn`.
+  A client (`attachRemote`) has it off and no hooks: the server spawns
+- `Npc::roamGroup` (saved as ` roam`), `roamAway`; `NpcManager::removeIf`
+- World setting: `WorldSaveManager::getRoamingSpawns` / `setRoamingSpawns` (`roaming=` in world.vxrp)
+- Console `roaming …` (game/Commands.h); server console in ServerMain.cpp
+- Biome names in the toml: lower case = one biome (`forest`), capitalised = its group (`Forest`
+  includes the swamps and marshes)
+Next: Eddie to tune it in game.
+
+## Earlier state (2026-11-19, latest): villagers
+
+Still not pushed since 912284b; delivered as zips. Villagers (ROADMAP "Villagers, steps 1 and 2"):
+- `game/Villagers.h`: `gVillagers` (data/registry/villagers.toml), `villagers::populate(plan, built, …)`
+  after `village::build`: homes from beds (`bedsIn`), workplaces (`workPlace`), haunts, the way from
+  each place to the square (`wayToSquare`: path → road → the square). Spots inside are checked with
+  the pathfinder (`firstReachable`), so a bed or work spot is one a body can walk to from the door
+- `npc/VillageLife.h`: `LifePlace` (door, out, in, spot, facing, lie/lieAt, toSquare), `VillageLife`
+  (job, title, bed, work, haunts, lateBy, square); saved after ` life` in npcs.dat
+- `npc/Routine.h`: the "routine" state (`Brain::startState` picks it for an NPC with a life):
+  schedule by hour, steps through doors (open, walk through, shut; retry a door someone stands in),
+  road waypoints, settle (lie down / stand at the spot)
+- `NpcWorld::hourOfDay`, `setDoor`; `Simulation::doorHook` (GameSession sets it) gets a body test
+  so doors never close on anyone. `Human::lying` → `AnimInput::lying` (spin -90: on its back)
+- `village::doorFacing` (inside = the side walled in), `layDoorstep` (in `build`, after the paths)
+- `Plan::pathOf` / `pathRoad`; `nav::BUMP` 4.5 (stairs); `Npc::walkTo` sets the speed before
+  steering (the stuck test scales with it)
+Next: Eddie to try villagers in game; then talking, guards (ROADMAP "Villagers next").
+
+## Earlier state (2026-11-19, later)
+
+Since the pushed commit 912284b (Hammer fixes), delivered as a zip: building polish for villages
+(ROADMAP "Village buildings, furnishings and villages, refined"). Key places:
+- `StructureRegistry`: models "floor" (sizable to 40 ft), "slope" (length sizable), "gable"
+  (fixed size); `slopeModel` / `gableModel`; `roleBlock(t, spec, role)`; `arch` / `glazing` on walls
+  (`wallModel` builds the hole as a mask); holes kept centred (resolve). `PieceSpec` roles roof, floor
+- `StructureManager::snapTo`: part `light_wall` (flush on a wall, front toward you) and
+  `light_hanging` (under a ceiling); `holeOf` stops at an arch's spring
+- `RoofRenderer::cornerOf`: the slab is drawn from the box's low corner (was the origin: wrong for
+  turned roofs)
+- `Palettes.h`: `BuildPalette::tags`; `village::paletteFor` (a building's tagged palette)
+- `Village.h`: lanes, church, paths (`Plan::paths`), `Decor` (well, lantern posts, placed after the
+  roads), `Plan::mainRoads`, `doorOf`, `plusXTurned`
+- main.cpp: the New World village waits for its ground (`villageAt`, `villageWait`)
+- slopes: `Blueprint::sitePrep` seats (`terrain::seat`), `floorOf`, `foundationHeight`; village
+  `lotLevel` picks each lot's base from the ground over its footprint; `Road::startLevel`; `layRoad`
+  uses `terrain::stripProfile` / `layStrip`
+- tests/blueprint_test.cpp: `Builder::at`, `facing`, `chestAt`; church, familyHome, townhouse;
+  `--write` remakes data/blueprints (9 files now)
+Next (Eddie): villager NPCs.
+
+## Earlier state (2026-11-19)
 
 Not pushed yet (all in the working tree, delivered as zips; Eddie builds on Windows before pushing):
 - **Sound, first pass** (`src/audio/`): miniaudio + our mixer, sounds placed in the world and muffled by the voxels between (by material, `data/audio/materials.toml`), procedural effects, a formant voice synth for NPC barks and the character creator's Voice tab. Eddie: "good for now"; weapon swings will need another approach later.

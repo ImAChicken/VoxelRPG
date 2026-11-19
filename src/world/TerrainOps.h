@@ -167,4 +167,127 @@ inline EditBatch paintDisc(const ChunkManager& w, int cx, int cz, float r, uint1
     return b;
 }
 
+// ── Seating a building on sloping ground ──────────────────
+// A building's footprint [lo, hi] (x/z) is not levelled flat:
+// ground above 'top' (its floor, the foundations' top) is cut down
+// to it, ground below 'bottom' (the foundations' underside) is
+// filled up to it, and anything between is left alone: the
+// foundations sink into it (uphill they are buried, downhill they
+// show). A ring 'feather' wide blends any cut or fill back into the
+// ground around.
+inline EditBatch seat(const ChunkManager& w, glm::ivec2 lo, glm::ivec2 hi, int bottom, int top,
+                      const FlattenOptions& o, EditSource src, const std::string& label = "seat a building") {
+    EditBatch b;
+    b.source = src;
+    b.label  = label;
+    b.undoable = src == EditSource::Dev || src == EditSource::Command;
+    if (lo.x > hi.x) std::swap(lo.x, hi.x);
+    if (lo.y > hi.y) std::swap(lo.y, hi.y);
+    if (top < bottom) std::swap(top, bottom);
+    const int f = std::max(0, o.feather);
+    const int from = top + o.clearAbove, depth = o.clearAbove + o.maxFill + (top - bottom) + 1;
+    const int W = hi.x - lo.x + 1, D = hi.y - lo.y + 1;
+    std::vector<int> inside((size_t)W * D);
+    for (int z = 0; z < D; z++) for (int x = 0; x < W; x++)
+        inside[(size_t)z * W + x] = groundLevel(w, lo.x + x, lo.y + z, from, depth);
+    for (int z = lo.y - f; z <= hi.y + f; z++)
+    for (int x = lo.x - f; x <= hi.x + f; x++) {
+        int cx = std::clamp(x, lo.x, hi.x), cz = std::clamp(z, lo.y, hi.y);
+        int oldIn = inside[(size_t)(cz - lo.y) * W + (cx - lo.x)];
+        int t = oldIn < 0 ? bottom : std::clamp(oldIn, bottom, top);
+        if (cx == x && cz == z) {                       // inside the footprint
+            if (t != oldIn) levelColumn(w, b, x, z, t, o);
+            continue;
+        }
+        if (t == oldIn) continue;                       // nothing cut or filled at the edge here
+        float d = std::sqrt(float((x - cx) * (x - cx) + (z - cz) * (z - cz)));
+        if (d > f) continue;
+        int old = groundLevel(w, x, z, from, depth);
+        if (old < 0) continue;
+        // only bring the ring toward the edge's new height, never past its own
+        float k = d / float(f + 1);
+        int target = (int)std::lround(t + (old - t) * k);
+        if ((t > oldIn && target > old) || (t < oldIn && target < old)) levelColumn(w, b, x, z, target, o);
+    }
+    return b;
+}
+
+// ── Strips: roads and paths ───────────────────────────────
+// A level for each step along a straight strip from a to b (along
+// x or z), from the ground under it: averaged across its width,
+// smoothed over 'window' steps either way, and its grade kept to
+// 'maxGrade' (rise per voxel along it) so a road climbs a hill in
+// an even slope instead of steps. startLevel / endLevel >= 0 pin
+// the ends (a path starts at a doorstep).
+inline std::vector<int> stripProfile(const ChunkManager& w, glm::ivec2 a, glm::ivec2 b, int width, int probe,
+                                     int window, float maxGrade, int startLevel = -1, int endLevel = -1) {
+    glm::ivec2 d = glm::sign(b - a);
+    if (d == glm::ivec2(0)) d = { 1, 0 };
+    glm::ivec2 n(-d.y, d.x);
+    int len = std::max(std::abs(b.x - a.x), std::abs(b.y - a.y)) + 1;
+    std::vector<float> g(len, -1.0f);
+    for (int i = 0; i < len; i++) {
+        float sum = 0; int cnt = 0;
+        for (int k = -width / 2; k <= width / 2; k++) {
+            glm::ivec2 c = a + d * i + n * k;
+            int h = groundLevel(w, c.x, c.y, probe, 192);
+            if (h >= 0) { sum += (float)h; cnt++; }
+        }
+        if (cnt) g[i] = sum / cnt;
+    }
+    // fill gaps from the neighbours
+    for (int i = 1; i < len; i++) if (g[i] < 0) g[i] = g[i - 1];
+    for (int i = len - 2; i >= 0; i--) if (g[i] < 0) g[i] = g[i + 1];
+    std::vector<float> lv(len);
+    for (int i = 0; i < len; i++) {
+        float sum = 0; int cnt = 0;
+        for (int k = -window; k <= window; k++) {
+            int j = std::clamp(i + k, 0, len - 1);
+            if (g[j] >= 0) { sum += g[j]; cnt++; }
+        }
+        lv[i] = cnt ? sum / cnt : -1.0f;
+    }
+    if (startLevel >= 0) lv[0] = (float)startLevel;
+    if (endLevel >= 0) lv[len - 1] = (float)endLevel;
+    // keep the grade: from each pinned end outward, then back
+    for (int i = 1; i < len; i++) lv[i] = std::clamp(lv[i], lv[i - 1] - maxGrade, lv[i - 1] + maxGrade);
+    if (endLevel >= 0) lv[len - 1] = (float)endLevel;
+    for (int i = len - 2; i >= 0; i--) lv[i] = std::clamp(lv[i], lv[i + 1] - maxGrade, lv[i + 1] + maxGrade);
+    if (startLevel >= 0) lv[0] = (float)startLevel;
+    std::vector<int> out(len);
+    for (int i = 0; i < len; i++) out[i] = lv[i] < 0 ? -1 : (int)std::lround(lv[i]);
+    return out;
+}
+
+// Lay a strip at those levels: 'width' wide, topped with
+// o.surface, and a 'feather' wide verge each side that slopes back
+// to the ground (no cliff beside a road cut into a hill, no bank
+// beside one built up over a dip)
+inline EditBatch layStrip(const ChunkManager& w, glm::ivec2 a, glm::ivec2 b, int width, const std::vector<int>& level,
+                          int feather, const FlattenOptions& o, EditSource src, const std::string& label = "road") {
+    EditBatch out;
+    out.source = src;
+    out.label  = label;
+    out.undoable = src == EditSource::Dev || src == EditSource::Command;
+    glm::ivec2 d = glm::sign(b - a);
+    if (d == glm::ivec2(0)) d = { 1, 0 };
+    glm::ivec2 n(-d.y, d.x);
+    const int half = width / 2;
+    FlattenOptions verge = o;
+    verge.surface = 0;                                  // the verge keeps its own top (grass)
+    for (int i = 0; i < (int)level.size(); i++) {
+        if (level[i] < 0) continue;
+        for (int k = -half - feather; k <= half + feather; k++) {
+            glm::ivec2 c = a + d * i + n * k;
+            int off = std::abs(k) - half;
+            if (off <= 0) { levelColumn(w, out, c.x, c.y, level[i], o); continue; }
+            int old = groundLevel(w, c.x, c.y, level[i] + o.clearAbove, o.clearAbove + o.maxFill + 1);
+            if (old < 0) continue;
+            int target = (int)std::lround(level[i] + (old - level[i]) * (off / float(feather + 1)));
+            if (target != old) levelColumn(w, out, c.x, c.y, target, verge);
+        }
+    }
+    return out;
+}
+
 } // namespace terrain

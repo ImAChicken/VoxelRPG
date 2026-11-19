@@ -35,6 +35,7 @@ struct AnimInput {
     bool  crouching = false;
     bool  sprinting = false;
     bool  flying    = false;
+    bool  lying     = false;           // lying on its back (asleep in bed): the standing pose tipped over
     bool  combat    = false;
     bool  frozen    = false;           // double-jump / air-dodge freeze
     enum class Move { None, Roll, Backstep, AirDodge } move = Move::None;
@@ -248,6 +249,19 @@ public:
         bool clipRoll = false;
         if (gAnimMap.useClips && gAnims.count() > 0) clipTargets(model, in, dt, speed, t, rootOff, clipRoll);
         if (clipRoll) spin = 0.0f;                       // the clip somersaults by itself
+        // Lying down: the body tipped onto its back about the hips,
+        // head toward where it faces from (Routine sets the feet)
+        // (about +x, model +z forward: -90 tips the head back, face up)
+        if (in.lying) {
+            spin = -90.0f; rootOff = glm::vec3(0.0f);
+            // laid out straight: arms at the sides, legs together
+            for (int b = 0; b < BONE_COUNT; b++) t[b] = glm::vec3(0.0f);
+            both(B_HIP_L, B_HIP_R, { 0, 0, 1 });
+            both(B_KNEE_L, B_KNEE_R, { 4, 0, 0 });
+            both(B_SHOULDER_L, B_SHOULDER_R, { 0, 0, 6 });
+            both(B_ELBOW_L, B_ELBOW_R, { -12, 0, 0 });
+            t[B_SPINE].x = 1.0f * std::sin(time * 0.9f);      // breathing, slowly
+        }
 
         // Carrying an axe: the fist turned so the head hangs
         // forward beside the leg, the arm a little out

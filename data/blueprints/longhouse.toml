@@ -1,25 +1,46 @@
 # Blueprint: a building made of build pieces (game/Blueprint.h).
 # Saved by the hammer's Copy tab; placed from its Blueprints tab and
 # by the village generator. Each part: its structure type, the low
-# corner of its box from the blueprint's low corner, its turn; chests
+# corner of its box from the blueprint's low corner, its turn; a made
+# piece (wall, post, door) its own sizes and blocks (spec); chests
 # also keep items, or a loot table rolled when placed.
 #   front: the side the door faces, 0 north, 1 east, 2 south, 3 west
 
 name = "longhouse"
 display = "Longhouse"
-tags = ["house", "village", "large"]
-size = [48, 56, 24]
+tags = ["hall", "village", "large"]
+size = [48, 56, 27]
 front = 2
+
+[[palette]]   # 0
+spec = ""
+
+[[palette]]   # 1
+spec = "out=plain;in=plain;base=stone_bricks;beam=timber_beam;fill=cobblestone;glass=none;inlay=bricks;paint=plaster;panel=wainscot;post=timber_post"
+
+[[palette]]   # 2
+spec = "beam=planks;door=planks"
+
+[[palette]]   # 3
+spec = "floor=planks"
+
+[[palette]]   # 4
+spec = "roof=roof_tiles"
+
+[[palette]]   # 5
+spec = "fill=cobblestone"
 
 [[part]]
 type = "stone_foundation"
 at = [0, 0, 0]
 rot = 0
+palette = 0
 
 [[part]]
 type = "stone_foundation"
 at = [24, 0, 0]
 rot = 0
+palette = 0
 
 [[part]]
 type = "hearth"
@@ -30,30 +51,35 @@ rot = 0
 type = "stone_wall_8"
 at = [0, 12, 0]
 rot = 0
+palette = 1
 
 [[part]]
 type = "stone_window_8"
 at = [24, 12, 0]
 rot = 0
+palette = 1
 
 [[part]]
 type = "stone_wall_8"
 at = [0, 12, 0]
 rot = 1
+palette = 1
 
 [[part]]
 type = "stone_window_8"
 at = [0, 12, 22]
 rot = 0
+palette = 1
 
 [[part]]
 type = "stone_doorway_8"
 at = [24, 12, 22]
 rot = 0
+palette = 1
 
 [[part]]
 type = "bench"
-at = [27, 12, 15]
+at = [27, 12, 2]
 rot = 0
 
 [[part]]
@@ -65,6 +91,7 @@ rot = 0
 type = "stone_wall_8"
 at = [46, 12, 0]
 rot = 1
+palette = 1
 
 [[part]]
 type = "wooden_chest"
@@ -76,43 +103,62 @@ loot = "village_house"
 type = "plank_door"
 at = [31, 12, 22]
 rot = 0
+palette = 2
+
+[[part]]
+type = "wall_lantern"
+at = [2, 27, 11]
+rot = 1
+
+[[part]]
+type = "wall_lantern"
+at = [26, 27, 24]
+rot = 2
 
 [[part]]
 type = "plank_floor_8"
 at = [0, 42, 0]
 rot = 0
+palette = 3
 
 [[part]]
 type = "plank_floor_8"
 at = [24, 42, 0]
 rot = 0
+palette = 3
 
 [[part]]
 type = "tile_roof_8x4"
 at = [24, 44, 12]
 rot = 2
+palette = 4
 
 [[part]]
 type = "tile_roof_8x4"
 at = [24, 44, 0]
 rot = 0
+palette = 4
 
 [[part]]
 type = "stone_gable_8"
 at = [0, 44, 0]
 rot = 1
+palette = 5
 
 [[part]]
 type = "tile_roof_8x4"
 at = [0, 44, 0]
 rot = 0
+palette = 4
 
 [[part]]
 type = "tile_roof_8x4"
 at = [0, 44, 12]
 rot = 2
+palette = 4
 
 [[part]]
 type = "stone_gable_8"
 at = [46, 44, 0]
 rot = 1
+palette = 5

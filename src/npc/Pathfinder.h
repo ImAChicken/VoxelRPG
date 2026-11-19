@@ -32,7 +32,7 @@ constexpr int   CELL      = 2;          // voxels per grid step
 constexpr float STEP_UP   = Human::STEP_UP;
 constexpr int   CLIMB     = 12;         // highest step a jump gets up (JUMP_HEIGHT 15 less a margin)
 constexpr int   DROP      = 14;         // highest drop it walks off
-constexpr float BUMP      = 2.0f;       // ledges this high inside the body's radius don't block a spot
+constexpr float BUMP      = 4.5f;       // ledges this high inside the body's radius don't block a spot (a stair's 16 in step; under STEP_UP: it steps up them)
 constexpr int   MAX_NODES = 2500;
 constexpr float MAX_RANGE = 160.0f;     // goals farther than this are steered at in a straight line
 

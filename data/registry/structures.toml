@@ -41,7 +41,7 @@
 # ── Parts (building, blueprints, villages) ────────────────
 # part:     what the piece is (foundation, wall, wall_door,
 #           wall_window, gable, floor, roof, pillar, beam, stairs,
-#           door, station, furniture, light). Its group is the part
+#           door, station, furniture, light, light_wall, light_hanging). Its group is the part
 #           up to the first '_' (wall_door → wall)
 # materials = { plank = "planks", stone = "cobblestone" }
 #           one entry, one type per material: {m} in the name (and
@@ -77,8 +77,10 @@ costs = false
 #   walls        10 ft tall (good headroom under a ceiling), 8 in
 #                thick, 2 / 4 / 8 ft wide; doorways 3 ft 4 in x 8 ft
 #   floors       8 in thick, sit on top of walls as ceilings / lofts
-#   roofs        45 degrees, 4 or 8 ft along the ridge, running 4 to
-#                10 ft from eave to ridge (half the house's width)
+#   roofs        45 degrees, any length along the ridge (sized in the
+#                menu; 8 ft as it comes), running 4 to 12 ft from eave
+#                to ridge (half the house's width: up to a 24 ft hall)
+#   floors       any whole feet to 40 x 40 ft (one piece covers a room)
 #
 # Foundations rest on the ground and hold others up. One within 4 ft
 # of another must line up with it on the 1 ft module (side by side,
@@ -567,6 +569,18 @@ size = [60, 30, 2]
 needs_support = true
 cost = { planks = 44 }
 
+[[structure]]
+name = "{m}_gable_24"
+display = "{M} Gable 24 ft"
+part = "gable"
+materials = { plank = "planks", stone = "cobblestone", plaster = "plaster" }
+kind = "build"
+menu = true
+shape = "gable"
+size = [72, 36, 2]
+needs_support = true
+cost = { planks = 44 }
+
 # Posts and beams
 [[structure]]
 name = "{m}_post"
@@ -702,6 +716,18 @@ size = [24, 30, 30]
 needs_support = true
 cost = { thatch = 40 }
 
+[[structure]]
+name = "{m}_roof_8x12"
+display = "{M} Roof 8 ft, 12 ft run"
+part = "roof"
+materials = { thatch = "thatch", tile = "roof_tiles", slate = "slate" }
+kind = "build"
+menu = true
+shape = "slope"
+size = [24, 36, 36]
+needs_support = true
+cost = { thatch = 40 }
+
 # Stairs: 4 ft wide, up one storey (10 ft and the floor above)
 [[structure]]
 name = "{m}_stairs"
@@ -715,6 +741,66 @@ size = [12, 32, 32]
 step = 4
 needs_support = true
 cost = { planks = 20 }
+
+# ── Arched and church openings (shape = "wall", arch = true) ──
+# arch = true rounds the opening's top into a half circle (a door in
+# an arched doorway fills it up to where the arch springs). glazing =
+# "mosaic": stained glass in diamonds of red, blue, amber and green
+# with a stone mullion and a transom at the arch; the palette's glass
+# leads the pattern. Plain finish: they take the palette's (a church
+# palette gives a stone plinth outside, whitewash in).
+[[structure]]
+name = "{m}_arched_window_8"
+display = "{M} Arched Window Wall"
+part = "wall_window"
+materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
+kind = "build"
+menu = true
+shape = "wall"
+opening = "window"
+arch = true
+glass = "leaded_glass"
+open_w = 10
+open_h = 15
+sill = 9
+size = [24, 30, 2]
+needs_support = true
+cost = { planks = 30 }
+
+[[structure]]
+name = "{m}_lancet_8"
+display = "{M} Stained Glass Wall"
+part = "wall_window"
+materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
+kind = "build"
+menu = true
+shape = "wall"
+opening = "window"
+arch = true
+glazing = "mosaic"
+glass = "stained_glass_blue"
+open_w = 10
+open_h = 27
+sill = 9
+size = [24, 30, 2]
+needs_support = true
+cost = { planks = 30 }
+
+[[structure]]
+name = "{m}_arched_doorway_8"
+display = "{M} Arched Doorway"
+part = "wall_door"
+materials = { plank = "planks", stone = "cobblestone", brick = "stone_bricks", plaster = "plaster" }
+kind = "build"
+menu = true
+shape = "wall"
+opening = "door"
+arch = true
+open_w = 12
+open_h = 30
+size = [24, 30, 2]
+needs_support = true
+cost = { planks = 24 }
 
 # ── Doors (E opens / closes) ──────────────────────────────
 # Placed by its hinge corner; opening swings the panel a quarter
@@ -891,7 +977,8 @@ name = "bed"
 display = "Bed"
 part = "furniture"
 kind = "build"
-menu = true
+tags = ["home", "bed"]
+menu = false             # kept for saves and blueprints: the {m}_bed ones replace it
 cost = { planks = 12 }
 legend = { p = "planks", w = "plaster", r = "petal_red" }
 layers = [
@@ -915,6 +1002,492 @@ layers = [
   { rows = [ "", ".l." ], repeat = 15 },
   [ "", ".lbb" ],
   [ "", "...n" ],
+]
+
+# ── Furnishings (tools/gen_furnishing_textures.py for the cloth,
+# books, iron and gilt) ─────────────────────────────────────
+# Unturned, a seat faces -z (its back at the far rows). T turns it.
+# Pews and chairs come in oak or dark wood ({m}).
+[[structure]]
+name = "{m}_pew"
+display = "{M} Pew"
+part = "furniture"
+kind = "build"
+menu = true
+materials = { oak = "planks", dark = "dark_planks" }
+tags = ["church"]
+cost = { planks = 12 }
+legend = { w = "$" }
+layers = [
+  { rows = [ "w......................w", "w......................w", "w......................w", "w......................w", "w......................w", "w......................w" ], repeat = 4 },
+  [ "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww" ],
+  { rows = [ "........................", "........................", "........................", "w......................w", "w......................w", "wwwwwwwwwwwwwwwwwwwwwwww" ], repeat = 2 },
+  { rows = [ "........................", "........................", "........................", "........................", "........................", "wwwwwwwwwwwwwwwwwwwwwwww" ], repeat = 4 },
+  [ "........................", "........................", "........................", "........................", "........................", "wwwwwwwwwwwwwwwwwwwwwwww" ],
+]
+
+[[structure]]
+name = "{m}_chair"
+display = "{M} Chair"
+part = "furniture"
+kind = "build"
+menu = true
+materials = { oak = "planks", dark = "dark_planks" }
+tags = ["home"]
+cost = { planks = 3 }
+legend = { w = "$" }
+layers = [
+  { rows = [ "w..w", "....", "....", "w..w" ], repeat = 4 },
+  [ "wwww", "wwww", "wwww", "wwww" ],
+  { rows = [ "....", "....", "....", "w..w" ], repeat = 4 },
+  { rows = [ "....", "....", "....", "wwww" ], repeat = 2 },
+]
+
+[[structure]]
+name = "{m}_stool"
+display = "{M} Stool"
+part = "furniture"
+kind = "build"
+menu = true
+materials = { oak = "planks", dark = "dark_planks" }
+tags = ["home"]
+cost = { planks = 2 }
+legend = { w = "$" }
+layers = [
+  { rows = [ "w.w", "...", "w.w" ], repeat = 3 },
+  [ "www", "www", "www" ],
+]
+
+[[structure]]
+name = "{m}_long_table"
+display = "{M} Long Table"
+part = "furniture"
+kind = "build"
+menu = true
+materials = { oak = "planks", dark = "dark_planks" }
+tags = ["home"]
+cost = { planks = 16 }
+legend = { w = "$" }
+layers = [
+  { rows = [ "........................", ".w....................w.", "........................", "........................", "........................", "........................", "........................", ".w....................w.", "........................" ], repeat = 8 },
+  [ "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww" ],
+]
+
+[[structure]]
+name = "{m}_bed"
+display = "{M} Bed"
+part = "furniture"
+kind = "build"
+menu = true
+materials = { red = "wool_red", blue = "wool_blue", green = "wool_green" }
+tags = ["home", "bed"]
+cost = { planks = 12 }
+legend = { f = "dark_planks", m = "wool_white", p = "wool_white", b = "$" }
+layers = [
+  { rows = [ "f.....f", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", "f.....f" ], repeat = 2 },
+  [ "fffffff", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fmmmmmf", "fffffff" ],
+  [ "fbbbbbf", "bbbbbbb", "bbbbbbb", "bbbbbbb", "bbbbbbb", "bbbbbbb", "bbbbbbb", "bbbbbbb", "bbbbbbb", "bbbbbbb", "bbbbbbb", "bbbbbbb", "bbbbbbb", "bbbbbbb", "bpppppb", "bpppppb", "bpppppb", "fffffff" ],
+  { rows = [ ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", "fffffff" ], repeat = 3 },
+  [ ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", ".......", "fffffff" ],
+]
+
+[[structure]]
+name = "{m}_double_bed"
+display = "{M} Double Bed"
+part = "furniture"
+kind = "build"
+menu = true
+materials = { red = "wool_red", blue = "wool_blue", green = "wool_green" }
+tags = ["home", "bed"]
+cost = { planks = 18 }
+legend = { f = "dark_planks", m = "wool_white", p = "wool_white", b = "$" }
+layers = [
+  { rows = [ "f...........f", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", "f...........f" ], repeat = 2 },
+  [ "fffffffffffff", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fmmmmmmmmmmmf", "fffffffffffff" ],
+  [ "fbbbbbbbbbbbf", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bbbbbbbbbbbbb", "bpppppppppppb", "bpppppppppppb", "bpppppppppppb", "fffffffffffff" ],
+  { rows = [ ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", "fffffffffffff" ], repeat = 3 },
+  [ ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", ".............", "fffffffffffff" ],
+]
+
+[[structure]]
+name = "nightstand"
+display = "Nightstand"
+part = "light"
+kind = "build"
+menu = true
+tags = ["home", "light"]
+cost = { planks = 4 }
+legend = { d = "dark_planks", p = "planks", g = "gold_block", c = "candle" }
+layers = [
+  { rows = [ "dddd", "dddd", "dddd", "dddd" ], repeat = 4 },
+  [ "pppp", "pppp", "pppp", "pppp" ],
+  [ "....", "..g.", "....", "...." ],
+  [ "....", "..c.", "....", "...." ],
+]
+
+[[structure]]
+name = "wardrobe"
+display = "Wardrobe"
+part = "furniture"
+kind = "build"
+menu = true
+tags = ["home"]
+cost = { planks = 14 }
+legend = { d = "dark_planks", p = "planks", g = "gold_block" }
+layers = [
+  [ "ddddddddd", "ddddddddd", "ddddddddd", "ddddddddd", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dppgdgppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "dpppdpppd", "d.......d", "d.......d", "d.......d", "ddddddddd" ],
+  [ "ddddddddd", "ddddddddd", "ddddddddd", "ddddddddd", "ddddddddd" ],
+]
+
+[[structure]]
+name = "bookcase"
+display = "Bookcase"
+part = "furniture"
+kind = "build"
+menu = true
+tags = ["home", "church"]
+cost = { planks = 10 }
+legend = { d = "dark_planks", b = "bookshelf" }
+layers = [
+  [ "ddddddddd", "ddddddddd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "ddddddddd", "ddddddddd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "ddddddddd", "ddddddddd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "dbbbbbbbd", "dbbbbbbbd", "ddddddddd" ],
+  [ "ddddddddd", "ddddddddd", "ddddddddd" ],
+]
+
+[[structure]]
+name = "barrel"
+display = "Barrel"
+part = "furniture"
+kind = "build"
+menu = true
+tags = ["home", "storage"]
+cost = { planks = 4 }
+legend = { d = "dark_planks", p = "planks", i = "iron_block" }
+layers = [
+  [ ".dd.", "dddd", "dddd", ".dd." ],
+  [ ".ii.", "iiii", "iiii", ".ii." ],
+  [ ".dd.", "dddd", "dddd", ".dd." ],
+  [ ".dd.", "dddd", "dddd", ".dd." ],
+  [ ".ii.", "iiii", "iiii", ".ii." ],
+  [ ".pp.", "pppp", "pppp", ".pp." ],
+]
+
+[[structure]]
+name = "crate"
+display = "Crate"
+part = "furniture"
+kind = "build"
+menu = true
+tags = ["home", "storage"]
+cost = { planks = 3 }
+legend = { d = "dark_planks", p = "planks" }
+layers = [
+  [ "dddd", "dppd", "dppd", "dddd" ],
+  [ "dppd", "pppp", "pppp", "dppd" ],
+  [ "dppd", "pppp", "pppp", "dppd" ],
+  [ "dddd", "dppd", "dppd", "dddd" ],
+]
+
+[[structure]]
+name = "rug"
+display = "Rug"
+part = "furniture"
+kind = "build"
+menu = true
+tags = ["home"]
+cost = { planks = 1 }
+legend = { r = "rug_red" }
+layers = [
+  [ "rrrrrrrrr", "rrrrrrrrr", "rrrrrrrrr", "rrrrrrrrr", "rrrrrrrrr", "rrrrrrrrr" ],
+]
+
+[[structure]]
+name = "large_rug"
+display = "Large Rug"
+part = "furniture"
+kind = "build"
+menu = true
+tags = ["home"]
+cost = { planks = 2 }
+legend = { r = "rug_red" }
+layers = [
+  [ "rrrrrrrrrrrrrrr", "rrrrrrrrrrrrrrr", "rrrrrrrrrrrrrrr", "rrrrrrrrrrrrrrr", "rrrrrrrrrrrrrrr", "rrrrrrrrrrrrrrr", "rrrrrrrrrrrrrrr", "rrrrrrrrrrrrrrr", "rrrrrrrrrrrrrrr" ],
+]
+
+[[structure]]
+name = "aisle_runner"
+display = "Aisle Runner"
+part = "furniture"
+kind = "build"
+menu = true
+tags = ["church"]
+cost = { planks = 2 }
+legend = { r = "rug_red" }
+layers = [
+  [ "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr", "rrrrrr" ],
+]
+
+[[structure]]
+name = "planter"
+display = "Flower Box"
+part = "furniture"
+kind = "build"
+menu = true
+tags = ["home", "decor"]
+cost = { planks = 2 }
+legend = { p = "dark_planks", s = "dirt", f = "poppy_flower", y = "buttercup_flower", w = "daisy_flower" }
+layers = [
+  [ "pppppp", "pppppp", "pppppp" ],
+  [ "pppppp", "pssssp", "pppppp" ],
+  [ "......", ".yfwf.", "......" ],
+]
+
+# A raised floor for an altar: a 16 x 5 ft platform, a step up at the front
+[[structure]]
+name = "chancel_dais"
+display = "Dais"
+part = "furniture"
+kind = "build"
+menu = true
+tags = ["church"]
+cost = { stone_bricks = 30 }
+legend = { s = "stone_bricks" }
+layers = [
+  { rows = [ "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss" ], repeat = 1 },
+  { rows = [ "", "", "", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss", "ssssssssssssssssssssssssssssssssssssssssssssssss" ], repeat = 2 },
+]
+
+[[structure]]
+name = "altar"
+display = "Altar"
+part = "light"
+kind = "build"
+menu = true
+tags = ["church", "light", "workspot"]
+cost = { stone_bricks = 20 }
+legend = { s = "stone_bricks", w = "wool_white", r = "wool_red", g = "gold_block", c = "candle" }
+layers = [
+  [ "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss" ],
+  [ "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss" ],
+  [ "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss" ],
+  [ "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss" ],
+  [ "wwwwwwwwwrrrrrrwwwwwwwww", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss" ],
+  [ "wwwwwwwwwrrrrrrwwwwwwwww", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss" ],
+  [ "wwwwwwwwwrrrrrrwwwwwwwww", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss" ],
+  [ "wwwwwwwwwrrrrrrwwwwwwwww", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss" ],
+  [ "wwwwwwwwwrrrrrrwwwwwwwww", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss", "ssssssssssssssssssssssss" ],
+  [ "wwwwwwwwwrrrrrrwwwwwwwww", "wwwwwwwwwrrrrrrwwwwwwwww", "wwwwwwwwwrrrrrrwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww", "wwwwwwwwwwwwwwwwwwwwwwww" ],
+  [ "........................", "........................", "........................", "........................", "...g................g...", "........................", "........................", "...........gg...........", "........................" ],
+  [ "........................", "........................", "........................", "........................", "...g................g...", "........................", "........................", "...........gg...........", "........................" ],
+  [ "........................", "........................", "........................", "........................", "...c................c...", "........................", "........................", "...........gg...........", "........................" ],
+  [ "........................", "........................", "........................", "........................", "........................", "........................", "........................", "...........gg...........", "........................" ],
+  [ "........................", "........................", "........................", "........................", "........................", "........................", "........................", "...........gg...........", "........................" ],
+  [ "........................", "........................", "........................", "........................", "........................", "........................", "........................", ".........gggggg.........", "........................" ],
+  [ "........................", "........................", "........................", "........................", "........................", "........................", "........................", "...........gg...........", "........................" ],
+  [ "........................", "........................", "........................", "........................", "........................", "........................", "........................", "...........gg...........", "........................" ],
+]
+
+[[structure]]
+name = "lectern"
+display = "Lectern"
+part = "furniture"
+kind = "build"
+menu = true
+tags = ["church"]
+cost = { planks = 4 }
+legend = { d = "dark_planks", w = "wool_white" }
+layers = [
+  [ "dddd", "dddd", "dddd", "dddd" ],
+  [ "....", ".dd.", ".dd.", "...." ],
+  [ "....", ".dd.", ".dd.", "...." ],
+  [ "....", ".dd.", ".dd.", "...." ],
+  [ "....", ".dd.", ".dd.", "...." ],
+  [ "....", ".dd.", ".dd.", "...." ],
+  [ "....", ".dd.", ".dd.", "...." ],
+  [ "....", ".dd.", ".dd.", "...." ],
+  [ "....", ".dd.", ".dd.", "...." ],
+  [ "dddd", "dddd", "dddd", "dddd" ],
+  [ "....", ".ww.", "dddd", "dddd" ],
+  [ "....", "....", "....", "dddd" ],
+]
+
+[[structure]]
+name = "candle_stand"
+display = "Candle Stand"
+part = "light"
+kind = "build"
+menu = true
+tags = ["church", "light"]
+cost = { planks = 2 }
+legend = { i = "iron_block", g = "gold_block", c = "candle" }
+layers = [
+  [ "iii", "iii", "iii" ],
+  [ "...", ".i.", "..." ],
+  [ "...", ".i.", "..." ],
+  [ "...", ".i.", "..." ],
+  [ "...", ".i.", "..." ],
+  [ "...", ".i.", "..." ],
+  [ "...", ".i.", "..." ],
+  [ "...", ".i.", "..." ],
+  [ "...", ".i.", "..." ],
+  [ "...", ".i.", "..." ],
+  [ "...", ".i.", "..." ],
+  [ "ggg", "ggg", "ggg" ],
+  [ "...", ".c.", "..." ],
+]
+
+[[structure]]
+name = "table_candle"
+display = "Candle"
+part = "light"
+kind = "build"
+menu = true
+tags = ["home", "light"]
+cost = { planks = 1 }
+legend = { g = "gold_block", c = "candle" }
+layers = [
+  [ "g" ],
+  [ "c" ],
+]
+
+[[structure]]
+name = "well"
+display = "Well"
+part = "furniture"
+kind = "build"
+menu = true
+tags = ["village", "well"]
+cost = { cobblestone = 30 }
+legend = { c = "cobblestone", w = "water", l = "log_y", b = "log_x", t = "thatch", i = "iron_block" }
+layers = [
+  [ "cccccccccccc", "cccccccccccc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "cccccccccccc", "cccccccccccc" ],
+  [ "cccccccccccc", "cccccccccccc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "cccccccccccc", "cccccccccccc" ],
+  [ "cccccccccccc", "cccccccccccc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "ccwwwwwwwwcc", "cccccccccccc", "cccccccccccc" ],
+  [ "cccccccccccc", "cccccccccccc", "cc........cc", "cc........cc", "cc........cc", "cc........cc", "cc........cc", "cc........cc", "cc........cc", "cc........cc", "cccccccccccc", "cccccccccccc" ],
+  [ "cccccccccccc", "cccccccccccc", "cc........cc", "cc........cc", "cc........cc", "cc........cc", "cc........cc", "cc........cc", "cc........cc", "cc........cc", "cccccccccccc", "cccccccccccc" ],
+  [ "............", "............", "............", "............", "............", "l..........l", "l..........l", "............", "............", "............", "............", "............" ],
+  [ "............", "............", "............", "............", "............", "l..........l", "l..........l", "............", "............", "............", "............", "............" ],
+  [ "............", "............", "............", "............", "............", "l..........l", "l..........l", "............", "............", "............", "............", "............" ],
+  [ "............", "............", "............", "............", "............", "l..........l", "l..........l", "............", "............", "............", "............", "............" ],
+  [ "............", "............", "............", "............", "............", "l..........l", "l..........l", "............", "............", "............", "............", "............" ],
+  [ "............", "............", "............", "............", "............", "l....ii....l", "l....ii....l", "............", "............", "............", "............", "............" ],
+  [ "............", "............", "............", "............", "............", "l....ii....l", "l....ii....l", "............", "............", "............", "............", "............" ],
+  [ "............", "............", "............", "............", "............", "l..........l", "l..........l", "............", "............", "............", "............", "............" ],
+  [ "............", "............", "............", "............", "............", "l..........l", "l..........l", "............", "............", "............", "............", "............" ],
+  [ "............", "............", "............", "............", "............", "bbbbbbbbbbbb", "bbbbbbbbbbbb", "............", "............", "............", "............", "............" ],
+  [ "............", "............", "............", "............", "tttttttttttt", "tttttttttttt", "tttttttttttt", "tttttttttttt", "............", "............", "............", "............" ],
+  [ "............", "............", "............", "............", "............", "tttttttttttt", "tttttttttttt", "............", "............", "............", "............", "............" ],
+]
+
+[[structure]]
+name = "fence_8"
+display = "Fence"
+part = "fence"
+kind = "build"
+menu = true
+tags = ["village", "fence"]
+cost = { planks = 4 }
+legend = { l = "log_y", r = "log_x" }
+layers = [
+  [ "l..........l...........l" ],
+  [ "l..........l...........l" ],
+  [ "lrrrrrrrrrrlrrrrrrrrrrrl" ],
+  [ "l..........l...........l" ],
+  [ "lrrrrrrrrrrlrrrrrrrrrrrl" ],
+  [ "l..........l...........l" ],
+]
+
+# ── Lights on walls and ceilings ──────────────────────────
+# part "light_wall": aimed at a wall's side, the hammer sets it flush
+# against it with its light out toward you. part "light_hanging":
+# aimed at a ceiling's underside, it hangs from it.
+[[structure]]
+name = "wall_sconce"
+display = "Wall Sconce"
+part = "light_wall"
+kind = "build"
+menu = true
+tags = ["home", "church", "light"]
+cost = { planks = 1 }
+legend = { i = "iron_block", g = "gold_block", c = "candle" }
+layers = [
+  [ "...", "...", ".i." ],
+  [ "...", ".i.", ".i." ],
+  [ ".g.", "...", ".i." ],
+  [ ".c.", "...", ".i." ],
+  [ "...", "...", ".i." ],
+]
+
+[[structure]]
+name = "wall_lantern"
+display = "Wall Lantern"
+part = "light_wall"
+kind = "build"
+menu = true
+tags = ["home", "village", "light"]
+cost = { planks = 2 }
+legend = { i = "iron_block", n = "lantern" }
+layers = [
+  [ "...", "...", ".i." ],
+  [ "...", "...", ".i." ],
+  [ ".i.", "...", ".i." ],
+  [ ".n.", "...", ".i." ],
+  [ ".i.", "...", ".i." ],
+  [ ".i.", ".i.", ".i." ],
+]
+
+[[structure]]
+name = "chandelier"
+display = "Chandelier"
+part = "light_hanging"
+kind = "build"
+menu = true
+tags = ["church", "home", "light"]
+cost = { planks = 4 }
+legend = { i = "iron_block", g = "gold_block", c = "candle" }
+layers = [
+  [ ".........", ".........", ".........", ".........", "....g....", ".........", ".........", ".........", "........." ],
+  [ ".........", ".........", ".........", ".........", "....i....", ".........", ".........", ".........", "........." ],
+  [ "....g....", "....i....", "....i....", "....i....", "giiiiiiig", "....i....", "....i....", "....i....", "....g...." ],
+  [ "....c....", ".........", ".........", ".........", "c...i...c", ".........", ".........", ".........", "....c...." ],
+  [ ".........", ".........", ".........", ".........", "....i....", ".........", ".........", ".........", "........." ],
+  [ ".........", ".........", ".........", ".........", "....i....", ".........", ".........", ".........", "........." ],
+  [ ".........", ".........", ".........", ".........", "....i....", ".........", ".........", ".........", "........." ],
+  [ ".........", ".........", ".........", ".........", "....i....", ".........", ".........", ".........", "........." ],
 ]
 
 # ── Old pieces: kept so saved worlds load; not in the build menu ──

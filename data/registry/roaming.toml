@@ -1,0 +1,93 @@
+# ══════════════════════════════════════════════════════════
+# Roaming spawns (sim/Roaming.h)
+# ══════════════════════════════════════════════════════════
+# Groups of enemies that turn up out in the world around each
+# player, out of sight, and go again once everyone is far away.
+# A world setting: console `roaming on|off` (saved in world.vxrp).
+# Tune here, then `roaming reload` in game; `roaming` shows what it
+# is doing and why nothing came, `roaming now` tries one at once.
+# Distances in voxels (3 = 1 ft), times in seconds of play.
+
+[settings]
+check_every      = 6.0     # how often each player gets a try
+chance           = 0.45    # chance a try brings a group (once off cooldown)
+cooldown         = [60, 120]   # s after a group appears near a player before the next (day)
+cooldown_night   = [35, 75]    # … at night
+max_near         = 6       # no new group while this many roaming NPCs are near the player (day)
+max_near_night   = 9       # … at night
+count_radius     = 180     # "near", for max_near
+min_distance     = 70      # a group appears at least this far from every player
+max_distance     = 120     # … and no farther than this from the one it's for
+ahead            = 0.6     # chance it's put ahead of where the player is going (else anywhere round)
+open_sky         = 48      # the spot needs no roof this high over it (no spawns in houses or caves)
+safe_radius      = 64      # none this near anything built (villages, camps, the player's own buildings) or a villager
+spawn_safe       = 160     # none this near the world's spawn point
+despawn_distance = 260     # a roaming NPC this far from every player …
+despawn_after    = 30      # … for this long goes
+night            = [20, 6] # hours that count as night
+
+# ── Groups ────────────────────────────────────────────────
+# biomes     where it may appear: biomes in lower case (forest,
+#            dense_forest, plains, swamp, roadside, …) or a whole
+#            group, capitalised (Plains, Forest, Mountain, Coast, Volcanic,
+#            Settlement, Water — the swamp and marsh are in Forest);
+#            "any" for everywhere. Water and
+#            settlements never get spawns, whatever is listed
+# npcs       npcs.toml types and their weights (each member is
+#            picked by weight)
+# size       [min, max] how many
+# weight     how often this group is picked, among the ones that fit
+# time       "any", "day" or "night"
+# from_spawn [min, max] distance from the world's spawn point it may
+#            appear at (0 = no limit): tougher groups farther out
+# spread     how far apart the members stand
+
+[[group]]
+id = "bandit_scouts"
+biomes = ["Plains", "forest", "dense_forest", "shrubland", "autumn_uplands", "road", "roadside", "foothills"]
+npcs = { bandit = 1 }
+size = [2, 3]
+weight = 4
+time = "any"
+
+[[group]]
+id = "bandit_warband"
+biomes = ["Plains", "forest", "dense_forest", "shrubland", "autumn_uplands", "road", "roadside", "foothills", "highland_moor"]
+npcs = { bandit = 3, swordsman = 1 }
+size = [3, 5]
+weight = 2
+time = "any"
+from_spawn = [500, 0]
+
+[[group]]
+id = "slimes"
+biomes = ["swamp", "marsh", "riparian", "swamp_beach", "marsh_beach", "forest", "dense_forest"]
+npcs = { slime = 1 }
+size = [2, 4]
+weight = 4
+time = "any"
+
+[[group]]
+id = "lone_slime"
+biomes = ["any"]
+npcs = { slime = 1 }
+size = [1, 2]
+weight = 1
+time = "day"
+
+[[group]]
+id = "restless_dead"
+biomes = ["any"]
+npcs = { undead = 1 }
+size = [2, 4]
+weight = 5
+time = "night"
+
+[[group]]
+id = "dead_horde"
+biomes = ["swamp", "marsh", "highland_moor", "ashlands", "dense_forest"]
+npcs = { undead = 1 }
+size = [4, 7]
+weight = 2
+time = "night"
+from_spawn = [400, 0]

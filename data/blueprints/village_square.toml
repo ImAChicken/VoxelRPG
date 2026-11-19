@@ -1,7 +1,8 @@
 # Blueprint: a building made of build pieces (game/Blueprint.h).
 # Saved by the hammer's Copy tab; placed from its Blueprints tab and
 # by the village generator. Each part: its structure type, the low
-# corner of its box from the blueprint's low corner, its turn; chests
+# corner of its box from the blueprint's low corner, its turn; a made
+# piece (wall, post, door) its own sizes and blocks (spec); chests
 # also keep items, or a loot table rolled when placed.
 #   front: the side the door faces, 0 north, 1 east, 2 south, 3 west
 
@@ -11,10 +12,14 @@ tags = ["plaza", "village"]
 size = [30, 29, 30]
 front = 2
 
+[[palette]]   # 0
+spec = ""
+
 [[part]]
 type = "slate_foundation_10"
 at = [0, 0, 0]
 rot = 0
+palette = 0
 
 [[part]]
 type = "lantern_post"

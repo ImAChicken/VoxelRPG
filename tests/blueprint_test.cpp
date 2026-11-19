@@ -12,6 +12,7 @@
 #include "TestWorld.h"
 #include "game/Blueprint.h"
 #include "game/Village.h"
+#include "game/Palettes.h"
 #include "world/StructureManager.h"
 #include "world/WorldEditor.h"
 #include <cstdio>
@@ -31,16 +32,40 @@ struct Builder {
     int placed = 0;
     std::string lastWhy;
 
+    // A piece's own sizes as the hammer's Pieces tab would set them
+    // ("h=48;ow=12"), kept to what works
+    static std::string specOf(uint16_t type, const std::string& spec) {
+        const StructureType* t = gStructures.get(type);
+        return t && !spec.empty() ? gStructures.normalize(*t, PieceSpec::parse(spec)) : std::string();
+    }
     StructureInstance* put(const std::string& name, glm::ivec3 aimed, glm::ivec3 normal = { 0, 1, 0 },
-                           glm::vec3 look = { 0, 0, 1 }, int rotPick = 0) {
+                           glm::vec3 look = { 0, 0, 1 }, int rotPick = 0, const std::string& spec0 = "") {
         uint16_t type = gStructures.find(name);
         if (!type) { lastWhy = "no type " + name; std::printf("    (no type %s)\n", name.c_str()); return nullptr; }
         glm::ivec3 spot; int rot;
-        if (!sm.snapTo(type, rotPick, aimed, normal, look, spot, rot)) { lastWhy = "nothing to snap to"; std::printf("    (%s: nothing to snap to)\n", name.c_str()); return nullptr; }
+        std::string spec = specOf(type, spec0);
+        if (!sm.snapTo(type, rotPick, aimed, normal, look, spot, rot, &spec)) { lastWhy = "nothing to snap to"; std::printf("    (%s: nothing to snap to)\n", name.c_str()); return nullptr; }
+        return finish(name, type, spot, rot, spec);
+    }
+    // Set down exactly here (low corner), turned rot: what the hammer
+    // does once a piece is locked and nudged with the arrow keys
+    StructureInstance* at(const std::string& name, glm::ivec3 lo, int rot = 0, const std::string& spec0 = "") {
+        uint16_t type = gStructures.find(name);
+        if (!type) { lastWhy = "no type " + name; std::printf("    (no type %s)\n", name.c_str()); return nullptr; }
+        std::string spec = specOf(type, spec0);
+        return finish(name, type, lo + gStructures.shape(type, spec, 0, rot & 3).anchor, rot & 3, spec);
+    }
+    // The turn that points a piece's front (its unturned -z side: a
+    // chair's seat, a wardrobe's doors) toward dir
+    static int facing(glm::ivec2 dir) {
+        for (int q = 0; q < 4; q++) if (StructureManager::outsideDir(q) == dir) return q;
+        return 0;
+    }
+    StructureInstance* finish(const std::string& name, uint16_t type, glm::ivec3 spot, int rot, const std::string& spec) {
         uint32_t sup = 0;
-        lastWhy = sm.checkPlace(type, spot, rot, true, &sup);
+        lastWhy = sm.checkPlace(type, spot, rot, true, &sup, spec);
         if (!lastWhy.empty()) {
-            const VoxelVolume& v = gStructures.get(type)->shape(0, rot);
+            const VoxelVolume& v = gStructures.shape(type, spec, 0, rot);
             glm::ivec3 o = spot - v.anchor;
             std::string who;
             for (int y = 0; y < v.size.y && who.empty(); y++) for (int z = 0; z < v.size.z && who.empty(); z++)
@@ -54,15 +79,16 @@ struct Builder {
                         o.x, o.y, o.z, v.size.x, v.size.y, v.size.z, rot, who.c_str());
             return nullptr;
         }
-        StructureInstance* s = sm.place(type, spot, rot, EditSource::Command, sup);
+        StructureInstance* s = sm.place(type, spot, rot, EditSource::Command, sup, spec);
         ed.flush();
         placed++;
         return s;
     }
-    StructureInstance* foundation(const std::string& name, glm::ivec3 at) {
+    StructureInstance* foundation(const std::string& name, glm::ivec3 at, const std::string& spec0 = "") {
         uint16_t type = gStructures.find(name);
-        if (!sm.checkPlace(type, at, 0, true).empty()) return nullptr;
-        StructureInstance* s = sm.place(type, at, 0, EditSource::Command, 0);
+        std::string spec = specOf(type, spec0);
+        if (!sm.checkPlace(type, at, 0, true, nullptr, spec).empty()) return nullptr;
+        StructureInstance* s = sm.place(type, at, 0, EditSource::Command, 0, spec);
         ed.flush();
         placed++;
         return s;
@@ -73,7 +99,8 @@ struct Builder {
     // A wall-like piece on one edge of a floor or foundation top:
     // side 0 north, 1 east, 2 south, 3 west; 'along' voxels from
     // the edge's low end
-    StructureInstance* edge(const std::string& name, const StructureInstance* base, int side, int along) {
+    StructureInstance* edge(const std::string& name, const StructureInstance* base, int side, int along,
+                            const std::string& spec = "") {
         Box b = box(base);
         glm::ivec3 a(0, b.hi.y, 0);
         switch (side) {
@@ -82,12 +109,13 @@ struct Builder {
         case 2: a.x = b.lo.x + along; a.z = b.hi.z - 1; break;
         default: a.x = b.lo.x + 1;    a.z = b.lo.z + along; break;
         }
-        return put(name, a);
+        return put(name, a, { 0, 1, 0 }, { 0, 0, 1 }, 0, spec);
     }
     // Something set down on a floor at (x, z) from its low corner
-    StructureInstance* on(const std::string& name, const StructureInstance* base, int x, int z, int rotPick = 0) {
+    StructureInstance* on(const std::string& name, const StructureInstance* base, int x, int z, int rotPick = 0,
+                          const std::string& spec = "") {
         Box b = box(base);
-        return put(name, { b.lo.x + x, b.hi.y, b.lo.z + z }, { 0, 1, 0 }, { 0, 0, 1 }, rotPick);
+        return put(name, { b.lo.x + x, b.hi.y, b.lo.z + z }, { 0, 1, 0 }, { 0, 0, 1 }, rotPick, spec);
     }
     // A door into a doorway (aimed at its frame, off the corners)
     StructureInstance* door(const std::string& name, const StructureInstance* doorway, int rotPick = 0) {
@@ -98,9 +126,9 @@ struct Builder {
     }
     // A ceiling on a wall's top (covers the room the wall is
     // the north/west side of)
-    StructureInstance* ceilingOn(const std::string& name, const StructureInstance* wall) {
+    StructureInstance* ceilingOn(const std::string& name, const StructureInstance* wall, const std::string& spec = "") {
         Box b = box(wall);
-        return put(name, { b.lo.x + 3, b.hi.y, b.lo.z + 1 });
+        return put(name, { b.lo.x + 3, b.hi.y, b.lo.z + 1 }, { 0, 1, 0 }, { 0, 0, 1 }, 0, spec);
     }
     // Another ceiling beside one, aimed at its side face
     StructureInstance* beside(const std::string& name, const StructureInstance* piece, glm::ivec3 dir) {
@@ -128,9 +156,19 @@ StructureInstance* loot(StructureInstance* c, ChestStore& chests, const std::str
     return c;
 }
 
+StructureInstance* fillChest(StructureInstance* c, ChestStore& chests, std::vector<std::pair<std::string, int>> items,
+                             const std::string& label);
 StructureInstance* chestWith(Builder& B, const StructureInstance* floor, int x, int z, ChestStore& chests,
                              std::vector<std::pair<std::string, int>> items, const std::string& label = "") {
-    StructureInstance* c = B.on("wooden_chest", floor, x, z);
+    return fillChest(B.on("wooden_chest", floor, x, z), chests, items, label);
+}
+// A chest set down exactly at lo, turned rot
+StructureInstance* chestAt(Builder& B, glm::ivec3 lo, int rot, ChestStore& chests,
+                           std::vector<std::pair<std::string, int>> items, const std::string& label = "") {
+    return fillChest(B.at("wooden_chest", lo, rot), chests, items, label);
+}
+StructureInstance* fillChest(StructureInstance* c, ChestStore& chests, std::vector<std::pair<std::string, int>> items,
+                             const std::string& label) {
     if (!c) return nullptr;
     const StructureType* t = gStructures.get(c->type);
     Container& box = chests.get(c->id, *t);
@@ -155,6 +193,8 @@ StructureInstance* smallCottage(Builder& B, ChestStore& chests, glm::ivec3 A) {
     StructureInstance* c = n ? B.ceilingOn("plank_floor_8", n) : nullptr;
     ok = ok && c && gableRoof(B, c, "thatch", true, true, "plank");
     ok = ok && B.on("bed", f, 6, 12) && chestWith(B, f, 16, 5, chests, { { "planks", 12 }, { "torch", 4 } }, "Linen chest");
+    ok = ok && B.put("wall_sconce", { A.x + 12, A.y + 32, A.z + 1 }, { 0, 0, 1 }) &&
+         B.put("wall_lantern", { A.x + 3, A.y + 30, A.z + 23 }, { 0, 0, 1 });
     return ok ? f : nullptr;
 }
 
@@ -173,8 +213,10 @@ StructureInstance* longhouse(Builder& B, ChestStore& chests, glm::ivec3 A) {
     StructureInstance* c1 = n1 ? B.ceilingOn("plank_floor_8", n1) : nullptr;
     StructureInstance* c2 = c1 ? B.beside("plank_floor_8", c1, { 1, 0, 0 }) : nullptr;
     ok = ok && c1 && c2 && gableRoof(B, c1, "tile", true, false, "stone") && gableRoof(B, c2, "tile", false, true, "stone");
-    ok = ok && B.on("hearth", f1, 12, 12) && B.on("table", f2, 9, 9) && B.on("bench", f2, 9, 16);
+    ok = ok && B.on("hearth", f1, 12, 12) && B.on("table", f2, 9, 9) && B.on("bench", f2, 9, 3);
     ok = ok && loot(B.on("wooden_chest", f2, 19, 9, 1), chests, "village_house");
+    ok = ok && B.put("wall_lantern", { A.x + 1, A.y + 30, A.z + 12 }, { 1, 0, 0 }) &&
+         B.put("wall_lantern", { A.x + 27, A.y + 30, A.z + 23 }, { 0, 0, 1 });
     return ok ? f1 : nullptr;
 }
 
@@ -193,8 +235,9 @@ StructureInstance* smithy(Builder& B, ChestStore& chests, glm::ivec3 A) {
     StructureInstance* c2 = c ? B.beside("plank_floor_8", c, { 0, 0, 1 }) : nullptr;
     ok = ok && c && c2 && B.on("slate_roof_8x8", c, 12, 1) && B.on("slate_roof_8x8", c2, 12, 22);
     ok = ok && B.edge("stone_gable_16", c, 3, 12) && B.edge("stone_gable_16", c, 1, 12);
-    ok = ok && B.on("forge", front, 7, 10) && B.on("anvil", front, 17, 12) && B.on("workbench", back, 11, 16);
-    StructureInstance* ch = B.on("wooden_chest", back, 17, 6);
+    // (the back room's door swings in: the workbench and chest stand clear of it)
+    ok = ok && B.on("forge", front, 7, 16) && B.on("anvil", front, 17, 16) && B.on("workbench", back, 12, 5);
+    StructureInstance* ch = B.on("wooden_chest", back, 5, 14, 1);
     if (ch) chests.get(ch->id, *gStructures.get(ch->type)).reset("village_smithy", 1);
     return ok && ch ? back : nullptr;
 }
@@ -245,6 +288,152 @@ StructureInstance* hut(Builder& B, ChestStore&, glm::ivec3 A) {
     StructureInstance* s3 = s2 ? B.beside("plank_floor_2", s2, { 1, 0, 0 }) : nullptr;
     ok = ok && c && e1 && e2 && s1 && s2 && s3;
     ok = ok && B.on("workbench", f, 8, 9, 1);
+    return ok ? f : nullptr;
+}
+
+
+// ── Church and homes (furnished) ──────────────────────────
+// Built with plain walls (or the arched and stained glass ones): the
+// palette a village gives them (Chapel Stone for the church) sets
+// every finish and block.
+
+// A church, 24 x 40 ft on fifteen 8 ft foundations: 16 ft walls,
+// stained glass down both sides and a tall window behind the altar,
+// an arched door, one ceiling and a slate roof over a 24 ft span.
+// Inside: a dais with the altar, candles and a lectern, two rows of
+// pews either side of a red runner
+StructureInstance* church(Builder& B, ChestStore&, glm::ivec3 A) {
+    StructureInstance* F[5][3] = {};
+    for (int r = 0; r < 5; r++)
+        for (int c = 0; c < 3; c++)
+            if (!(F[r][c] = B.foundation("stone_foundation", A + glm::ivec3(24 * c, 0, 24 * r)))) return nullptr;
+    const std::string H = "h=48", LANCET = "h=48;ow=10;oh=33;sill=9";
+    StructureInstance* nw = B.edge("stone_wall_8", F[0][0], 0, 12, H);
+    bool ok = nw && B.edge("stone_lancet_8", F[0][1], 0, 12, "h=48;ow=12;oh=36;sill=6") &&
+              B.edge("stone_wall_8", F[0][2], 0, 12, H);
+    for (int r = 0; r < 5; r++) {                       // stained glass in four bays, plain by the door
+        const char* piece = r < 4 ? "stone_lancet_8" : "stone_wall_8";
+        ok = ok && B.edge(piece, F[r][0], 3, 12, r < 4 ? LANCET : H) && B.edge(piece, F[r][2], 1, 12, r < 4 ? LANCET : H);
+    }
+    StructureInstance* dw = B.edge("stone_arched_doorway_8", F[4][1], 2, 12, "h=48;ow=16;oh=36");
+    ok = ok && dw && B.edge("stone_wall_8", F[4][0], 2, 12, H) && B.edge("stone_wall_8", F[4][2], 2, 12, H);
+    ok = ok && B.door("dark_ledged_door", dw);
+    StructureInstance* c = nw ? B.ceilingOn("plank_floor_8", nw, "w=72;d=120") : nullptr;
+    ok = ok && c && B.on("slate_roof_8x12", c, 2, 60, 0, "w=120") && B.on("slate_roof_8x12", c, 69, 60, 0, "w=120");
+    ok = ok && B.edge("stone_gable_24", c, 0, 36) && B.edge("stone_gable_24", c, 2, 36);
+    if (!ok) return nullptr;
+    // the chancel: a dais, the altar facing the pews, candles, a lectern
+    StructureInstance* dais = B.on("chancel_dais", F[0][1], 12, 9);
+    ok = dais && B.on("altar", dais, 24, 11, B.facing({ 0, 1 })) && B.on("candle_stand", dais, 4, 7) &&
+         B.on("candle_stand", dais, 44, 7) && B.on("lectern", dais, 6, 12, B.facing({ 0, 1 }));
+    // pews either side of the aisle, facing the altar; the runner up the middle
+    const glm::ivec3 floor = A + glm::ivec3(0, 12, 0);
+    for (int k = 0; k < 8 && ok; k++)
+        ok = B.at("oak_pew", floor + glm::ivec3(3, 0, 26 + 9 * k)) && B.at("oak_pew", floor + glm::ivec3(45, 0, 26 + 9 * k));
+    // (clear of the door's swing: the last 6 yards inside it stay bare)
+    for (int k = 0; k < 2 && ok; k++) ok = B.at("aisle_runner", floor + glm::ivec3(33, 0, 20 + 30 * k));
+    ok = ok && B.at("candle_stand", floor + glm::ivec3(28, 0, 96)) && B.at("candle_stand", floor + glm::ivec3(41, 0, 96));
+    // chandeliers down the nave, sconces by the door
+    const int under = c->origin.y - 1;
+    for (int k = 0; k < 3 && ok; k++) ok = B.put("chandelier", { A.x + 36, under + 1, A.z + 30 + 30 * k }, { 0, -1, 0 }) != nullptr;
+    ok = ok && B.put("wall_sconce", { A.x + 1, A.y + 30, A.z + 108 }, { 1, 0, 0 }) &&
+         B.put("wall_sconce", { A.x + 70, A.y + 30, A.z + 108 }, { -1, 0, 0 });
+    return ok ? F[0][0] : nullptr;
+}
+
+// A family home, 16 x 16 ft: four foundations, a door and windows on
+// every side, one ceiling, a thatch roof with gable ends. Bedroom at
+// the back (a double bed, a child's bed, nightstand, bookcase,
+// wardrobe, a chest), the hearth, table and chairs at the front
+StructureInstance* familyHome(Builder& B, ChestStore& chests, glm::ivec3 A) {
+    StructureInstance* F[2][2] = {};
+    for (int r = 0; r < 2; r++)
+        for (int c = 0; c < 2; c++)
+            if (!(F[r][c] = B.foundation("stone_foundation", A + glm::ivec3(24 * c, 0, 24 * r)))) return nullptr;
+    StructureInstance* n = B.edge("plank_wall_8", F[0][0], 0, 12);
+    bool ok = n && B.edge("plank_window_8", F[0][1], 0, 12) && B.edge("plank_window_8", F[0][0], 3, 12) &&
+              B.edge("plank_wall_8", F[1][0], 3, 12) && B.edge("plank_wall_8", F[0][1], 1, 12) &&
+              B.edge("plank_window_8", F[1][1], 1, 12) && B.edge("plank_window_8", F[1][1], 2, 12);
+    StructureInstance* dw = B.edge("plank_doorway_8", F[1][0], 2, 12);
+    ok = ok && dw && B.door("plank_ledged_door", dw);
+    StructureInstance* c = n ? B.ceilingOn("plank_floor_8", n, "w=48;d=48") : nullptr;
+    ok = ok && c && B.on("thatch_roof_8x8", c, 24, 1, 0, "w=48") && B.on("thatch_roof_8x8", c, 24, 46, 0, "w=48");
+    ok = ok && B.edge("plank_gable_16", c, 3, 24) && B.edge("plank_gable_16", c, 1, 24);
+    if (!ok) return nullptr;
+    const glm::ivec3 fl = A + glm::ivec3(0, 12, 0);
+    const int south = B.facing({ 0, 1 }), north = B.facing({ 0, -1 }), west = B.facing({ -1, 0 });
+    // the bedroom
+    ok = B.at("red_double_bed", fl + glm::ivec3(3, 0, 2), 2) && B.at("nightstand", fl + glm::ivec3(16, 0, 2)) &&
+         B.at("bookcase", fl + glm::ivec3(20, 0, 2), south) && B.at("blue_bed", fl + glm::ivec3(37, 0, 2), 2) &&
+         B.at("wardrobe", fl + glm::ivec3(41, 0, 21), west);
+    ok = ok && chestAt(B, fl + glm::ivec3(5, 0, 20), 0, chests, { { "planks", 8 }, { "torch", 4 } }, "Linen chest");
+    ok = ok && B.at("large_rug", fl + glm::ivec3(18, 0, 20));
+    // the hearth, table and chairs
+    StructureInstance* table = B.at("table", fl + glm::ivec3(4, 0, 31));
+    ok = ok && table && B.at("hearth", fl + glm::ivec3(30, 0, 30)) &&
+         B.at("oak_chair", fl + glm::ivec3(6, 0, 27), south) && B.at("oak_chair", fl + glm::ivec3(12, 0, 27), south) &&
+         B.at("bench", fl + glm::ivec3(4, 0, 40)) && B.on("table_candle", table, 9, 4) &&
+         B.at("barrel", fl + glm::ivec3(25, 0, 42)) && B.at("crate", fl + glm::ivec3(20, 0, 42));
+    // lights on the walls: a lantern by the table, a sconce over the bed,
+    // a lantern outside by the door
+    ok = ok && B.put("wall_lantern", { A.x + 1, A.y + 30, A.z + 34 }, { 1, 0, 0 }) &&
+         B.put("wall_sconce", { A.x + 9, A.y + 34, A.z + 1 }, { 0, 0, 1 }) &&
+         B.put("wall_lantern", { A.x + 3, A.y + 30, A.z + 47 }, { 0, 0, 1 });
+    (void)north;
+    return ok ? F[0][0] : nullptr;
+}
+
+// A two-storey townhouse, 16 x 12 ft on one foundation: a kitchen
+// below (hearth, table, barrels), stairs along the back wall, a
+// bedroom above under a tile roof with gable ends
+StructureInstance* townhouse(Builder& B, ChestStore& chests, glm::ivec3 A) {
+    StructureInstance* f = B.foundation("stone_foundation", A, "w=48;d=36");
+    if (!f) return nullptr;
+    const std::string W4 = "w=12";
+    StructureInstance* n = B.edge("plank_wall_8", f, 0, 12);
+    bool ok = n && B.edge("plank_window_8", f, 0, 36) && B.edge("plank_window_8", f, 2, 36) &&
+              B.edge("plank_wall_8", f, 3, 12) && B.edge("plank_wall_8", f, 3, 30, W4) &&
+              B.edge("plank_window_8", f, 1, 12) && B.edge("plank_wall_8", f, 1, 30, W4);
+    StructureInstance* dw = B.edge("plank_doorway_8", f, 2, 12);
+    ok = ok && dw && B.door("plank_ledged_door", dw);
+    if (!ok) return nullptr;
+    // stairs up the back, rising west; the upper floor in four pieces
+    // round the stairwell
+    const glm::ivec3 g = A + glm::ivec3(0, 12, 0), up = A + glm::ivec3(0, 42, 0);
+    ok = B.at("plank_stairs", g + glm::ivec3(3, 0, 3), B.facing({ 1, 0 })) != nullptr;   // the low end east
+    StructureInstance* P1 = B.at("plank_floor_8", up + glm::ivec3(0, 0, 15), 0, "w=48;d=21");
+    // (the stairwell runs to x 30: a full body's headroom over every step)
+    ok = ok && P1 && B.at("plank_floor_8", up + glm::ivec3(30, 0, 0), 0, "w=18;d=15") &&
+         B.at("plank_floor_8", up + glm::ivec3(0, 0, 0), 0, "w=24;d=3") &&
+         B.at("plank_floor_8", up + glm::ivec3(0, 0, 3), 0, "w=3;d=12");
+    // the upper storey's walls, on the floor's edges
+    const glm::ivec3 u = up + glm::ivec3(0, 2, 0);
+    ok = ok && B.at("plank_wall_8", u) && B.at("plank_window_8", u + glm::ivec3(24, 0, 0)) &&
+         B.at("plank_window_8", u + glm::ivec3(0, 0, 34)) && B.at("plank_wall_8", u + glm::ivec3(24, 0, 34)) &&
+         B.at("plank_wall_8", u, 1) && B.at("plank_wall_8", u + glm::ivec3(0, 0, 24), 1, W4) &&
+         B.at("plank_window_8", u + glm::ivec3(46, 0, 0), 1) && B.at("plank_wall_8", u + glm::ivec3(46, 0, 24), 1, W4);
+    // the roof: a ceiling, two slopes over 12 ft, gable ends
+    StructureInstance* c = ok ? B.at("plank_floor_8", u + glm::ivec3(0, 30, 0), 0, "w=48;d=36") : nullptr;
+    ok = ok && c && B.on("tile_roof_8x6", c, 24, 1, 0, "w=48") && B.on("tile_roof_8x6", c, 24, 34, 0, "w=48") &&
+         B.edge("plank_gable_12", c, 3, 18) && B.edge("plank_gable_12", c, 1, 18);
+    if (!ok) return nullptr;
+    const int south = B.facing({ 0, 1 }), north = B.facing({ 0, -1 });
+    // the kitchen
+    // (the table stands clear of the front wall: room to walk past it)
+    StructureInstance* table = B.at("table", g + glm::ivec3(6, 0, 19));
+    ok = table && B.at("hearth", g + glm::ivec3(31, 0, 17)) && B.at("oak_chair", g + glm::ivec3(8, 0, 15), south) &&
+         B.at("oak_chair", g + glm::ivec3(13, 0, 15), south) && B.at("oak_stool", g + glm::ivec3(2, 0, 23)) &&
+         B.on("table_candle", table, 6, 4) && B.at("barrel", g + glm::ivec3(41, 0, 30)) &&
+         B.at("barrel", g + glm::ivec3(36, 0, 30)) && B.at("crate", g + glm::ivec3(25, 0, 30));
+    // the bedroom
+    ok = ok && B.at("green_double_bed", u + glm::ivec3(31, 0, 2), 2) && B.at("nightstand", u + glm::ivec3(26, 0, 16)) &&
+         B.at("wardrobe", u + glm::ivec3(6, 0, 29), north) && B.at("bookcase", u + glm::ivec3(34, 0, 31), north) &&
+         B.at("rug", u + glm::ivec3(18, 0, 26));
+    ok = ok && chestWith(B, P1, 18, 6, chests, { { "planks", 6 }, { "torch", 2 } }, "Clothes chest");
+    // a lantern in the kitchen, a sconce in the bedroom
+    ok = ok && B.put("wall_lantern", { A.x + 1, A.y + 28, A.z + 30 }, { 1, 0, 0 }) &&
+         B.put("wall_lantern", { A.x + 3, A.y + 30, A.z + 35 }, { 0, 0, 1 }) &&
+         B.put("wall_sconce", { A.x + 30, A.y + 62, A.z + 34 }, { 0, 0, -1 });
     return ok ? f : nullptr;
 }
 
@@ -302,11 +491,14 @@ int main(int argc, char** argv) {
 
     std::vector<Design> designs = {
         { "cottage_small", "Small Cottage", { "house", "village", "small" }, smallCottage },
-        { "longhouse",     "Longhouse",     { "house", "village", "large" }, longhouse },
+        { "longhouse",     "Longhouse",     { "hall", "village", "large" }, longhouse },
         { "smithy",        "Smithy",        { "smithy", "village", "work" }, smithy },
         { "storehouse",    "Storehouse",    { "storage", "village" },        storehouse },
         { "hut_workshop",  "Workshop Hut",  { "work", "village", "small" },  hut },
         { "village_square", "Village Square", { "plaza", "village" },        square },
+        { "church",        "Church",        { "church", "village", "large" }, church },
+        { "home_family",   "Family Home",   { "house", "home", "village", "large" }, familyHome },
+        { "townhouse",     "Townhouse",     { "house", "home", "village" }, townhouse },
     };
     std::string dir = write ? std::string(BlueprintLibrary::DIR)
                             : (std::filesystem::temp_directory_path() / "voxelrpg_blueprints").string();
@@ -325,12 +517,26 @@ int main(int argc, char** argv) {
         if (!f) continue;
         int built = 0;
         sm.forEachInstance([&](const StructureInstance&) { built++; });
+        // every door swings open and shut (nothing in its way: villagers use them)
+        {
+            std::vector<uint32_t> doors;
+            sm.forEachInstance([&](const StructureInstance& s) { if (sm.typeOf(s)->kind == StructureKind::Door) doors.push_back(s.id); });
+            std::string why;
+            for (uint32_t id : doors) {
+                StructureInstance* dr = sm.get(id);
+                std::string a2 = sm.toggleDoor(*dr, EditSource::Script, nullptr);
+                std::string b2 = a2.empty() ? sm.toggleDoor(*dr, EditSource::Script, nullptr) : a2;
+                if (!b2.empty() && why.empty()) why = b2;
+            }
+            ed.flush();
+            if (!doors.empty()) check(why.empty(), "  its doors swing" + (why.empty() ? std::string() : ": " + why));
+        }
 
         // VOXELRPG_DUMP=<folder>: each building's voxels as text
         // ("x y z block" lines) for a picture
         if (const char* dump = std::getenv("VOXELRPG_DUMP")) {
             std::ofstream out(std::string(dump) + "/" + d.name + ".txt");
-            for (int y = A.y - 2; y < A.y + 90; y++) for (int z = A.z - 4; z < A.z + 60; z++) for (int x = A.x - 4; x < A.x + 60; x++)
+            for (int y = A.y - 2; y < A.y + 110; y++) for (int z = A.z - 4; z < A.z + 130; z++) for (int x = A.x - 4; x < A.x + 80; x++)
                 if (uint16_t id = w.chunks.typeAtVoxel(x, y, z)) out << x - A.x << " " << y - A.y << " " << z - A.z << " " << id << "\n";
         }
         Blueprint bp;
@@ -343,6 +549,24 @@ int main(int argc, char** argv) {
         Blueprint back;
         check(back.load(dir + "/" + d.name + ".toml", why) && back.parts.size() == bp.parts.size() && back.size == bp.size,
               "  loads back the same");
+
+        // VOXELRPG_DUMP with a palette as a village would dress it
+        // (the church in Chapel Stone, the rest in VOXELRPG_PALETTE or Tudor)
+        if (const char* dump = std::getenv("VOXELRPG_DUMP")) {
+            gBuildPalettes.load();
+            const char* want = std::getenv("VOXELRPG_PALETTE");
+            const BuildPalette* pal = gBuildPalettes.find(d.name == std::string("church") ? "chapel_stone" : want ? want : "tudor");
+            World w3;
+            WorldEditor ed3(w3.chunks);
+            StructureManager sm3(w3.chunks, ed3, gen);
+            BlueprintStyle st;
+            if (pal) { st.palette = pal->spec; st.paletteName = pal->name; }
+            back.paste(sm3, ed3, nullptr, back.plan(A, 0, &st), EditSource::Command, &st);
+            ed3.flush();
+            std::ofstream out(std::string(dump) + "/" + d.name + "_styled.txt");
+            for (int y = A.y - 2; y < A.y + 110; y++) for (int z = A.z - 4; z < A.z + 130; z++) for (int x = A.x - 4; x < A.x + 80; x++)
+                if (uint16_t id = w3.chunks.typeAtVoxel(x, y, z)) out << x - A.x << " " << y - A.y << " " << z - A.z << " " << id << "\n";
+        }
 
         // Paste it turned every way, restyled, into fresh worlds
         for (int q = 0; q < 4; q++) {
@@ -425,6 +649,7 @@ int main(int argc, char** argv) {
             for (int y = 0; y < h; y++) hill.set(x, GROUND + y, z, BLOCK_DIRT);
         }
         ed.apply(std::move(hill));
+        gBuildPalettes.load(PaletteLibrary::REGISTRY, "/nonexistent");
         village::Options o;
         o.seed = 3; o.roads = 4;
         o.style.materials = { { "roof", "tile" } };
@@ -432,7 +657,15 @@ int main(int argc, char** argv) {
         const glm::ivec3 C(256, GROUND, 256);
         village::Plan p = village::plan(w.chunks, lib, C, o);
         check(!p.lots.empty() && p.lots[0].bp->hasTag("plaza"), "a square in the middle");
-        check(p.roads.size() == 4, "four roads out of it");
+        check(p.mainRoads == 4, "four roads out of it");
+        check((int)p.roads.size() > p.mainRoads, "lanes off them: " + std::to_string(p.roads.size() - p.mainRoads));
+        bool church = false;
+        for (const village::Lot& l : p.lots) church = church || l.bp->hasTag("church");
+        check(church, "a church");
+        check(!p.paths.empty(), "paths from doors to the roads: " + std::to_string(p.paths.size()));
+        int wells = 0, posts = 0;
+        for (const village::Decor& d : p.decor) { wells += d.type == "well"; posts += d.type == "lantern_post"; }
+        check(wells == 1 && posts >= 4, "a well and lantern posts: " + std::to_string(posts));
         check(p.lots.size() >= 8, "buildings along the roads: " + std::to_string(p.lots.size() - 1));
         bool facing = true;
         for (size_t i = 1; i < p.lots.size(); i++) {
@@ -450,6 +683,14 @@ int main(int argc, char** argv) {
         }
         check(facing, "every building faces a road");
         village::Built b = village::build(p, sm, ed, &chests, o, EditSource::Command);
+        check(b.decor + b.decorSkipped == (int)p.decor.size() && b.decor >= (int)p.decor.size() - 2,
+              "the well and posts set down: " + std::to_string(b.decor) + " of " + std::to_string(p.decor.size()));
+        int chapel = 0;
+        sm.forEachInstance([&](const StructureInstance& s) {
+            const StructureType* t = sm.typeOf(s);
+            if (t && t->part == "wall_window" && s.spec.find("limestone") != std::string::npos) chapel++;
+        });
+        check(chapel > 0, "the church in its own palette (Chapel Stone)");
         check(b.buildings == (int)p.lots.size() && b.failed == 0,
               "all built: " + std::to_string(b.buildings) + " buildings, " + std::to_string(b.pieces) + " pieces" +
               (b.failed ? ", " + std::to_string(b.failed) + " failed: " + b.why : std::string()));
@@ -467,6 +708,77 @@ int main(int argc, char** argv) {
                     bool hidden = y < GROUND + 12 && w.chunks.typeAtVoxel(x, y + 1, z) && w.chunks.typeAtVoxel(x + 1, y, z) &&
                                   w.chunks.typeAtVoxel(x, y, z + 1);
                     if (!hidden) out << x - 256 << " " << y - GROUND << " " << z - 256 << " " << id << "\n";
+                }
+        }
+    }
+
+    std::printf("on a slope\n");
+    {
+        // a house on a hillside: the foundations sink in uphill and show
+        // downhill; the ground between their underside and the floor isn't
+        // touched
+        World w;
+        WorldEditor ed(w.chunks);
+        TerrainGenerator gen(1);
+        StructureManager sm(w.chunks, ed, gen);
+        EditBatch hill;
+        for (int z = 80; z < 340; z++) for (int x = 80; x < 240; x++) {
+            int h = std::max(0, (x - 80) / 6);                 // rises 1 in 6 toward +x (8 over a house)
+            for (int y = 0; y < h; y++) hill.set(x, GROUND + y, z, BLOCK_DIRT);
+        }
+        ed.apply(std::move(hill));
+        const Blueprint* home = lib.find("cottage_small");
+        check(home != nullptr && home->foundationHeight() == 12, "a cottage's foundations are 4 ft (12)");
+        if (home) {
+            glm::ivec3 at(130, 0, 300);
+            int gmin = terrain::groundLevel(w.chunks, at.x, at.z + 12, GROUND + 60), gmax = terrain::groundLevel(w.chunks, at.x + 23, at.z + 12, GROUND + 60);
+            at.y = gmax - 12;                                   // the floor at the high side
+            auto plan = home->plan(at, 0);
+            check(Blueprint::floorOf(plan) == gmax, "  its floor is the top of its foundations");
+            std::string why;
+            auto made = home->paste(sm, ed, nullptr, plan, EditSource::Command, nullptr, &why);
+            check(made.size() == home->parts.size(), "  it all goes down" + (why.empty() ? std::string() : ": " + why));
+            int lowSide = terrain::groundLevel(w.chunks, at.x - 1, at.z + 12, GROUND + 60);
+            check(lowSide >= gmin - 1 && lowSide <= gmin + 1, "  the low side's ground isn't built up (" + std::to_string(lowSide - GROUND) + ")");
+            int highSide = terrain::groundLevel(w.chunks, at.x + 24, at.z + 12, GROUND + 60);
+            check(highSide >= gmax - 1 && highSide <= gmax + 2, "  nor the high side cut down");
+            check(sm.instanceAt({ at.x + 1, gmin + 1, at.z + 12 }) != nullptr, "  the foundation shows on the low side");
+        }
+        // a village over the hill: roads climb evenly, paths reach the doors
+        village::Options o;
+        o.seed = 5; o.roads = 2; o.lanes = 0; o.church = false;
+        village::Plan p = village::plan(w.chunks, lib, { 150, GROUND, 150 }, o);
+        village::Built b = village::build(p, sm, ed, nullptr, o, EditSource::Command);
+        check(b.buildings >= 2 && b.failed == 0, "a village on the slope: " + std::to_string(b.buildings) + " buildings" +
+              (b.failed ? ", " + std::to_string(b.failed) + " failed: " + b.why : std::string()));
+        int worst = 0;
+        for (int i = 0; i < p.mainRoads; i++) {
+            const village::Road& r = p.roads[(size_t)i];
+            glm::ivec2 d = glm::sign(r.b - r.a);
+            int len = std::max(std::abs(r.b.x - r.a.x), std::abs(r.b.y - r.a.y));
+            int prev = -1;
+            for (int k = 0; k <= len; k++) {
+                glm::ivec2 c = r.a + d * k;
+                int g = terrain::groundLevel(w.chunks, c.x, c.y, GROUND + 80);
+                if (prev >= 0) worst = std::max(worst, std::abs(g - prev));
+                prev = g;
+            }
+        }
+        check(worst <= 1, "the roads climb without steps (worst step " + std::to_string(worst) + ")");
+        int doorsteps = 0, reached = 0;
+        for (const village::Road& path : p.paths) {
+            doorsteps++;
+            int g = terrain::groundLevel(w.chunks, path.a.x, path.a.y, GROUND + 80);
+            reached += std::abs(g - path.startLevel) <= 1;
+        }
+        check(doorsteps > 0 && reached == doorsteps, "every path starts at its doorstep: " + std::to_string(reached) + " of " + std::to_string(doorsteps));
+        if (const char* dump = std::getenv("VOXELRPG_DUMP")) {
+            std::ofstream out(std::string(dump) + "/slope_village.txt");
+            for (int y = GROUND - 2; y < GROUND + 90; y++) for (int z = 40; z < 300; z++) for (int x = 60; x < 260; x++)
+                if (uint16_t id = w.chunks.typeAtVoxel(x, y, z)) {
+                    bool hidden = w.chunks.typeAtVoxel(x, y + 1, z) && w.chunks.typeAtVoxel(x + 1, y, z) && w.chunks.typeAtVoxel(x, y, z + 1) &&
+                                  w.chunks.typeAtVoxel(x - 1, y, z) && w.chunks.typeAtVoxel(x, y, z - 1);
+                    if (!hidden) out << x << " " << y - GROUND << " " << z << " " << id << "\n";
                 }
         }
     }

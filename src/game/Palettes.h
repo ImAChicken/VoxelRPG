@@ -32,6 +32,7 @@ struct BuildPalette {
     std::string name;                 // file name: a-z 0-9 _
     std::string display;
     PieceSpec   spec;                 // blocks (role → block) and outside / inside
+    std::vector<std::string> tags;    // "church": a village uses it for that kind of building
     bool curated = false;             // in palettes.toml
     bool edited  = false;             // a player's own file (a new one, or over a curated one)
 };
@@ -72,6 +73,7 @@ public:
                     BuildPalette p = read(toml::parse_file(f.string()), f.stem().string());
                     p.edited = true;
                     p.curated = stock.count(p.name) > 0;
+                    if (p.curated && p.tags.empty()) p.tags = stock[p.name].tags;   // an edit keeps what it's for
                     put(p);
                 } catch (const toml::parse_error& e) {
                     std::cerr << "palette " << f.string() << ": " << e.description() << "\n";
@@ -98,6 +100,7 @@ public:
     bool save(BuildPalette p) {
         p.edited = true;
         p.curated = stock.count(p.name) > 0;
+        if (p.curated && p.tags.empty()) p.tags = stock[p.name].tags;
         std::error_code ec;
         std::filesystem::create_directories(userDir, ec);
         std::ofstream f(userDir + "/" + p.name + ".toml");
@@ -149,6 +152,8 @@ private:
         p.name = t["name"].value_or(stem);
         p.display = t["display"].value_or(p.name);
         p.spec = readSpec(t);
+        if (auto* a = t["tags"].as_array())
+            for (auto& n : *a) if (auto v = n.value<std::string>()) p.tags.push_back(*v);
         return p;
     }
     void put(const BuildPalette& p) {

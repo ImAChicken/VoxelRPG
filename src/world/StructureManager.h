@@ -71,6 +71,10 @@ public:
         auto it = instances.find(id);
         return it == instances.end() ? nullptr : &it->second;
     }
+    StructureInstance* get(uint32_t id) {
+        auto it = instances.find(id);
+        return it == instances.end() ? nullptr : &it->second;
+    }
     const StructureType* typeOf(const StructureInstance& s) const {
         return gStructures.get(s.type);
     }
@@ -424,6 +428,26 @@ public:
             return place(r, lo);
         }
 
+        // A wall light (part "light_wall": a sconce, a lantern on a
+        // bracket): its back to the face aimed at, its front (unturned
+        // -z) out toward you, centred where aimed
+        if (t->part == "light_wall" && normal.y == 0) {
+            int r = 0;
+            for (int q = 0; q < 4; q++) if (outsideDir(q) == glm::ivec2(normal.x, normal.z)) r = q;
+            glm::ivec3 sz = sizeAt(r);
+            glm::ivec3 lo(aimed.x - sz.x / 2, aimed.y - sz.y / 2, aimed.z - sz.z / 2);
+            if (normal.x > 0) lo.x = ahi.x + 1; else if (normal.x < 0) lo.x = alo.x - sz.x;
+            if (normal.z > 0) lo.z = ahi.z + 1; else if (normal.z < 0) lo.z = alo.z - sz.z;
+            return place(r, lo);
+        }
+        // A hanging light (part "light_hanging": a chandelier) under a
+        // ceiling: its top against it, centred where aimed
+        if (t->part == "light_hanging" && normal.y < 0) {
+            int r = rotPick & 3;
+            glm::ivec3 sz = sizeAt(r);
+            return place(r, { aimed.x - sz.x / 2, alo.y - sz.y, aimed.z - sz.z / 2 });
+        }
+
         // Anything else: flush against the face aimed at, lined up
         // with the aimed piece's corner, stepping by this piece's size
         int r = rotPick & 3;
@@ -472,6 +496,16 @@ public:
                 hi = glm::max(hi, o + glm::ivec3(x, y, z));
                 any = true;
             }
+        // an arched doorway: the box stops where the arch springs (the
+        // highest row that's open all the way across), so a door fits
+        auto rowOpen = [&](int wy) {
+            for (int z = lo.z; z <= hi.z; z++) for (int x = lo.x; x <= hi.x; x++) {
+                glm::ivec3 q = glm::ivec3(x, wy, z) - o;
+                if (!v.inside(q.x, q.y, q.z) || v.at(q.x, q.y, q.z) != BLOCK_AIR) return false;
+            }
+            return true;
+        };
+        while (any && hi.y > lo.y && !rowOpen(hi.y)) hi.y--;
         return any;
     }
 

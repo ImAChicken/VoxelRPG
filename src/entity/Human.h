@@ -121,6 +121,7 @@ public:
     bool crouching = false;
     bool sprinting = false;
     bool flying    = false;
+    bool lying     = false;   // lying down (a villager asleep in bed): drawn on its back, not moved by physics
 
     // Air moves — each usable once, both refill on landing
     bool hasDoubleJump = true;

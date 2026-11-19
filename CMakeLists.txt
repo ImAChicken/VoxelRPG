@@ -167,7 +167,7 @@ endif()
 # ── Tests ─────────────────────────────────────────────────
 # Headless test programs (no window, no OpenGL). Off by default:
 #   cmake -B build -DVOXELRPG_TESTS=ON
-#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test piece_test glass_test parts_test blueprint_test slope_test steer_test controls_test slime_test spell_test server_test net_test sound_test
+#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test piece_test glass_test parts_test blueprint_test villager_test roaming_test slope_test steer_test controls_test slime_test spell_test server_test net_test sound_test
 #   build/bin/Release/ragdoll_test      (build/bin/ragdoll_test elsewhere)
 #   build/bin/Release/woodcut_test      (from the repo root: it reads data/)
 #   build/bin/Release/combat_test
@@ -203,6 +203,8 @@ if(VOXELRPG_TESTS)
     add_executable(glass_test tests/glass_test.cpp)
     add_executable(parts_test tests/parts_test.cpp)
     add_executable(blueprint_test tests/blueprint_test.cpp)
+    add_executable(villager_test tests/villager_test.cpp)
+    add_executable(roaming_test tests/roaming_test.cpp)
     add_executable(slope_test tests/slope_test.cpp)
     add_executable(steer_test tests/steer_test.cpp)
     add_executable(controls_test tests/controls_test.cpp)
@@ -217,7 +219,7 @@ if(VOXELRPG_TESTS)
     if(UNIX AND NOT APPLE)
         target_link_libraries(sound_test PRIVATE ${CMAKE_DL_LIBS} m)
     endif()
-    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test piece_test glass_test parts_test blueprint_test slope_test steer_test controls_test slime_test spell_test server_test net_test net_bot sound_test)
+    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test piece_test glass_test parts_test blueprint_test villager_test roaming_test slope_test steer_test controls_test slime_test spell_test server_test net_test net_bot sound_test)
         target_link_libraries(${t} PRIVATE voxelrpg_core)
         if(MSVC)
             target_compile_options(${t} PRIVATE /utf-8)

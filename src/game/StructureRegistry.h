@@ -60,10 +60,19 @@ struct StructureType {
     int           slopeThick = 2;  // voxels (render/RoofRenderer.h); its thickness
     bool          faced = false;   // a wall with an outside face (shape = "wall"): the
                                    // unturned piece's outside faces -z (outsideDir)
-    // A made piece (StructureRegistry::make): "wall", "pillar", "door"
-    // or "" (a fixed shape). Each placed copy may have its own sizes
-    // and blocks (game/PieceSpec.h); 'defaults' is the type's own
+    // A made piece (StructureRegistry::make): "wall", "pillar", "door",
+    // "foundation", "floor" (sizable), "slope", "gable" (fixed size, the
+    // block from the palette) or "" (a fixed shape). Each placed copy
+    // may have its own sizes and blocks (game/PieceSpec.h); 'defaults'
+    // is the type's own
     std::string   model, outside, inside, opening, style;
+    // A wall's opening: arch = a round top (a doorway or window);
+    // glazing = "mosaic": stained glass in a pattern of colours with a
+    // stone mullion, the palette's glass as the main colour (a
+    // church window)
+    bool          arch = false;
+    std::string   glazing;
+    int           inset = 2;       // a gable: how far under the roof planes it stops
     PieceSpec     defaults;
     bool sizable() const { return !model.empty(); }
     bool          foundation   = false;
@@ -164,6 +173,7 @@ public:
     static constexpr int DOOR_MIN_W = 9, DOOR_MIN_H = 21;     // 3 x 7 ft: a person walks through
     static constexpr int WALL_MAX_W = 48, WALL_MAX_H = 60;    // 16 ft, 20 ft
     static constexpr int PILLAR_MAX_H = 90;
+    static constexpr int FLOOR_MAX = 120;                     // floors and roof lengths: 40 ft
 
     // A block a palette may use for a role: solid building stuff, not
     // a plant, liquid, chest or station top
@@ -218,6 +228,13 @@ public:
                 p.openH = std::clamp(p.openH, 3, p.h - 6);
                 p.sill = std::clamp(p.sill < 0 ? 12 : p.sill, 3, p.h - 2 - p.openH);
             } else { p.openW = p.openH = 0; p.sill = -1; }
+            // the hole the same distance in from both ends, so a wall turned
+            // end for end (its outside out: Blueprint::plan) keeps its hole
+            // where the door in it is
+            if (p.openW > 0 && (p.w - p.openW) % 2) {
+                if (p.openW + 1 <= p.w - 2) p.openW++;
+                else p.openW--;
+            }
         } else if (t.model == "door") {
             p.w = std::clamp(p.w, DOOR_MIN_W, 24);
             p.h = std::clamp(p.h, DOOR_MIN_H, 45);
@@ -231,6 +248,23 @@ public:
         } else if (t.model == "pillar") {
             p.w = std::clamp(p.w, 2, 6);
             p.h = std::clamp(p.h, 3, PILLAR_MAX_H);
+            p.openW = p.openH = 0; p.sill = -1;
+        } else if (t.model == "floor") {
+            // any whole feet across, 1 to 40 ft (one piece covers a hall);
+            // its thickness is the type's
+            p.w = std::clamp(feet(p.w), 3, FLOOR_MAX);
+            p.d = std::clamp(feet(p.d), 3, FLOOR_MAX);
+            p.h = t.size.y;
+            p.openW = p.openH = 0; p.sill = -1;
+        } else if (t.model == "slope") {
+            // as long along the eave as you like (whole feet, to 40 ft);
+            // the rise and run are the type's (the pitch and span)
+            p.w = std::clamp(feet(p.w), 3, FLOOR_MAX);
+            p.h = t.size.y; p.d = t.size.z;
+            p.openW = p.openH = 0; p.sill = -1;
+        } else if (t.model == "gable") {
+            // the size is the type's (it matches a roof's span); only the block changes
+            p.w = t.size.x; p.h = t.size.y; p.d = t.size.z;
             p.openW = p.openH = 0; p.sill = -1;
         }
         return p;
@@ -291,7 +325,8 @@ public:
 
     // Does this kind of piece have this palette role (PieceRole::models)?
     static bool usesRole(const StructureType& t, const std::string& role) {
-        char m = t.model == "wall" ? 'w' : t.model == "pillar" ? 'p' : t.model == "door" ? 'd' : 0;
+        char m = t.model == "wall" ? 'w' : t.model == "pillar" ? 'p' : t.model == "door" ? 'd'
+               : t.model == "slope" ? 'r' : t.model == "gable" ? 'g' : t.model == "floor" ? 'f' : 0;
         if (!m) return false;
         for (const PieceRole& r : pieceRoles()) if (role == r.id) return std::strchr(r.models, m) != nullptr;
         return false;
@@ -354,16 +389,20 @@ public:
         std::vector<VoxelVolume> out;
         if (t.model == "wall") {
             VoxelVolume v = wallModel(p.outside.empty() ? t.outside : p.outside, p.inside.empty() ? t.inside : p.inside,
-                                      t.opening, p, t.size.z, id);
+                                      t.opening, p, t.size.z, id, t.arch, t.glazing);
             v.anchor = { 0, 0, 0 };
             out.push_back(std::move(v));
         } else if (t.model == "pillar") {
             out.push_back(pillarModel(t.style, p, id));
-        } else if (t.model == "foundation") {
+        } else if (t.model == "foundation" || t.model == "floor") {
             VoxelVolume v({ std::max(1, p.w), std::max(1, p.h), std::max(1, p.d) });
-            std::fill(v.data.begin(), v.data.end(), id("fill", BLOCK_STONE));
+            std::fill(v.data.begin(), v.data.end(), id(t.model == "floor" ? "floor" : "fill", BLOCK_STONE));
             v.anchor = { 0, 0, 0 };
             out.push_back(std::move(v));
+        } else if (t.model == "slope") {
+            out.push_back(slopeModel({ std::max(1, p.w), t.size.y, t.size.z }, t.slopeThick, id("roof", BLOCK_STONE)));
+        } else if (t.model == "gable") {
+            out.push_back(gableModel(t.size, t.inset, id("fill", BLOCK_STONE)));
         } else if (t.model == "door") {
             VoxelVolume closed = doorModel(t.style, p, id);
             VoxelVolume open({ 1, closed.size.y, closed.size.x });
@@ -374,6 +413,43 @@ public:
             out.push_back(std::move(open));
         }
         return out;
+    }
+
+    // ── Roof slopes and gables ────────────────────────────
+    // slope: a roof plane rising along z, 'th' thick (size = [width,
+    //        rise, run]); gable: the triangle that closes a roof's end
+    //        (size = [span, height, thickness]), stopping 'inset' short
+    //        of the roof planes so they never overlap
+    static VoxelVolume slopeModel(glm::ivec3 size, int th, uint16_t block) {
+        VoxelVolume v(size);
+        for (int z = 0; z < size.z; z++)
+        for (int x = 0; x < size.x; x++)
+        for (int y = 0; y < size.y; y++) {
+            float top = (z + 1) * (float)size.y / size.z;   // surface over this row
+            if (y < top && y >= top - th - 0.001f) v.set(x, y, z, block);
+        }
+        v.anchor = { 0, 0, 0 };
+        return v;
+    }
+    static VoxelVolume gableModel(glm::ivec3 size, int inset, uint16_t block) {
+        VoxelVolume v(size);
+        float half = size.x * 0.5f;
+        for (int z = 0; z < size.z; z++)
+        for (int x = 0; x < size.x; x++) {
+            float in_ = std::min(x + 1.0f, (float)size.x - x);   // in from the nearer end
+            float h = in_ * (float)size.y / half;               // the roof plane over it
+            for (int y = 0; y < size.y; y++) if (y < h - inset) v.set(x, y, z, block);
+        }
+        v.anchor = { 0, 0, 0 };
+        return v;
+    }
+
+    // The block a placed piece uses for a role (its spec over the
+    // type's own): a roof's tiles for the roof renderer
+    uint16_t roleBlock(const StructureType& t, const std::string& spec, const std::string& role) const {
+        if (!t.sizable()) return t.block;
+        uint16_t b = gRegistry.getIDByName(resolve(t, PieceSpec::parse(spec)).block(role));
+        return b ? b : t.block;
     }
 
     // ── Walls ─────────────────────────────────────────────
@@ -399,7 +475,8 @@ public:
     // (StructureManager::snapTo). Two thick: no core; one: outside.
     template <class Id>
     static VoxelVolume wallModel(const std::string& outside, const std::string& inside, const std::string& opening,
-                                 const PieceSpec& p, int depth, Id id) {
+                                 const PieceSpec& p, int depth, Id id, bool arch = false,
+                                 const std::string& glazing = "") {
         const uint16_t fill = id("fill", BLOCK_STONE);
         const uint16_t post = id("post", fill), beam = id("beam", fill), base = id("base", fill);
         const uint16_t panel = id("panel", fill), paint = id("paint", fill), inlay = id("inlay", fill);
@@ -468,34 +545,80 @@ public:
         }
 
         // ── the opening, framed ──
+        // The hole is a mask: a rectangle, its top rounded into a half
+        // circle when arched. The frame (posts and lintel, or the arch's
+        // ring) is every voxel just outside it, on each face that isn't
+        // plain; a door adds a second course over the top outside
         if ((opening == "door" || opening == "window") && p.openW > 0 && p.openH > 0) {
             const bool door = opening == "door";
             const int hw = p.openW, hh = p.openH;
             const int hx = (W - hw) / 2, hy = door ? 0 : std::max(0, p.sill);
+            const float r = hw * 0.5f;                       // the arch's radius
+            const bool round = arch && hh > hw / 2 + 2;
+            const float springY = hy + hh - r;               // where the arch starts
+            auto inHole = [&](int x, int y) {
+                if (x < hx || x >= hx + hw || y < hy || y >= hy + hh) return false;
+                if (!round || y + 0.5f < springY) return true;
+                float dx = x + 0.5f - (hx + r), dy = y + 0.5f - springY;
+                return dx * dx + dy * dy <= r * r + 0.25f;
+            };
+            auto nearHole = [&](int x, int y, int reach) {
+                for (int dy = -reach; dy <= reach; dy++)
+                    for (int dx = -reach; dx <= reach; dx++)
+                        if (inHole(x + dx, y + dy)) return true;
+                return false;
+            };
             for (int z : { OUT, IN }) {
                 if (z == IN && D < 2) break;
                 if ((z == OUT ? outside : inside) == "plain") continue;
-                col(z, hx - 1, hy, hy + hh + 1, post); col(z, hx + hw, hy, hy + hh + 1, post);
-                for (int x = hx - 1; x <= hx + hw; x++) {
-                    put(x, hy + hh, z, beam);
-                    if (door && z == OUT) put(x, hy + hh + 1, z, beam);    // the lintel
-                    if (!door) put(x, hy - 1, z, beam);                    // the sill
-                }
+                for (int y = std::max(0, hy - 2); y < std::min(H, hy + hh + 3); y++)
+                    for (int x = std::max(0, hx - 2); x < std::min(W, hx + hw + 2); x++) {
+                        if (inHole(x, y)) continue;
+                        bool ring = nearHole(x, y, 1);
+                        bool lintel = door && z == OUT && nearHole(x, y, 2) && y >= hy + hh - (round ? (int)r : 0);
+                        if (!ring && !lintel) continue;
+                        if (door && y < hy) continue;
+                        bool side = !round || y + 0.5f < springY;
+                        put(x, y, z, ring && side && (x == hx - 1 || x == hx + hw) ? post : beam);
+                    }
             }
+            const bool mosaic = !door && glazing == "mosaic";
+            // stained glass: the palette's glass leads (if it's stained), the
+            // other colours in diamonds; a mullion up the middle and a
+            // transom where the arch springs
+            const uint16_t stained[4] = { gRegistry.getIDByName("stained_glass_red"), gRegistry.getIDByName("stained_glass_blue"),
+                                          gRegistry.getIDByName("stained_glass_amber"), gRegistry.getIDByName("stained_glass_green") };
+            auto mosaicAt = [&](int x, int y) -> uint16_t {
+                int lx = x - hx, ly = y - hy;
+                if (hw >= 6 && (lx == hw / 2 || (hw % 2 == 0 && lx == hw / 2 - 1)) && y + 0.5f < springY) return beam;
+                if (round && (int)std::floor(springY) == y) return beam;
+                int cx = (lx + ly) / 3, cy = (lx - ly + 300) / 3;           // diamonds
+                if ((lx + ly) % 3 == 0 || (lx - ly + 300) % 3 == 0) return glass && glass != BLOCK_AIR ? glass : stained[2];
+                uint16_t c = stained[(cx * 7 + cy * 3 + (round && y + 0.5f >= springY ? 1 : 0)) % 4];
+                return c ? c : glass;
+            };
             for (int z = 0; z < D; z++)
                 for (int y = hy; y < hy + hh; y++)
                     for (int x = hx; x < hx + hw; x++) {
+                        if (!inHole(x, y)) continue;
                         bool core = z > 0 && z < D - 1;
-                        put(x, y, z, !door && core ? glass : BLOCK_AIR);  // panes in the core, set back
+                        uint16_t b = BLOCK_AIR;
+                        if (!door && core) b = mosaic ? mosaicAt(x, y) : glass;   // panes in the core, set back
+                        put(x, y, z, b);
                     }
-            if (!door && outside != "plain") {
+            if (!door && !mosaic && outside != "plain") {
                 // a cross outside: four panes
-                col(OUT, hx + hw / 2, hy, hy + hh, post);
-                if (hw % 2 == 0 && hw >= 8) col(OUT, hx + hw / 2 - 1, hy, hy + hh, post);
-                for (int x = hx; x < hx + hw; x++) put(x, hy + hh / 2, OUT, beam);
+                for (int y = hy; y < hy + hh; y++) {
+                    if (!inHole(hx + hw / 2, y)) continue;
+                    put(hx + hw / 2, y, OUT, post);
+                    if (hw % 2 == 0 && hw >= 8) put(hx + hw / 2 - 1, y, OUT, post);
+                }
+                int my = round ? (int)std::floor(springY) : hy + hh / 2;
+                for (int x = hx; x < hx + hw; x++) if (inHole(x, my)) put(x, my, OUT, beam);
             }
-            if (!door && D == 2 && glass) for (int y = hy; y < hy + hh; y++) for (int x = hx; x < hx + hw; x++)
-                if (v.at(x, y, IN) == BLOCK_AIR) put(x, y, IN, glass);   // too thin for a core: panes inside
+            if (!door && D == 2 && (glass || mosaic))
+                for (int y = hy; y < hy + hh; y++) for (int x = hx; x < hx + hw; x++)
+                    if (inHole(x, y) && v.at(x, y, IN) == BLOCK_AIR) put(x, y, IN, mosaic ? mosaicAt(x, y) : glass);   // too thin for a core: panes inside
         }
         return v;
     }
@@ -918,9 +1041,12 @@ private:
     //   the block, beam the ledges
     static void readModel(StructureType& s, const toml::table& t) {
         std::string shp = t["shape"].value_or(std::string());
+        const bool drawn = t["layers"].as_array() || t["hole"].as_array();
         if (s.kind == StructureKind::Door) s.model = "door";
         else if (shp == "wall" || shp == "pillar") s.model = shp;
-        else if (s.foundation && shp.empty() && !t["layers"].as_array() && !t["hole"].as_array()) s.model = "foundation";
+        else if (s.foundation && shp.empty() && !drawn) s.model = "foundation";
+        else if (shp == "slope" || shp == "gable") s.model = shp;
+        else if (s.group == "floor" && shp.empty() && !drawn && s.kind == StructureKind::Build) s.model = "floor";
         else return;
         PieceSpec& d = s.defaults;
         d.w = s.size.x; d.h = s.size.y;
@@ -934,6 +1060,8 @@ private:
             s.outside = t["outside"].value_or(t["style"].value_or(std::string("plain")));
             s.inside  = t["inside"].value_or(std::string("plain"));
             s.opening = t["opening"].value_or(std::string());
+            s.arch    = t["arch"].value_or(false);
+            s.glazing = t["glazing"].value_or(std::string());
             s.faced   = s.outside != s.inside || s.outside != "plain";
             d.blocks["fill"] = self;
             role("post", "timber_post"); role("beam", "timber_beam"); role("base", "stone_bricks");
@@ -945,6 +1073,18 @@ private:
             if (auto v = t["open_h"].value<int64_t>()) d.openH = (int)*v;
             if (auto v = t["sill"].value<int64_t>()) d.sill = (int)*v;
         } else if (s.model == "foundation") {
+            d.d = s.size.z;
+            d.blocks["fill"] = self;
+        } else if (s.model == "floor") {
+            d.d = s.size.z;
+            d.blocks["floor"] = self;
+        } else if (s.model == "slope") {
+            s.slope = true;
+            s.slopeThick = std::max(1, (int)t["thickness"].value_or((int64_t)2));
+            d.d = s.size.z;
+            d.blocks["roof"] = self;
+        } else if (s.model == "gable") {
+            s.inset = (int)t["inset"].value_or((int64_t)2);
             d.d = s.size.z;
             d.blocks["fill"] = self;
         } else if (s.model == "pillar") {

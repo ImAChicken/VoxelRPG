@@ -83,6 +83,7 @@ public:
         worldParams = params;
         worldFlat   = flat;
         worldDev    = dev;
+        worldRoaming = -1;                // its type's default (getRoamingSpawns)
         worldName   = name;
         worldBiome  = biome;
         worldTerrain = terrain;
@@ -126,6 +127,7 @@ public:
         worldTerrain = TerrainStyle::NoErosion;
         worldParams.reset();
         worldFlat = FlatOptions();
+        worldRoaming = -1;
         return loadDescriptor();
     }
 
@@ -142,6 +144,7 @@ public:
         worldTerrain = TerrainStyle::NoErosion;
         worldParams.reset();
         worldFlat = FlatOptions();
+        worldRoaming = -1;
         return loadDescriptor();
     }
 
@@ -222,6 +225,14 @@ public:
     uint64_t    getSeed()  const { return worldSeed; }
     GameMode    getDefaultMode() const { return defaultMode; }
     WorldType   getWorldType() const { return worldType; }
+    // Roaming enemy spawns (sim/Roaming.h): "roaming=on|off" in
+    // world.vxrp; left out, on for a shaped or classic world, off for a
+    // flat one or a dev world (a stage). Console `roaming on|off`
+    bool getRoamingSpawns() const {
+        if (worldRoaming >= 0) return worldRoaming == 1;
+        return !worldDev && worldType != WorldType::Flat;
+    }
+    bool setRoamingSpawns(bool on) { worldRoaming = on ? 1 : 0; return saveDescriptor(); }
     int         getWorldBiome() const { return worldBiome; }
     TerrainStyle getTerrainStyle() const { return worldTerrain; }
     const WorldGenParams& getGenParams() const { return worldParams; }
@@ -242,6 +253,7 @@ private:
     WorldGenParams worldParams;
     FlatOptions    worldFlat;          // flat worlds
     bool           worldDev = false;   // in devworlds/
+    int            worldRoaming = -1;  // roaming spawns: 1 on, 0 off, -1 the type's default
 
     bool saveDescriptor() {
         std::ofstream f(worldPath + "/world.vxrp");
@@ -257,6 +269,7 @@ private:
             f << "terrain=" << terrainStyleKey(worldTerrain) << "\n";
             worldParams.write(f, [](int b) { return island::biomeInfo(b).name; }, island::BIOME_COUNT);
         }
+        if (worldRoaming >= 0) f << "roaming=" << (worldRoaming ? "on" : "off") << "\n";
         f << "version=" << 2        << "\n";
         return true;
     }
@@ -283,6 +296,8 @@ private:
                     worldParams.read(line.substr(0, eq), line.substr(eq + 1),
                                      [](int b) { return island::biomeInfo(b).name; }, island::BIOME_COUNT);
             }
+            if (line.substr(0,8) == "roaming=")
+                worldRoaming = line.substr(8) == "off" ? 0 : 1;
             if (line.substr(0,8) == "terrain=")
                 worldTerrain = terrainStyleFromKey(line.substr(8));
             if (line.substr(0,6) == "biome=") {

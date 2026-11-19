@@ -1,0 +1,426 @@
+# Blueprint: a building made of build pieces (game/Blueprint.h).
+# Saved by the hammer's Copy tab; placed from its Blueprints tab and
+# by the village generator. Each part: its structure type, the low
+# corner of its box from the blueprint's low corner, its turn; a made
+# piece (wall, post, door) its own sizes and blocks (spec); chests
+# also keep items, or a loot table rolled when placed.
+#   front: the side the door faces, 0 north, 1 east, 2 south, 3 west
+
+name = "church"
+display = "Church"
+tags = ["church", "village", "large"]
+size = [72, 98, 120]
+front = 2
+
+[[palette]]   # 0
+spec = ""
+
+[[palette]]   # 1
+spec = "out=plain;in=plain;base=stone_bricks;beam=timber_beam;fill=cobblestone;glass=stained_glass_blue;inlay=bricks;paint=plaster;panel=wainscot;post=timber_post"
+
+[[palette]]   # 2
+spec = "out=plain;in=plain;base=stone_bricks;beam=timber_beam;fill=cobblestone;glass=none;inlay=bricks;paint=plaster;panel=wainscot;post=timber_post"
+
+[[palette]]   # 3
+spec = "floor=planks"
+
+[[palette]]   # 4
+spec = "roof=slate"
+
+[[palette]]   # 5
+spec = "fill=cobblestone"
+
+[[palette]]   # 6
+spec = "beam=timber_beam;door=dark_planks"
+
+[[part]]
+type = "stone_foundation"
+at = [0, 0, 0]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [24, 0, 0]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [0, 0, 24]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [24, 0, 24]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [0, 0, 48]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [48, 0, 0]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [48, 0, 24]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [24, 0, 48]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [48, 0, 48]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [0, 0, 72]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [24, 0, 72]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [48, 0, 72]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [0, 0, 96]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [24, 0, 96]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [48, 0, 96]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_lancet_8"
+at = [0, 12, 24]
+rot = 1
+spec = "h=48;oh=33;sill=9"
+palette = 1
+
+[[part]]
+type = "stone_lancet_8"
+at = [0, 12, 0]
+rot = 1
+spec = "h=48;oh=33;sill=9"
+palette = 1
+
+[[part]]
+type = "stone_lancet_8"
+at = [24, 12, 0]
+rot = 0
+spec = "h=48;ow=12;oh=36;sill=6"
+palette = 1
+
+[[part]]
+type = "stone_wall_8"
+at = [0, 12, 0]
+rot = 0
+spec = "h=48"
+palette = 2
+
+[[part]]
+type = "chancel_dais"
+at = [12, 12, 2]
+rot = 0
+
+[[part]]
+type = "stone_lancet_8"
+at = [0, 12, 48]
+rot = 1
+spec = "h=48;oh=33;sill=9"
+palette = 1
+
+[[part]]
+type = "stone_wall_8"
+at = [48, 12, 0]
+rot = 0
+spec = "h=48"
+palette = 2
+
+[[part]]
+type = "aisle_runner"
+at = [33, 12, 20]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [3, 12, 26]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [3, 12, 35]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [3, 12, 44]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [45, 12, 26]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [45, 12, 35]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [45, 12, 44]
+rot = 0
+
+[[part]]
+type = "stone_lancet_8"
+at = [0, 12, 72]
+rot = 1
+spec = "h=48;oh=33;sill=9"
+palette = 1
+
+[[part]]
+type = "oak_pew"
+at = [3, 12, 53]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [3, 12, 62]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [3, 12, 71]
+rot = 0
+
+[[part]]
+type = "stone_arched_doorway_8"
+at = [24, 12, 118]
+rot = 0
+spec = "h=48;ow=16;oh=36"
+palette = 2
+
+[[part]]
+type = "stone_wall_8"
+at = [70, 12, 96]
+rot = 1
+spec = "h=48"
+palette = 2
+
+[[part]]
+type = "stone_wall_8"
+at = [0, 12, 96]
+rot = 1
+spec = "h=48"
+palette = 2
+
+[[part]]
+type = "stone_lancet_8"
+at = [70, 12, 72]
+rot = 1
+spec = "h=48;oh=33;sill=9"
+palette = 1
+
+[[part]]
+type = "stone_lancet_8"
+at = [70, 12, 48]
+rot = 1
+spec = "h=48;oh=33;sill=9"
+palette = 1
+
+[[part]]
+type = "stone_lancet_8"
+at = [70, 12, 24]
+rot = 1
+spec = "h=48;oh=33;sill=9"
+palette = 1
+
+[[part]]
+type = "stone_lancet_8"
+at = [70, 12, 0]
+rot = 1
+spec = "h=48;oh=33;sill=9"
+palette = 1
+
+[[part]]
+type = "stone_wall_8"
+at = [0, 12, 118]
+rot = 0
+spec = "h=48"
+palette = 2
+
+[[part]]
+type = "stone_wall_8"
+at = [48, 12, 118]
+rot = 0
+spec = "h=48"
+palette = 2
+
+[[part]]
+type = "aisle_runner"
+at = [33, 12, 50]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [45, 12, 53]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [45, 12, 62]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [45, 12, 71]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [3, 12, 80]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [3, 12, 89]
+rot = 0
+
+[[part]]
+type = "candle_stand"
+at = [41, 12, 96]
+rot = 0
+
+[[part]]
+type = "candle_stand"
+at = [28, 12, 96]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [45, 12, 80]
+rot = 0
+
+[[part]]
+type = "oak_pew"
+at = [45, 12, 89]
+rot = 0
+
+[[part]]
+type = "dark_ledged_door"
+at = [28, 12, 118]
+rot = 0
+spec = "w=16;h=31"
+palette = 6
+
+[[part]]
+type = "altar"
+at = [24, 15, 8]
+rot = 2
+
+[[part]]
+type = "candle_stand"
+at = [15, 15, 8]
+rot = 0
+
+[[part]]
+type = "candle_stand"
+at = [55, 15, 8]
+rot = 0
+
+[[part]]
+type = "lectern"
+at = [16, 15, 12]
+rot = 2
+
+[[part]]
+type = "wall_sconce"
+at = [67, 28, 107]
+rot = 3
+
+[[part]]
+type = "wall_sconce"
+at = [2, 28, 107]
+rot = 1
+
+[[part]]
+type = "chandelier"
+at = [32, 52, 86]
+rot = 0
+
+[[part]]
+type = "chandelier"
+at = [32, 52, 56]
+rot = 0
+
+[[part]]
+type = "chandelier"
+at = [32, 52, 26]
+rot = 0
+
+[[part]]
+type = "plank_floor_8"
+at = [0, 60, 0]
+rot = 0
+spec = "w=72;d=120"
+palette = 3
+
+[[part]]
+type = "slate_roof_8x12"
+at = [0, 62, 0]
+rot = 3
+spec = "w=120"
+palette = 4
+
+[[part]]
+type = "slate_roof_8x12"
+at = [36, 62, 0]
+rot = 1
+spec = "w=120"
+palette = 4
+
+[[part]]
+type = "stone_gable_24"
+at = [0, 62, 0]
+rot = 0
+palette = 5
+
+[[part]]
+type = "stone_gable_24"
+at = [0, 62, 118]
+rot = 0
+palette = 5

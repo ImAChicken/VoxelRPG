@@ -1,0 +1,43 @@
+# ══════════════════════════════════════════════════════════
+# Villagers — who lives in a village the generator builds
+# (game/Villagers.h)
+# ══════════════════════════════════════════════════════════
+# Every bed in a village's houses gets a villager (a double bed
+# two) who calls it home. Jobs go to them in turn, one per
+# workplace: a building with the job's tag (blueprints' tags),
+# until there are no more workplaces or villagers; the rest keep
+# house. Where they go when free: buildings with a haunt tag, the
+# square (tag "plaza") and the well.
+#
+# Each villager is an NPC of npc_type (npcs.toml), with a name
+# from this list and its job's title: "Ada the Smith".
+
+npc_type = "villager"
+haunt_tags = ["plaza", "church", "hall"]
+
+names = [
+  "Ada", "Brom", "Cora", "Dunstan", "Edda", "Fenn", "Greta", "Hollis", "Ilse", "Jory",
+  "Kestrel", "Lorne", "Maud", "Nell", "Osric", "Pell", "Quill", "Rowena", "Sabe", "Tamsin",
+  "Ulf", "Vesna", "Wren", "Yara", "Aldo", "Bettany", "Cael", "Dorran", "Elspet", "Fitch",
+  "Gwen", "Hamm", "Isolde", "Jessop", "Kit", "Linnet", "Merrick", "Noll", "Odette", "Piers",
+]
+
+[[job]]
+id = "smith"
+title = "Smith"
+building = "smithy"
+
+[[job]]
+id = "priest"
+title = "Priest"
+building = "church"
+
+[[job]]
+id = "storekeeper"
+title = "Storekeeper"
+building = "storage"
+
+[[job]]
+id = "carpenter"
+title = "Carpenter"
+building = "work"

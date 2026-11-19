@@ -782,3 +782,51 @@ name    = "stained_glass_blue"
 top     = [5, 4]
 side    = [5, 4]
 bottom  = [5, 4]
+
+[[face_map]]
+name    = "wool_white"
+top     = [6, 4]
+side    = [6, 4]
+bottom  = [6, 4]
+
+[[face_map]]
+name    = "wool_red"
+top     = [7, 4]
+side    = [7, 4]
+bottom  = [7, 4]
+
+[[face_map]]
+name    = "wool_blue"
+top     = [8, 4]
+side    = [8, 4]
+bottom  = [8, 4]
+
+[[face_map]]
+name    = "wool_green"
+top     = [9, 4]
+side    = [9, 4]
+bottom  = [9, 4]
+
+[[face_map]]
+name    = "bookshelf"
+top     = [11, 3]
+side    = [10, 4]
+bottom  = [11, 3]
+
+[[face_map]]
+name    = "iron_block"
+top     = [11, 4]
+side    = [11, 4]
+bottom  = [11, 4]
+
+[[face_map]]
+name    = "gold_block"
+top     = [12, 4]
+side    = [12, 4]
+bottom  = [12, 4]
+
+[[face_map]]
+name    = "rug_red"
+top     = [13, 4]
+side    = [13, 4]
+bottom  = [13, 4]

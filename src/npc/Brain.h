@@ -74,6 +74,7 @@ inline bool change(Npc& n, NpcWorld& w, const std::string& want) {
 }
 
 inline std::string startState(const Npc& n) {
+    if (n.life.on && n.hasState("routine")) return "routine";      // a villager's day
     return n.type && !n.type->start.empty() ? n.type->start : "idle";
 }
 

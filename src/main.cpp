@@ -70,6 +70,7 @@
 #include "game/Blueprint.h"
 #include "game/Kits.h"
 #include "game/Village.h"
+#include "game/Villagers.h"
 #include "ui/InventoryScreen.h"
 #include "world/StructureManager.h"
 #include "world/Chests.h"
@@ -248,7 +249,7 @@ int main() {
     sound::gAudio.init();
     gLoot.load("data/registry/loot.toml");
     gKits.load("data/registry/kits.toml");
-    gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
+    gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml"); gVillagers.load();
     gAnims.load("data/animations", "data/animations/retarget.toml");
     gAnimMap.load("data/animations/anim_map.toml");
     gOutlineFx.load("data/registry/outline.toml");
@@ -452,6 +453,9 @@ int main() {
     NpcManager& npcs = sim.npcs();
     EntityId talkingTo = 0;           // the NPC this player is in a menu with
     bool pendingVillage = false;      // a new flat world with a village: built once you stand on the ground
+    glm::ivec3 villageAt{ 0 };        // where its square goes (picked when you land)
+    bool villageAtSet = false;
+    int  villageWait = 0;             // frames waited for its ground to load
     bool pendingKit = false;          // a new dev world: lay out the showcase chests (game/DevKit.h)
     LockOn lockOn;                    // the camera held on an enemy (TAB: game/LockOn.h)
     std::unordered_map<uint64_t, std::unique_ptr<Character>> npcBodies;
@@ -1775,7 +1779,7 @@ int main() {
                 gFactions.load("data/registry/factions.toml");
                 gLoot.load("data/registry/loot.toml");
                 gKits.load("data/registry/kits.toml");
-                gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
+                gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml"); gVillagers.load(); gVillagers.load();
                 gAnims.load("data/animations", "data/animations/retarget.toml");
                 gAnimMap.load("data/animations/anim_map.toml");
                 gOutlineFx.load("data/registry/outline.toml");
@@ -2157,11 +2161,26 @@ int main() {
                 // A new dev world's showcase chests, once you stand on
                 // its ground (the chunks have to be there first)
                 if (pendingVillage && player.grounded && structs) {
-                    pendingVillage = false;
                     // its square 30 ft ahead, so you don't start inside a house
-                    glm::vec3 f(player.facing.x, 0.0f, player.facing.z);
-                    f = glm::length(f) > 0.01f ? glm::normalize(f) : glm::vec3(0, 0, 1);
-                    glm::ivec3 at = glm::ivec3(glm::floor(player.position + f * 90.0f));
+                    // (chosen once: where you look when you land)
+                    if (!villageAtSet) {
+                        glm::vec3 f(player.facing.x, 0.0f, player.facing.z);
+                        f = glm::length(f) > 0.01f ? glm::normalize(f) : glm::vec3(0, 0, 1);
+                        villageAt = glm::ivec3(glm::floor(player.position + f * 90.0f));
+                        villageAtSet = true;
+                    }
+                    // wait until the ground it will stand on has loaded: a lot
+                    // over unloaded ground is skipped
+                    glm::ivec3 at = villageAt;
+                    auto loaded = [&](int dx, int dz) { return terrain::groundLevel(*world, at.x + dx, at.z + dz, at.y + 96, 192) >= 0; };
+                    const int R = 200;
+                    if (!(loaded(R, 0) && loaded(-R, 0) && loaded(0, R) && loaded(0, -R) &&
+                          loaded(R, R) && loaded(-R, -R) && loaded(R, -R) && loaded(-R, R)) && ++villageWait < 60 * 30) {
+                        // (a minute at most, then build with what's there)
+                    } else {
+                    pendingVillage = false;
+                    villageAtSet = false;
+                    villageWait = 0;
                     village::Options vo;
                     vo.seed = (uint32_t)gWorldSave.getSeed() + 1;
                     vo.keepClear = { (int)player.position.x, (int)player.position.z };   // not on top of you
@@ -2169,7 +2188,9 @@ int main() {
                     village::pickPalette(vo);
                     village::Plan vp = village::plan(*world, gBlueprints, at, vo);
                     village::Built vb = village::build(vp, *structs, *editor, &chests, vo, EditSource::Command);
-                    say("a village ahead: " + std::to_string(vb.buildings) + " buildings");
+                    villagers::Populated vpop = villagers::populate(vp, vb, *structs, *world, npcs, vo.seed);
+                    say("a village ahead: " + std::to_string(vb.buildings) + " buildings, " + std::to_string(vpop.villagers) + " villagers");
+                    }
                 }
                 if (pendingKit && player.grounded && structs) {
                     pendingKit = false;

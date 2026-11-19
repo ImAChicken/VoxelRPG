@@ -11,11 +11,12 @@
 struct PieceRole {
     const char* id;
     const char* label;       // the build menu's name for it
-    const char* models;      // which generators use it: w(all), p(illar), d(oor)
+    const char* models;      // which generators use it: w(all), p(illar), d(oor),
+                             // r(oof slope), g(able), f(loor)
 };
 inline const std::vector<PieceRole>& pieceRoles() {
     static const std::vector<PieceRole> r = {
-        { "fill",  "Wall",          "w"  },   // the wall's own material (its core)
+        { "fill",  "Wall",          "wg" },   // the wall's own material (its core); a gable
         { "post",  "Posts",         "wp" },   // upright timbers; a pillar's shaft
         { "beam",  "Beams",  "wpd" },  // rails, sills, frames; a pillar's cap; a door's ledges
         { "base",  "Base",          "wp" },   // a stone plinth; a pillar's foot
@@ -24,6 +25,8 @@ inline const std::vector<PieceRole>& pieceRoles() {
         { "panel", "Panels", "w"  },   // the boards below the inside rail
         { "glass", "Glass",  "w"  },   // "none": open
         { "door",  "Door",   "d"  },
+        { "roof",  "Roof",   "r"  },   // roof slopes: thatch, tiles, slate
+        { "floor", "Floor",  "f"  },   // floors and ceilings
     };
     return r;
 }

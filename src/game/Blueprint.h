@@ -290,6 +290,11 @@ struct Blueprint {
 
     // Level the ground under it (TerrainOps). Separate so the
     // village generator can prepare a site its own way.
+    // The ground isn't levelled flat: it's cut to the floor (the
+    // foundations' top) where it's higher, filled to their underside
+    // where it's lower, and left between, so the foundations sink into
+    // a slope (terrain::seat). Without foundations: levelled to 'sink'
+    // above the bottom, as before.
     static EditBatch sitePrep(const StructureManager& sm, const ChunkManager& world,
                               const std::vector<BlueprintPlacement>& plan, EditSource src, int feather = 4,
                               int sink = 0) {
@@ -300,7 +305,33 @@ struct Blueprint {
         o.maxFill    = 24;
         o.feather    = feather;
         o.keep = [&sm](glm::ivec3 p) { const StructureInstance* s = sm.instanceAt(p); return s && !s->natural; };
-        return terrain::flatten(world, { lo.x, lo.z }, { hi.x, hi.z }, lo.y + sink, o, src, "level for a building");
+        int top = floorOf(plan);
+        if (top <= lo.y) return terrain::flatten(world, { lo.x, lo.z }, { hi.x, hi.z }, lo.y + sink, o, src, "level for a building");
+        return terrain::seat(world, { lo.x, lo.z }, { hi.x, hi.z }, lo.y, top, o, src, "seat a building");
+    }
+    // The floor level of a plan: the top of its lowest foundations
+    // (their underside is the plan's bottom); the bottom if it has none
+    static int floorOf(const std::vector<BlueprintPlacement>& plan) {
+        glm::ivec3 lo, hi;
+        extent(plan, lo, hi);
+        int top = -1;
+        for (const BlueprintPlacement& p : plan) {
+            const StructureType* t = gStructures.get(p.type);
+            if (t && t->foundation && p.lo.y == lo.y) top = top < 0 ? p.hi.y + 1 : std::min(top, p.hi.y + 1);
+        }
+        return top < 0 ? lo.y : top;
+    }
+    // How tall its foundations are (voxels; 0: none): what a slope can sink into
+    int foundationHeight() const {
+        int h = 0;
+        for (const BlueprintPart& p : parts) {
+            uint16_t id = gStructures.find(p.type);
+            const StructureType* t = gStructures.get(id);
+            if (!t || !t->foundation || p.at.y != 0) continue;
+            int ph = gStructures.shape(id, specFor(p, *t, nullptr), 0, p.rot).size.y;
+            h = h ? std::min(h, ph) : ph;
+        }
+        return h;
     }
 
     // Put it in the world. Returns the instances made (parallel

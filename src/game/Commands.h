@@ -6,6 +6,7 @@
 #include "../world/TerrainOps.h"
 #include "Blueprint.h"
 #include "Village.h"
+#include "Villagers.h"
 #include "DevKit.h"
 #include "GameMode.h"
 #include "ItemRegistry.h"
@@ -17,6 +18,7 @@
 #include "DebugView.h"
 #include "../physics/IPhysics.h"
 #include "../render/Sky.h"
+#include "../world/WorldSaveManager.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -397,8 +399,12 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             WorldEditor& ed = *c.dev.worldEditor();
             village::Plan p = village::plan(ed.worldRef(), gBlueprints, at, o);
             village::Built b = village::build(p, *c.structs, ed, c.chests, o, EditSource::Command);
+            villagers::Populated pop;
+            if (c.npcs) pop = villagers::populate(p, b, *c.structs, ed.worldRef(), *c.npcs, o.seed);
             c.log("village " + std::to_string(o.seed) + " (" + o.style.paletteName + "): " + std::to_string(b.buildings) + " buildings, " +
-                  std::to_string(b.roads) + " roads" + (b.failed ? ", " + std::to_string(b.failed) + " didn't fit" : ""));
+                  std::to_string(b.roads) + " roads, " + std::to_string(pop.villagers) + " villagers (" + std::to_string(pop.jobs) +
+                  " with jobs)" + (b.failed ? ", " + std::to_string(b.failed) + " didn't fit" : ""));
+            for (const std::string& s : pop.who) c.log("  " + s);
         });
 
     // ── The combat layout (game/CombatKit.h) ─────────────
@@ -724,6 +730,51 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             // (charge normally comes from an attack's wind-up; here it plays as a flash)
             gOutlineFx.start(who, a[0]);
             c.log("outline " + a[0]);
+        });
+    reg.add("roaming", "roaming [on|off|now|clear|reload|groups]",
+        "roaming enemy spawns (data/registry/roaming.toml): a world setting; alone, what it's doing and why nothing came",
+        [](C& c, const Args& a) {
+            if (!c.sim || !c.npcs || !c.sim->hasWorld()) { c.log("needs a world"); return; }
+            Roaming& r = c.sim->roaming;
+            if (!r.biomeAt) { c.log("on a server: its console sets roaming (roaming on|off)"); return; }
+            const float hour = gClock.time * 24.0f;
+            std::string what = a.empty() ? "" : a[0];
+            if (what == "on" || what == "off") {
+                r.enabled = what == "on";
+                r.resetTimers();
+                bool saved = gWorldSave.setRoamingSpawns(r.enabled);
+                c.log(std::string("roaming spawns ") + (r.enabled ? "on" : "off") + (saved ? " (saved with the world)" : " (couldn't save the setting)"));
+                return;
+            }
+            if (what == "reload") {
+                bool ok = gRoaming.load();
+                c.log(ok ? "roaming.toml: " + std::to_string(gRoaming.groups.size()) + " groups" : "roaming.toml didn't load (see the log)");
+                return;
+            }
+            if (what == "clear") { c.log(std::to_string(r.clear(*c.npcs)) + " roaming NPCs removed"); return; }
+            if (what == "groups") {
+                if (!gRoaming.loaded) gRoaming.load();
+                for (const RoamGroupDef& g : gRoaming.groups) {
+                    std::string types;
+                    for (auto& [t, w] : g.npcs) types += (types.empty() ? "" : " ") + t;
+                    std::string bs;
+                    for (auto& b : g.biomes) bs += (bs.empty() ? "" : " ") + b;
+                    const char* tm = g.time == RoamGroupDef::Time::Day ? "day" : g.time == RoamGroupDef::Time::Night ? "night" : "any time";
+                    c.log(g.id + ": " + types + " x" + std::to_string(g.minSize) + "-" + std::to_string(g.maxSize) + ", " + tm + ", " + bs);
+                }
+                return;
+            }
+            Roaming::Who me{ c.player.uuid, c.player.position, c.player.facing };
+            if (what == "now") { c.log(r.forceFor(c.sim->physicsRef(), *c.npcs, me, c.sim->roamers(), hour)); return; }
+            if (!what.empty()) { c.log("roaming [on|off|now|clear|reload|groups]"); return; }
+            // what it's doing
+            int biome = r.biomeAt ? r.biomeAt((int)std::floor(me.pos.x), (int)std::floor(me.pos.z)) : -1;
+            c.log(std::string("roaming spawns ") + (r.enabled ? "on" : "off") + ", " + (r.isNight(hour) ? "night" : "day") +
+                  ", here: " + (biome >= 0 && biome < island::BIOME_COUNT ? RoamingTable::key(biome) : std::string("-")));
+            c.log(std::to_string(r.nearCount(*c.npcs, me.pos)) + " roaming near you, " + std::to_string(r.alive(*c.npcs)) + " in the world; " +
+                  std::to_string(r.groupsMade) + " groups made (" + std::to_string(r.npcsMade) + " NPCs), " + std::to_string(r.npcsGone) + " gone");
+            if (const Roaming::PlayerState* ps = r.stateFor(me.id)) c.log("last try: " + (ps->why.empty() ? std::string("none yet") : ps->why));
+            if (!r.lastGroup.empty()) c.log("last group: " + r.lastGroup);
         });
     reg.add("spawners", "spawners", "list spawner types (structures.toml) and the spawners placed in this world",
         [](C& c, const Args&) {

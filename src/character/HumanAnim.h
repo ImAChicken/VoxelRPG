@@ -22,6 +22,7 @@ inline AnimInput animInputFor(const Human& h, bool combat, float pitch) {
     in.crouching    = h.crouching;
     in.sprinting    = h.sprinting;
     in.flying       = h.flying;
+    in.lying        = h.lying;
     in.combat       = combat;
     in.frozen       = h.freeze != Human::Freeze::None;
     in.walkSpeed    = Human::WALK_SPEED;

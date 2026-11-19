@@ -114,11 +114,21 @@ public:
         default: return n;
         }
     }
+    // The low corner of a placed roof's box. A piece's origin is where
+    // its unturned (0,0,0) voxel went; after a turn that's another
+    // corner of the box, and toWorld() works from the low one
+    static glm::vec3 cornerOf(const StructureInstance& s, const StructureType& t) {
+        return glm::vec3(s.origin - gStructures.shape(t.id, s.spec, 0, s.rot).anchor);
+    }
+    // A placed roof's own (unturned) size: its width can be its own (PieceSpec w)
+    static glm::ivec3 sizeOf(const StructureInstance& s, const StructureType& t) {
+        return gStructures.shape(t.id, s.spec, 0, 0).size;
+    }
     static Overhang overhangOf(const StructureManager& sm, const StructureInstance& s, const StructureType& t) {
-        const glm::ivec3 sz = t.size;
+        const glm::ivec3 sz = sizeOf(s, t);
         const int W = sz.x, R = sz.z;
         const float k = (float)sz.y / std::max(1, R);
-        const glm::vec3 lo = glm::vec3(s.origin);
+        const glm::vec3 lo = cornerOf(s, t);
         auto voxel = [&](float x, float y, float z) {   // the voxel whose corner-space centre is (x, y, z)
             return glm::ivec3(glm::floor(toWorld(lo, s.rot, W, R, x, y, z)));
         };
@@ -187,15 +197,17 @@ private:
     }
 
     void build(Mesh& m, const StructureInstance& s, const StructureType& t, const Overhang& o) {
-        const int W = t.size.x, R = t.size.z, H = t.size.y;
+        const glm::ivec3 own = sizeOf(s, t);
+        const int W = own.x, R = own.z, H = own.y;
         const float k = (float)H / std::max(1, R), th = (float)t.slopeThick;
         const float L = std::sqrt(1.0f + k * k);         // slope length per voxel of run
-        const glm::vec3 lo = glm::vec3(s.origin);
-        const std::string bname = gRegistry.get(t.block).name;
+        const glm::vec3 lo = cornerOf(s, t);
+        const uint16_t block = gStructures.roleBlock(t, s.spec, "roof");   // the palette's roof, if it has one
+        const std::string bname = gRegistry.get(block).name;
         const uint8_t style = styleOf(bname);
         uint8_t tx = 0, ty = 0, ex = 0, ey = 0;
         if (table) {
-            const BlockRenderInfo& b = table->get(t.block);
+            const BlockRenderInfo& b = table->get(block);
             tx = b.tileX[0]; ty = b.tileY[0];             // the top tile for the courses
             ex = b.tileX[2]; ey = b.tileY[2];             // the side tile for the edges
         }

@@ -118,6 +118,42 @@ public:
         // bodies collide with fallen logs; raycasts hit them
         physics->setLooseSolids([this](int x, int y, int z) { return wood && wood->solidAt(x, y, z); });
         sim.attachWorld(physics.get(), wood.get());
+        // NPCs open and shut doors (villagers going home)
+        sim.doorHook = [this](uint32_t id, bool open, const std::function<bool(glm::ivec3)>& bodyBlocks) {
+            StructureInstance* d = structs ? structs->get(id) : nullptr;
+            if (!d) return false;
+            if ((d->state != 0) == open) return true;
+            return structs->toggleDoor(*d, EditSource::Script, bodyBlocks).empty();
+        };
+        // roaming spawns (sim/Roaming.h): on or off is the world's
+        // setting; the world says what biome a spot is and whether
+        // it's no place for one (water, near anything built, a villager)
+        sim.roaming.enabled = gWorldSave.getRoamingSpawns();
+        sim.roaming.resetTimers();
+        sim.roaming.worldSpawn = glm::vec3(gen->spawnPoint(WORLD_SIZE_X, WORLD_SIZE_Z));
+        sim.roaming.hasWorldSpawn = true;
+        sim.roaming.biomeAt = [this](int x, int z) {
+            int e = gen ? (int)gen->column(x, z).eco : -1;
+            return e == 255 ? -1 : e;
+        };
+        sim.roaming.spotBlocked = [this](glm::vec3 p) -> std::string {
+            int x = (int)std::floor(p.x), y = (int)std::floor(p.y), z = (int)std::floor(p.z);
+            for (int dy : { 0, -1, 1 }) {
+                uint16_t id = world ? world->typeAtVoxel(x, y + dy, z) : 0;
+                if (id == BLOCK_WATER || id == BLOCK_LAVA) return "in water";
+            }
+            float r = gRoaming.settings.safeRadius, r2 = r * r;
+            for (const glm::vec3& b : built) {
+                float dx = b.x - p.x, dz = b.z - p.z;
+                if (dx * dx + dz * dz < r2) return "near something built";
+            }
+            for (auto& n : sim.npcs().all()) {
+                if (n->dead() || !(n->life.on || n->typeId == "guard")) continue;
+                float dx = n->position.x - p.x, dz = n->position.z - p.z;
+                if (dx * dx + dz * dz < r2) return "near a villager";
+            }
+            return "";
+        };
         if (int n = sim.npcs().load(path + "/npcs.dat")) std::cout << n << " NPCs loaded\n";
         std::ifstream tf(path + "/time.txt");
         float t; gClock.time = (tf >> t) ? std::fmod(std::fabs(t), 1.0f) : 0.35f;
@@ -132,6 +168,9 @@ public:
         wood = std::make_unique<Woodcutting>();
         physics->setLooseSolids([this](int x, int y, int z) { return wood && wood->solidAt(x, y, z); });
         sim.attachWorld(physics.get(), wood.get());
+        sim.roaming.enabled = false;            // the server spawns them
+        sim.roaming.biomeAt = nullptr;
+        sim.roaming.spotBlocked = nullptr;
     }
 
     // Where a chunk's voxels come from (worker threads may call
@@ -157,10 +196,12 @@ public:
     void syncSpawners() {
         if (!structs) return;
         placed.clear();
+        built.clear();
         structs->forEachInstance([this](const StructureInstance& si) {
             const StructureType* t = gStructures.get(si.type);
             if (t && t->kind == StructureKind::Spawner)
                 placed.push_back({ si.id, si.type, glm::vec3(si.origin) + glm::vec3(0.5f, 0.0f, 0.5f) });
+            if (!si.natural) built.push_back(glm::vec3(si.origin));     // (no roaming spawns near these)
         });
         sim.syncSpawners(placed);
     }
@@ -261,4 +302,5 @@ public:
 private:
     std::string path;
     std::vector<Spawners::Placed> placed;
+    std::vector<glm::vec3> built;              // every piece anyone built (syncSpawners), for roaming spawns
 };

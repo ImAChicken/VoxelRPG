@@ -17,6 +17,8 @@
 #   panel   the boards below the inside rail
 #   glass   window glass ("none": open)
 #   door    door boards
+#   roof    roof slopes (thatch, tiles, slate)
+#   floor   floors and ceilings
 # Finish (plain walls only: the timber, plinth and inlay walls keep
 # their own, in the palette's blocks):
 #   outside  plain | timber | plinth | inlay | frame
@@ -38,6 +40,8 @@ paint = ["plaster", "whitewash", "ochre_plaster", "wainscot", "planks", "dark_pl
 panel = ["wainscot", "dark_planks", "planks", "stone_bricks", "fieldstone"]
 glass = ["leaded_glass", "glass", "stained_glass_amber", "stained_glass_red", "stained_glass_green", "stained_glass_blue", "none"]
 door  = ["dark_planks", "planks", "wainscot", "timber_beam"]
+roof  = ["thatch", "roof_tiles", "slate", "dark_planks", "planks"]
+floor = ["planks", "dark_planks", "herringbone_bricks", "stone_bricks", "slate", "fieldstone", "limestone", "sandstone_cream"]
 
 # ── The curated palettes ──────────────────────────────────
 [[palette]]
@@ -54,6 +58,8 @@ paint   = "plaster"
 panel   = "wainscot"
 glass   = "leaded_glass"
 door    = "dark_planks"
+roof    = "thatch"
+floor   = "planks"
 
 [[palette]]
 name    = "ochre_farmhouse"
@@ -69,6 +75,8 @@ paint   = "whitewash"
 panel   = "planks"
 glass   = "glass"
 door    = "planks"
+roof    = "roof_tiles"
+floor   = "planks"
 
 [[palette]]
 name    = "fieldstone_cottage"
@@ -84,6 +92,8 @@ paint   = "whitewash"
 panel   = "dark_planks"
 glass   = "leaded_glass"
 door    = "dark_planks"
+roof    = "thatch"
+floor   = "dark_planks"
 
 [[palette]]
 name    = "brick_townhouse"
@@ -99,6 +109,8 @@ paint   = "plaster"
 panel   = "dark_planks"
 glass   = "glass"
 door    = "dark_planks"
+roof    = "roof_tiles"
+floor   = "herringbone_bricks"
 
 [[palette]]
 name    = "birch_lodge"
@@ -114,6 +126,8 @@ paint   = "planks"
 panel   = "wainscot"
 glass   = "glass"
 door    = "planks"
+roof    = "slate"
+floor   = "planks"
 
 [[palette]]
 name    = "desert_sandstone"
@@ -129,6 +143,8 @@ paint   = "ochre_plaster"
 panel   = "planks"
 glass   = "none"
 door    = "planks"
+roof    = "roof_tiles"
+floor   = "sandstone_cream"
 
 [[palette]]
 name    = "slate_keep"
@@ -144,3 +160,27 @@ paint   = "plaster"
 panel   = "dark_planks"
 glass   = "leaded_glass"
 door    = "dark_planks"
+roof    = "slate"
+floor   = "stone_bricks"
+
+# ── Special palettes ──────────────────────────────────────
+# tags: a village gives each kind of building a palette with that
+# tag if there is one (a church: "church"); palettes with tags are
+# never picked for a whole village
+[[palette]]
+name    = "chapel_stone"
+display = "Chapel Stone"
+tags    = ["church"]
+outside = "plinth"
+inside  = "paint"
+fill    = "limestone"
+post    = "stone_bricks"
+beam    = "stone_bricks"
+base    = "stone_bricks"
+inlay   = "slate"
+paint   = "whitewash"
+panel   = "dark_planks"
+glass   = "stained_glass_blue"
+door    = "dark_planks"
+roof    = "slate"
+floor   = "stone_bricks"

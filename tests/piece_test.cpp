@@ -51,7 +51,8 @@ int main() {
         const StructureType& dw = *T("plank_doorway_8");
         PieceSpec p; p.openW = 4; p.openH = 12;
         PieceSpec r = gStructures.resolve(dw, p);
-        check(r.openW == 9 && r.openH == 21, "a doorway is never under 3 x 7 ft (9 x 21)");
+        check(r.openW >= 9 && r.openW <= 10 && r.openH == 21, "a doorway is never under 3 x 7 ft (9 x 21)");
+        check((r.w - r.openW) % 2 == 0, "  the hole the same distance in from both ends");
         p = PieceSpec(); p.h = 12;
         r = gStructures.resolve(dw, p);
         check(r.h >= r.openH + 3, "a doorway wall stays tall enough for its door and a lintel (" + std::to_string(r.h) + ")");

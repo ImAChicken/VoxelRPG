@@ -1,0 +1,234 @@
+# Blueprint: a building made of build pieces (game/Blueprint.h).
+# Saved by the hammer's Copy tab; placed from its Blueprints tab and
+# by the village generator. Each part: its structure type, the low
+# corner of its box from the blueprint's low corner, its turn; a made
+# piece (wall, post, door) its own sizes and blocks (spec); chests
+# also keep items, or a loot table rolled when placed.
+#   front: the side the door faces, 0 north, 1 east, 2 south, 3 west
+
+name = "home_family"
+display = "Family Home"
+tags = ["house", "home", "village", "large"]
+size = [48, 68, 51]
+front = 2
+
+[[palette]]   # 0
+spec = ""
+
+[[palette]]   # 1
+spec = "out=plain;in=plain;base=stone_bricks;beam=timber_beam;fill=planks;glass=none;inlay=bricks;paint=plaster;panel=wainscot;post=timber_post"
+
+[[palette]]   # 2
+spec = "floor=planks"
+
+[[palette]]   # 3
+spec = "beam=timber_beam;door=planks"
+
+[[palette]]   # 4
+spec = "roof=thatch"
+
+[[palette]]   # 5
+spec = "fill=planks"
+
+[[part]]
+type = "stone_foundation"
+at = [0, 0, 0]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [24, 0, 24]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [0, 0, 24]
+rot = 0
+palette = 0
+
+[[part]]
+type = "stone_foundation"
+at = [24, 0, 0]
+rot = 0
+palette = 0
+
+[[part]]
+type = "plank_wall_8"
+at = [0, 12, 24]
+rot = 1
+palette = 1
+
+[[part]]
+type = "plank_window_8"
+at = [0, 12, 0]
+rot = 1
+palette = 1
+
+[[part]]
+type = "plank_window_8"
+at = [24, 12, 0]
+rot = 0
+palette = 1
+
+[[part]]
+type = "plank_wall_8"
+at = [0, 12, 0]
+rot = 0
+palette = 1
+
+[[part]]
+type = "red_double_bed"
+at = [3, 12, 2]
+rot = 2
+
+[[part]]
+type = "nightstand"
+at = [16, 12, 2]
+rot = 0
+
+[[part]]
+type = "bookcase"
+at = [20, 12, 2]
+rot = 2
+
+[[part]]
+type = "large_rug"
+at = [18, 12, 20]
+rot = 0
+
+[[part]]
+type = "plank_doorway_8"
+at = [0, 12, 46]
+rot = 0
+palette = 1
+
+[[part]]
+type = "plank_wall_8"
+at = [46, 12, 0]
+rot = 1
+palette = 1
+
+[[part]]
+type = "blue_bed"
+at = [37, 12, 2]
+rot = 2
+
+[[part]]
+type = "crate"
+at = [20, 12, 42]
+rot = 0
+
+[[part]]
+type = "barrel"
+at = [25, 12, 42]
+rot = 0
+
+[[part]]
+type = "plank_window_8"
+at = [24, 12, 46]
+rot = 0
+palette = 1
+
+[[part]]
+type = "plank_window_8"
+at = [46, 12, 24]
+rot = 1
+palette = 1
+
+[[part]]
+type = "wardrobe"
+at = [41, 12, 21]
+rot = 3
+
+[[part]]
+type = "hearth"
+at = [30, 12, 30]
+rot = 0
+
+[[part]]
+type = "bench"
+at = [4, 12, 40]
+rot = 0
+
+[[part]]
+type = "table"
+at = [4, 12, 31]
+rot = 0
+
+[[part]]
+type = "oak_chair"
+at = [6, 12, 27]
+rot = 2
+
+[[part]]
+type = "oak_chair"
+at = [12, 12, 27]
+rot = 2
+
+[[part]]
+type = "wooden_chest"
+at = [5, 12, 20]
+rot = 0
+items = [["planks", 8], ["torch", 4]]
+label = "Linen chest"
+
+[[part]]
+type = "plank_ledged_door"
+at = [7, 12, 46]
+rot = 0
+palette = 3
+
+[[part]]
+type = "table_candle"
+at = [13, 21, 35]
+rot = 0
+
+[[part]]
+type = "wall_lantern"
+at = [2, 27, 48]
+rot = 2
+
+[[part]]
+type = "wall_lantern"
+at = [2, 27, 33]
+rot = 1
+
+[[part]]
+type = "wall_sconce"
+at = [8, 32, 2]
+rot = 2
+
+[[part]]
+type = "plank_floor_8"
+at = [0, 42, 0]
+rot = 0
+spec = "w=48;d=48"
+palette = 2
+
+[[part]]
+type = "thatch_roof_8x8"
+at = [0, 44, 0]
+rot = 0
+spec = "w=48"
+palette = 4
+
+[[part]]
+type = "thatch_roof_8x8"
+at = [0, 44, 24]
+rot = 2
+spec = "w=48"
+palette = 4
+
+[[part]]
+type = "plank_gable_16"
+at = [0, 44, 0]
+rot = 1
+palette = 5
+
+[[part]]
+type = "plank_gable_16"
+at = [46, 44, 0]
+rot = 1
+palette = 5

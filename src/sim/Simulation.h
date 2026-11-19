@@ -2,10 +2,13 @@
 #include "../entity/Player.h"
 #include "../npc/NpcManager.h"
 #include "../npc/Pathfinder.h"
+#include "../world/DayClock.h"
+#include <functional>
 #include "../npc/Encounters.h"
 #include "../game/CombatHits.h"
 #include "BodyPoses.h"
 #include "Spawners.h"
+#include "Roaming.h"
 #include "../physics/IPhysics.h"
 #include "../world/Woodcutting.h"
 #include "../chunk/ChunkManager.h"
@@ -96,6 +99,7 @@ public:
         landings.clear();
     }
     bool hasWorld() const { return physics != nullptr; }
+    const IPhysics& physicsRef() const { return *physics; }
 
     // ── Bodies ────────────────────────────────────────────
     Player& addPlayer() {
@@ -192,6 +196,7 @@ public:
         for (auto& p : playerList) if (p->rules().hasBody) where.push_back(p->position);
         npcList.tick(dt, *physics, *this, heard, where);
         spawnerList.tick(dt, *physics, npcList, where);       // spawner structures keep NPCs coming
+        roaming.tick(dt, *physics, npcList, roamers(), gClock.time * 24.0f);   // roaming spawns (when the world has them on)
         for (EntityId id : npcList.takeClosedMenus()) {
             SimEvent e; e.kind = SimEvent::Kind::MenuClosed; e.a = id;
             events.push_back(e);
@@ -299,6 +304,20 @@ public:
     // placed ones; the overlay and console read their state
     void syncSpawners(const std::vector<Spawners::Placed>& placed) { spawnerList.sync(placed, npcList); }
     const Spawners& spawners() const { return spawnerList; }
+    // Roaming spawns (sim/Roaming.h): on or off is a world setting
+    // (GameSession sets it from world.vxrp; console `roaming`)
+    Roaming roaming;
+    // the players it spawns for (with a body), each with where it's heading
+    std::vector<Roaming::Who> roamers() const {
+        std::vector<Roaming::Who> out;
+        for (auto& p : playerList) {
+            if (!p->rules().hasBody) continue;
+            glm::vec3 h(p->velocity.x, 0.0f, p->velocity.z);
+            if (glm::length(h) < 0.5f) h = p->facing;
+            out.push_back({ p->uuid, p->position, h });
+        }
+        return out;
+    }
 
     // The skeletons the hits use (debug overlay, tests)
     const BodyPoses& bodyPoses() const { return poses; }
@@ -706,6 +725,27 @@ public:
         return n->type->xp >= 0.0f ? n->type->xp : n->type->health / 4.0f;
     }
     float now() const override { return clock; }
+    float hourOfDay() const override { return gClock.time * 24.0f; }
+    // Doors for NPCs: the game that owns the structures sets this
+    // (server/GameSession.h): open or shut a door by its id
+    // (bodyBlocks: is a body in this voxel — a door doesn't swing
+    // through anyone, player or NPC)
+    std::function<bool(uint32_t door, bool open, const std::function<bool(glm::ivec3)>& bodyBlocks)> doorHook;
+    bool setDoor(uint32_t door, bool open) override {
+        if (!doorHook) return false;
+        std::vector<Human*> all = bodies();
+        return doorHook(door, open, [&all](glm::ivec3 p) {
+            for (const Human* h : all) {
+                float bottom = h->position.y, top = h->position.y + h->height;
+                if (p.y + 1.0f <= bottom || p.y >= top) continue;
+                float cx = std::fmax((float)p.x, std::fmin(h->position.x, p.x + 1.0f));
+                float cz = std::fmax((float)p.z, std::fmin(h->position.z, p.z + 1.0f));
+                float dx = cx - h->position.x, dz = cz - h->position.z;
+                if (dx * dx + dz * dz < Human::RADIUS * Human::RADIUS) return true;
+            }
+            return false;
+        });
+    }
     // Pathfinding (npc/Pathfinder.h). A straight walk when the way
     // is open and flat; otherwise a planned path, replanned when
     // the goal moves, the plan is old, or the NPC is stuck. Plans
@@ -719,7 +759,7 @@ public:
         // stuck: hardly moving while trying to walk
         if (glm::length(n.position - n.stuckFrom) > 1.0f) { n.stuckFrom = n.position; n.stuckFor = 0.0f; }
         else n.stuckFor += PHYS_DT;
-        bool stuck = n.stuckFor > 1.0f;
+        bool stuck = n.stuckFor > 1.0f / std::max(0.25f, n.intent.speedScale);   // (a stroll isn't stuck)
         // open and flat: straight there
         if (!stuck && flatDist < 24.0f && std::fabs(d.y) < nav::STEP_UP && walkable(n.position, goal)) {
             n.path.clear();

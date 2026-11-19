@@ -3,6 +3,7 @@
 #include "../character/Appearance.h"
 #include "NpcTypes.h"
 #include "ContextSteering.h"
+#include "VillageLife.h"
 #include "../game/Container.h"
 #include <glm/glm.hpp>
 #include <cmath>
@@ -70,6 +71,10 @@ public:
     virtual bool friendly(const Npc& who, const Human& other) const = 0;
     virtual void makeNoise(const Noise& n) = 0;
     virtual float now() const = 0;                           // s since the world started
+    virtual float hourOfDay() const { return 12.0f; }        // 0 - 24 (world/DayClock.h)
+    // Open (true) or shut a door (a structure id); false if it can't
+    // (no such door, blocked, or the game didn't say how)
+    virtual bool setDoor(uint32_t door, bool open) { (void)door; (void)open; return false; }
     // Where to walk next toward 'goal': the next point of a path
     // around obstacles (npc/Pathfinder.h). May set who.intent.jump
     // for a step too high to walk up.
@@ -130,6 +135,9 @@ public:
     std::vector<glm::vec3> patrol;     // waypoints
     int         patrolAt = 0;
     uint32_t    spawner = 0;           // the spawner structure it came from (instance id; 0 = none)
+    uint32_t    roamGroup = 0;         // a roaming spawn's group (sim/Roaming.h; 0 = not one)
+    float       roamAway = 0.0f;       // s it has been far from every player (roaming: goes after a while)
+    VillageLife life;                  // a villager: its bed, job and haunts (npc/Routine.h)
     Container   pack;                  // what it carries (unread: just its type's loot table).
                                        // Searched on its body with E once it's dead
 
@@ -189,6 +197,7 @@ public:
     // Sets intent.move (a world x/z direction, as physics reads
     // it) toward 'to'; returns the flat distance left
     float walkTo(NpcWorld& w, glm::vec3 to, float speed = 1.0f, bool run = false, float stopAt = 1.5f) {
+        intent.speedScale = speed;               // (steering reads it: a stroll isn't stuck)
         glm::vec3 next = w.steerToward(*this, to);
         glm::vec2 d(next.x - position.x, next.z - position.z);
         float left = glm::length(glm::vec2(to.x - position.x, to.z - position.z));

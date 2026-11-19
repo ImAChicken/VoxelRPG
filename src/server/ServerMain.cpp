@@ -224,9 +224,22 @@ int main(int argc, char** argv) {
                 for (auto& c : host.clients()) if (c->joined) std::printf("  %s  %.0f ms\n", c->name.c_str(), c->conn->pingMs());
             }
             else if (cmd == "save") saveAll(true);
+            else if (cmd == "roaming on" || cmd == "roaming off") {         // roaming enemy spawns (sim/Roaming.h)
+                sim.roaming.enabled = cmd == "roaming on";
+                sim.roaming.resetTimers();
+                gWorldSave.setRoamingSpawns(sim.roaming.enabled);
+                std::cout << "roaming spawns " << (sim.roaming.enabled ? "on" : "off") << "\n";
+            }
+            else if (cmd == "roaming reload") std::cout << (gRoaming.load() ? "roaming.toml reloaded\n" : "roaming.toml didn't load\n");
+            else if (cmd == "roaming") {
+                std::cout << "roaming spawns " << (sim.roaming.enabled ? "on" : "off") << ", " << sim.roaming.alive(sim.npcs())
+                          << " roaming in the world, " << sim.roaming.groupsMade << " groups made";
+                if (!sim.roaming.lastGroup.empty()) std::cout << "; last: " << sim.roaming.lastGroup;
+                std::cout << "\n";
+            }
             else if (cmd == "stop") gStop = true;
             else if (cmd == "quit-nosave") { save = false; gStop = true; }
-            else if (!cmd.empty()) std::cout << "commands: status, save, stop, quit-nosave\n";
+            else if (!cmd.empty()) std::cout << "commands: status, save, roaming [on|off|reload], stop, quit-nosave\n";
         }
         if (maxTicks >= 0 && ++ticks >= maxTicks) break;
 
