@@ -115,7 +115,14 @@ public:
 
     // ── Used by CharacterRenderer ─────────────────────────
     GLuint vao = 0, vbo = 0;
-    GLuint faceTex[2] = {0, 0};      // open, blink
+    // the painted face: eyes open / blinking × mouth shut … wide
+    // (FaceComposer::MOUTHS), [blink * MOUTHS + mouth]
+    GLuint faceTex[2 * FaceComposer::MOUTHS] = {};
+    // How open the mouth is (0 .. 1), set each frame while it talks
+    // (audio: AudioEngine::mouthOf)
+    void setTalk(float open) { talkOpen = open; }
+    int mouthShape() const { return talkOpen < 0.18f ? 0 : talkOpen < 0.55f ? 1 : 2; }
+    GLuint faceNow() const { return faceTex[(blinking() ? 1 : 0) * FaceComposer::MOUTHS + mouthShape()]; }
     std::array<GLint, BONE_COUNT>   first{};
     std::array<GLsizei, BONE_COUNT> count{};
 
@@ -127,6 +134,7 @@ private:
     CharacterAnimator animator;
     bool              built = false;
     float             blinkClock = 0.0f;
+    float             talkOpen = 0.0f;
     std::array<glm::mat4, BONE_COUNT> worldMats{};
     bool              useWorld = false;
     std::string       heldKind;
@@ -147,10 +155,10 @@ private:
         }
         uploadPartMesh(all, vao, vbo);
 
-        // the painted face, open and blinking
+        // the painted face, open and blinking, each with its mouth shapes
         std::vector<uint8_t> px;
-        for (int k = 0; k < 2; k++) {
-            gFaces.compose(look, k == 1, px);
+        for (int k = 0; k < 2 * FaceComposer::MOUTHS; k++) {
+            gFaces.compose(look, k / FaceComposer::MOUTHS == 1, px, k % FaceComposer::MOUTHS);
             if (!faceTex[k]) glGenTextures(1, &faceTex[k]);
             glBindTexture(GL_TEXTURE_2D, faceTex[k]);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -168,10 +176,10 @@ private:
         if (heldVao) glDeleteVertexArrays(1, &heldVao);
         if (offVbo) glDeleteBuffers(1, &offVbo);
         if (offVao) glDeleteVertexArrays(1, &offVao);
-        if (faceTex[0]) glDeleteTextures(2, faceTex);
+        if (faceTex[0]) glDeleteTextures(2 * FaceComposer::MOUTHS, faceTex);
         vao = vbo = heldVao = heldVbo = offVao = offVbo = 0;
         heldCount = offCount = 0; heldKind.clear(); offKind.clear();
-        faceTex[0] = faceTex[1] = 0;
+        for (GLuint& t : faceTex) t = 0;
     }
 };
 
@@ -435,7 +443,7 @@ void main() {
             glUniform3f(loc(face, "uTint"), t.x, t.y, t.z);
         }
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, ch.faceTex[ch.blinking() ? 1 : 0]);
+        glBindTexture(GL_TEXTURE_2D, ch.faceNow());
         glUniform1i(loc(face, "uFace"), 0);
         glBindVertexArray(quadVao);
         glDrawArrays(GL_TRIANGLES, 0, 6);

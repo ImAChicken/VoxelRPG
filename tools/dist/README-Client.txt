@@ -35,6 +35,23 @@ Tab      lock on       E      interact    I     inventory
 F5       camera        F2     screenshot  Esc   menu
 Change them in Esc -> Controls.
 
+Controller
+----------
+Any Xbox / PlayStation / Switch style pad. Buttons are named by where they
+sit (the game shows pictures), so A is the bottom face button on any pad.
+Left stick  move       Right stick  look         A      jump
+L3          crouch     R3           lock on      Select tap: draw / put away weapon
+Select + Start         inventory and the menu (Save, Settings, Quit ...)
+Hold Start  quick spells (D-pad / face buttons); Start + LB: interact
+Out of combat:  LT / RT  use / break   LB / RB  hotbar   B  sprint, roll
+                X  the tool's option (turn the hammer's piece)
+In combat:      RB light  RT heavy  LT guard / off hand  LB sprint, dodge
+                X Y B  abilities   D-pad  next ability, down: next weapon set
+In menus: D-pad / stick moves, A picks (hold A and move to drag), B goes back.
+The bottom right of the screen shows what each button does right now
+(Settings -> Control hints turns that off). Typing (world and server names)
+needs the keyboard. Change buttons in the menu -> Controls -> Controller.
+
 On a server for now you can walk, see each other, fight, and sort your
 inventory. Building, chests and tools there are coming.
 

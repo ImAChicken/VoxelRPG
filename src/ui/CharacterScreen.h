@@ -5,6 +5,7 @@
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <chrono>
+#include <functional>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -59,7 +60,13 @@ public:
     float previewTurn() const { return turn; }
     float previewFocus() const { return focus; }     // 0 whole body … 1 head
     // True if Esc only left the name box (once per press)
-    bool  escLeftTyping() { bool u = escUsed || nameFocus; escUsed = false; return u; }
+    bool  escLeftTyping() { bool u = escUsed || nameFocus || lineFocus; escUsed = false; return u; }
+
+    // The Voice tab's Speak: main plays it (audio), from the preview
+    // so its mouth moves (CharacterScreen doesn't know the sound engine)
+    std::function<void(const Voice&, const std::string&)> speakTest;
+    // Typing in the test line or a favourite's name (keys go there)
+    bool typing() const { return lineFocus || nameFocus; }
 
     struct Rect { int x = 0, y = 0, w = 0, h = 0; };
 
@@ -82,10 +89,17 @@ public:
 
     // Text for the favorite's name (GLFW callbacks via main)
     void onChar(unsigned int c) {
+        if (lineFocus && c >= 32 && c <= 126) { if (testLine.size() < 90) testLine += (char)c; return; }
         if (!nameFocus || c < 32 || c > 126 || c == '[' || c == ']') return;
         if (favName.size() < 24) favName += (char)c;
     }
     void onKey(int key) {
+        if (lineFocus) {
+            if (key == GLFW_KEY_BACKSPACE && !testLine.empty()) testLine.pop_back();
+            if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) speakNow();
+            if (key == GLFW_KEY_ESCAPE) { lineFocus = false; escUsed = true; }
+            return;
+        }
         if (!nameFocus) return;
         if (key == GLFW_KEY_BACKSPACE && !favName.empty()) favName.pop_back();
         if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) saveFavorite();
@@ -111,9 +125,9 @@ public:
         ui.drawText("Character", px + 16, py + 12, theme.title, 2);
 
         // Tabs
-        static const char* TABS[] = { "Body", "Face", "Hair", "Outfit", "Favorites", "Animations" };
+        static const char* TABS[] = { "Body", "Face", "Hair", "Outfit", "Favorites", "Moves", "Voice" };
         {
-            const int NT = 6;
+            const int NT = 7;
             float tx = px + 16, tw = (pw - 32 - 4 * (NT - 1)) / (float)NT, ty = py + 40, th = 30;
             for (int i = 0; i < NT; i++) {
                 float bx = tx + i * (tw + 4);
@@ -122,7 +136,7 @@ public:
                 ui.drawBorder(bx, ty, tw, th, sel ? theme.accent : theme.buttonBorder, sel ? 2.0f : 1.0f);
                 int sc = ui.textWidth(TABS[i], 2) <= tw - 6 ? 2 : 1;
                 ui.drawTextCentered(TABS[i], bx, ty, tw, th, sel || hov ? theme.textHover : theme.text, sc);
-                if (hov && clicked() && tab != i) { tab = i; nameFocus = false; confirmDelete = -1; if (i == 5) turn = 20.0f; }
+                if (hov && clicked() && tab != i) { tab = i; nameFocus = lineFocus = false; confirmDelete = -1; if (i == 5) turn = 20.0f; }
             }
             ui.drawRect(px + 16, ty + th + 6, pw - 32, 1, theme.border);
         }
@@ -139,6 +153,7 @@ public:
         case 3: outfitTab(ui);    break;
         case 4: favoritesTab(ui, px, pw, py + ph - (float)theme.buttonH - 24); break;
         case 5: animationsTab(ui, px, pw, py + ph - (float)theme.buttonH - 24, dt); break;
+        case 6: voiceTab(ui, px, pw); break;
         }
 
         // Buttons
@@ -171,8 +186,8 @@ public:
             if (over && clicked()) spinning = true;
             if (!mouseDown) spinning = false;
             if (spinning) turn += (float)(mx - pmx) * 0.6f;
-            else if (dragging < 0 && tab != 1 && tab != 5) turn += dt * 20.0f;   // slow turntable (not while watching animations)
-            else if (tab == 1 && !spinning) {                          // face tab: ease to the front
+            else if (dragging < 0 && tab != 1 && tab != 5 && tab != 6) turn += dt * 20.0f;   // slow turntable (not while watching animations)
+            else if ((tab == 1 || tab == 6) && !spinning) {            // face and voice tabs: ease to the front
                 float d = std::remainder(0.0f - turn, 360.0f);
                 turn += d * (1.0f - std::exp(-dt * 4.0f));
             }
@@ -180,9 +195,11 @@ public:
             preview = {};
         }
         // Face and Hair tabs move the camera in on the head
-        float want = tab == 1 ? 1.0f : tab == 2 ? (edit.extra == 3 ? 0.55f : 0.8f) : 0.0f;
+        float want = tab == 1 || tab == 6 ? 1.0f : tab == 2 ? (edit.extra == 3 ? 0.55f : 0.8f) : 0.0f;
         focus += (want - focus) * (1.0f - std::exp(-dt * 6.0f));
 
+        // a voice slider let go: hear what it sounds like now
+        if (!mouseDown && dragging >= VOICE_SLIDERS && dragging < VOICE_SLIDERS + 20) speakNow();
         if (!mouseDown) dragging = -1;
         edit.clamp();
         ui.end();
@@ -190,7 +207,7 @@ public:
     }
 
     // Esc from main: same as Cancel
-    void cancel() { edit = original; accepted = false; nameFocus = false; }
+    void cancel() { edit = original; accepted = false; nameFocus = lineFocus = false; }
 
 private:
     GLFWwindow* window;
@@ -208,6 +225,12 @@ private:
     int    animCat = 0, animSel = 0, animPage = 0, animSpeed = 3;
     float  animTime = 0.0f;
     bool   animPlaying = true, animLoop = true;
+
+    // voice tab
+    std::string testLine = "Hello there! Nice weather today.";
+    bool   lineFocus = false;
+    static constexpr int VOICE_SLIDERS = 200;   // slider ids
+    void speakNow() { if (speakTest) speakTest(edit.voice, testLine.empty() ? std::string("Hello.") : testLine); }
 
     // favorites tab
     std::string favName, status;
@@ -278,6 +301,51 @@ private:
         swatches(ui, gPalettes.cloth, edit.bottomColor);
         label(ui, "Shoes");
         pickGrid(ui, look::SHOES, look::count(look::SHOES), edit.shoes, 3);
+    }
+
+    // How they sound (audio/Voice.h, audio/VoiceSynth.h). Every slider
+    // speaks the test line when let go, so the range is easy to hear.
+    void voiceTab(UIRenderer& ui, float px, float pw) {
+        const auto& theme = gResourcePacks.getTheme();
+        Voice& v = edit.voice;
+        struct S { const char* name; float* val; const char* lo; const char* hi; };
+        S rows[] = { { "Pitch", &v.pitch, "low", "high" }, { "Tune", &v.range, "flat", "sing-song" },
+                     { "Size", &v.size, "tiny", "huge" }, { "Speed", &v.speed, "slow", "fast" },
+                     { "Breath", &v.breath, "clear", "breathy" }, { "Rough", &v.rough, "smooth", "gravel" },
+                     { "Nasal", &v.nasal, "open", "nasal" }, { "Loudness", &v.volume, "quiet", "loud" } };
+        int id = VOICE_SLIDERS;
+        for (S& r : rows) {
+            label(ui, r.name);
+            ui.drawText(r.lo, cx, y - 1, theme.textDim, 1);
+            ui.drawText(r.hi, cx + cw - ui.textWidth(r.hi, 1), y - 1, theme.textDim, 1);
+            y += 4;
+            slider(ui, id++, r.val, 0.0f, 1.0f);
+            y -= 6;
+        }
+        label(ui, "Style");
+        static const char* STY[Voice::STYLE_COUNT] = { "Soft", "Chirpy", "Grunty" };
+        int st = v.style;
+        pickGrid(ui, STY, Voice::STYLE_COUNT, st, 3);
+        if (st != v.style) { v.style = st; speakNow(); }
+        // the test line: type anything, Enter or Speak plays it
+        float x = px + 16, w = pw - 32, bh = (float)theme.buttonH;
+        ui.drawText("Say something", x, y + 4, theme.text, 2);
+        y += 26;
+        float inW = w - 230;
+        if (clicked()) lineFocus = hovered(x, y, inW, bh);
+        {
+            // a long line: the box shows its end (where you're typing)
+            int fit = std::max(4, (int)((inW - 2.0f * theme.buttonPad - 4.0f) / std::max(1, ui.textWidth("M", 2))));
+            std::string shown = (int)testLine.size() > fit ? testLine.substr(testLine.size() - fit) : testLine;
+            drawInput(ui, shown, "type a line to hear", x, y, inW, lineFocus, std::fmod(caret, 1.0f) < 0.55f);
+        }
+        if (button(ui, "Speak", x + inW + 10, y, 100, bh)) speakNow();
+        if (button(ui, "New voice", x + inW + 120, y, 110, bh)) {
+            v = Voice::random((uint32_t)std::chrono::steady_clock::now().time_since_epoch().count());
+            speakNow();
+        }
+        y += bh + 6;
+        ui.drawText("sliders speak the line when let go; Enter speaks while typing", x, y, theme.textDim, 1);
     }
 
     void favoritesTab(UIRenderer& ui, float px, float pw, float bottom) {

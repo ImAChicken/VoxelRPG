@@ -45,8 +45,14 @@ public:
     }
     bool isLoaded() const { return loaded; }
 
-    // blink = both eyes closed. out: R*R*4 bytes, RGBA.
-    void compose(const Appearance& a, bool blink, std::vector<uint8_t>& out) const {
+    // How many mouth shapes a face is painted in: shut (the painted
+    // mouth), a little open, open (talking: audio/VoiceSynth.h's mouth
+    // track picks one)
+    static constexpr int MOUTHS = 3;
+
+    // blink = both eyes closed; talk = 0 shut … MOUTHS-1 wide.
+    // out: R*R*4 bytes, RGBA.
+    void compose(const Appearance& a, bool blink, std::vector<uint8_t>& out, int talk = 0) const {
         out.assign((size_t)R * R * 4, 0);
         if (!loaded) return;
         const int st = a.eyeStyle, ex = a.expression;
@@ -55,6 +61,7 @@ public:
         over(out, extras, modern ? 1 : 2, 0);
         if (modern) over(out, extras, 0, 0);
         over(out, mouths, ex, modern ? 1 : 0);
+        if (talk > 0) openMouth(out, mouths, ex, modern ? 1 : 0, talk);
         // brows in the hair colour
         // the eyes and brows move together with the eye height slider
         const int dy = a.eyeHeight;
@@ -70,6 +77,29 @@ public:
 
 private:
     struct Img { int w = 0, h = 0; std::vector<uint8_t> px; };
+
+    // An open mouth over the painted one: a dark oval, centred where
+    // the painted mouth is (any style, any pack), as wide as it and
+    // taller the more open. A lighter lip edge keeps it soft.
+    void openMouth(std::vector<uint8_t>& out, const Img& img, int col, int row, int talk) const {
+        int x0 = R, y0 = R, x1 = -1, y1 = -1;
+        for (int y = R / 2; y < R; y++) for (int x = 0; x < R; x++)     // the lower half: the mouth, not the brows
+            if (const uint8_t* p = cell(img, col, row, x, y); p && p[3] > 60) {
+                x0 = std::min(x0, x); x1 = std::max(x1, x); y0 = std::min(y0, y); y1 = std::max(y1, y);
+            }
+        if (x1 < 0) { x0 = R / 2 - 4; x1 = R / 2 + 4; y0 = y1 = (int)(R * 0.72f); }
+        float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f + 0.5f;
+        float rx = std::max(3.0f, (x1 - x0 + 1) * (talk == 1 ? 0.42f : 0.5f));
+        float ry = talk == 1 ? 2.2f : 4.2f;
+        const uint8_t inside[4] = { 70, 28, 32, 255 }, lip[4] = { 120, 55, 55, 255 };
+        for (int y = (int)(cy - ry - 2); y <= (int)(cy + ry + 2); y++)
+            for (int x = (int)(cx - rx - 2); x <= (int)(cx + rx + 2); x++) {
+                if (x < 0 || y < 0 || x >= R || y >= R) continue;
+                float dx = (x + 0.5f - cx) / rx, dy = (y + 0.5f - cy) / ry, d = dx * dx + dy * dy;
+                if (d <= 1.0f) blend(out, ((size_t)y * R + x) * 4, inside, inside[0], inside[1], inside[2]);
+                else if (d <= 1.45f) blend(out, ((size_t)y * R + x) * 4, lip, lip[0], lip[1], lip[2]);
+            }
+    }
     Img eyes, iris, brows, mouths, extras;
     bool loaded = false;
 

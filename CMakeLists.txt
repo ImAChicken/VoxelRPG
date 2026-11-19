@@ -61,7 +61,17 @@ FetchContent_Declare(
     GIT_TAG        v1.3.18
 )
 
-FetchContent_MakeAvailable(glfw glm tomlplusplus ozz enet)
+# miniaudio: the sound device and mixing in the game (audio/AudioEngine.cpp
+# is the only file that compiles it; the synths and acoustics are plain
+# headers the tests use too). One header, no CMake project of its own:
+# only fetched, never built as a subproject.
+FetchContent_Declare(
+    miniaudio
+    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG        0.11.21
+)
+
+FetchContent_MakeAvailable(glfw glm tomlplusplus ozz enet miniaudio)
 
 # Find OpenGL
 find_package(OpenGL REQUIRED)
@@ -114,6 +124,7 @@ add_executable(VoxelRPG ${SOURCES})
 target_include_directories(VoxelRPG PRIVATE
     src
     src/glad/include
+    ${miniaudio_SOURCE_DIR}
 )
 
 target_link_libraries(VoxelRPG PRIVATE
@@ -121,6 +132,9 @@ target_link_libraries(VoxelRPG PRIVATE
     glfw
     OpenGL::GL
 )
+if(UNIX AND NOT APPLE)
+    target_link_libraries(VoxelRPG PRIVATE ${CMAKE_DL_LIBS} m)   # miniaudio loads the sound backends at run time
+endif()
 
 # ── The dedicated server: no window, no graphics ─────────
 #   VoxelRPG-Server [world] [--dev] [--port N]   (server/ServerMain.cpp)
@@ -153,7 +167,7 @@ endif()
 # ── Tests ─────────────────────────────────────────────────
 # Headless test programs (no window, no OpenGL). Off by default:
 #   cmake -B build -DVOXELRPG_TESTS=ON
-#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test parts_test blueprint_test slope_test steer_test controls_test slime_test spell_test server_test net_test
+#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test parts_test blueprint_test slope_test steer_test controls_test slime_test spell_test server_test net_test sound_test
 #   build/bin/Release/ragdoll_test      (build/bin/ragdoll_test elsewhere)
 #   build/bin/Release/woodcut_test      (from the repo root: it reads data/)
 #   build/bin/Release/combat_test
@@ -195,7 +209,13 @@ if(VOXELRPG_TESTS)
     add_executable(server_test tests/server_test.cpp)
     add_executable(net_test tests/net_test.cpp)
     add_executable(net_bot tests/net_bot.cpp)      # a screenless player for trying a server (not a test)
-    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test parts_test blueprint_test slope_test steer_test controls_test slime_test spell_test server_test net_test net_bot)
+    # sound_test: the synths, acoustics and the engine on a pretend device
+    add_executable(sound_test tests/sound_test.cpp src/audio/AudioEngine.cpp)
+    target_include_directories(sound_test PRIVATE ${miniaudio_SOURCE_DIR})
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(sound_test PRIVATE ${CMAKE_DL_LIBS} m)
+    endif()
+    foreach(t ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test parts_test blueprint_test slope_test steer_test controls_test slime_test spell_test server_test net_test net_bot sound_test)
         target_link_libraries(${t} PRIVATE voxelrpg_core)
         if(MSVC)
             target_compile_options(${t} PRIVATE /utf-8)

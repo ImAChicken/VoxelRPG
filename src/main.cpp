@@ -85,6 +85,7 @@
 #include "world/WorldSaveManager.h"
 #include "world/WorldEditor.h"
 #include "world/WorldStreamer.h"
+#include "audio/SoundDirector.h"
 
 constexpr int WIN_W = 1280;
 constexpr int WIN_H = 720;
@@ -238,6 +239,12 @@ int main() {
     gMovesets.load("data/registry/movesets.toml");
     gHeldModels.loadDir("data/models/held");
     gFactions.load("data/registry/factions.toml");
+
+    // Sound (audio/): how materials sound, then the device. No device:
+    // the game runs silent
+    sound::gMaterials.load("data/audio/materials.toml");
+    sound::gMaterials.bind();
+    sound::gAudio.init();
     gLoot.load("data/registry/loot.toml");
     gKits.load("data/registry/kits.toml");
     gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
@@ -363,6 +370,8 @@ int main() {
     gConsole  = &console;
     gControls = &controlsScreen;
     gCharScreen = &characterScreen;
+    // the Voice tab's test line: spoken from the preview (its mouth moves)
+    characterScreen.speakTest = [](const Voice& v, const std::string& line) { sound::gSounds.sayPreview(v, line); };
 
     // Messages from commands, tools and saving go to the
     // console (and the terminal)
@@ -378,6 +387,8 @@ int main() {
     // the player's hands (break / place / use tool).
     DevTools          dev;
     PlayerInteraction hands;
+    // its edits make their sounds (breaking, placing, doors …: audio/SoundDirector.h)
+    hands.onRequest = [](const WorldRequest& q, uint16_t before, uint16_t placed) { sound::gSounds.onRequest(q, before, placed); };
     BuildTool         build;       // the Builder's Hammer
     hud.build = &build;
     CommandRegistry   commands;
@@ -1007,6 +1018,7 @@ int main() {
             // the left hand: the active off-hand slot
             // (in combat: the loadout's off hand, a shield …)
             playerBody->setOffhandModel(Simulation::offHandOf(player));
+            playerBody->setTalk(sound::gAudio.mouthOf(player.uuid));
             playerBody->animate(in, frameDt);
 
             // Ragdoll: follows this pose (at the physics position);
@@ -1090,6 +1102,7 @@ int main() {
                     ch->setHeldModel(wid ? gItems.get(wid).heldModel : std::string());
                     ch->setOffhandModel(Simulation::offHandOf(n));
                 }
+                ch->setTalk(sound::gAudio.mouthOf(n.uuid));        // speaking: its mouth moves (audio)
                 ch->animate(animFor(n, true, 0.0f), frameDt);
                 const CharacterModel& model = ch->getModel();
                 BoneMats target, drawn, out;
@@ -1639,6 +1652,8 @@ int main() {
             // F6 — hot reload blocks.toml and items.toml
             if (gInput.isPressed(InputAction::ReloadRegistry)) {
                 gRegistry.load("data/registry/blocks.toml");
+                sound::gMaterials.load("data/audio/materials.toml");
+                sound::gMaterials.bind();
                 gItems.load(gRegistry, "data/registry/items.toml");
                 gMovesets.load("data/registry/movesets.toml");
                 gHeldModels.loadDir("data/models/held");
@@ -1909,6 +1924,20 @@ int main() {
                     }
                     remote->events.clear();
                 }
+                {
+                    // the world's sounds: steps, swings, hits, barks, the wind (audio/SoundDirector.h)
+                    float exposure = 0.0f;
+                    if (streamer) {
+                        glm::vec3 e = camera.position;
+                        float sky = light::skyOf(streamer->lightAt(e.x, e.y, e.z)) / 15.0f;
+                        float shade = streamer->canopyAt(e.x, e.y, e.z);
+                        float high = std::clamp((e.y - 160.0f) / 400.0f, 0.0f, 1.0f);   // above the sea (IslandGenerator::SEA_LEVEL)
+                        exposure = sky * sky * (1.0f - shade * 0.7f) * (0.6f + 0.4f * high);
+                    }
+                    sound::gSounds.frame(dt, sim, npcs, player, happened,
+                                         [&](int x, int y, int z) -> uint16_t { return world ? world->typeAtVoxel(x, y, z) : 0; },
+                                         exposure, glfwGetTime());
+                }
                 for (const SimEvent& e : happened) {
                     gOutlineFx.onEvent(e);       // flashing outlines (hurt, blocked …)
                     if (e.kind == SimEvent::Kind::Hit && e.parried && e.b == player.uuid) say("parried - strike now for a riposte");
@@ -1956,7 +1985,7 @@ int main() {
                             hud.review.push_back(b2);
                             std::snprintf(b2, sizeof(b2), "XP +%.0f%s", t.xp, en->players.size() > 1 ? "  (shared)" : "");
                             hud.review.push_back(b2);
-                            hud.review.push_back("loot: E on a body searches it");
+                            hud.review.push_back("loot: {interact} on a body searches it");
                             hud.reviewAge = 0.0f;
                         }
                         break;
@@ -2071,7 +2100,11 @@ int main() {
                             if (flat < bestD) { bestD = flat; best = n.get(); }
                         }
                         if (best) {
-                            if (sim.openMenu(best->uuid, player.uuid)) { talkingTo = best->uuid; say("talking to " + best->name + " ({interact} to leave)"); }
+                            if (sim.openMenu(best->uuid, player.uuid)) {
+                                talkingTo = best->uuid;
+                                say("talking to " + best->name + " ({interact} to leave)");
+                                sound::gSounds.bark(*best, "greet");
+                            }
                             else say(best->name + " won't talk now");
                         }
                     }
@@ -2281,6 +2314,7 @@ int main() {
                     if (n.find("TreeChopping") != std::string::npos) held = "axe";
                 }
                 previewBody->setHeldModel(held);
+                previewBody->setTalk(sound::gAudio.mouthOf(sound::SoundDirector::PREVIEW));   // the Voice tab's test line
                 previewBody->animate(idle, dt);
                 charRenderer.drawPreview(*previewBody, pr.x, pr.y, pr.w, pr.h,
                                          gRenderer->getScreenWidth(), gRenderer->getScreenHeight(),
@@ -2320,6 +2354,18 @@ int main() {
         }
 
         gNav.drawFocus(*gRenderer->getUIRenderer());   // the controller's focus, over the menu
+
+        // ── Sound: the ears at the camera; the settings' volumes ─
+        sound::gAudio.setMaster(gSettings.masterVolume);
+        sound::gAudio.setBus(sound::Bus::Effects, gSettings.effectsVolume);
+        sound::gAudio.setBus(sound::Bus::Voices, gSettings.voiceVolume);
+        sound::gAudio.setBus(sound::Bus::Ambience, gState == GameState::MainMenu ? 0.0f : gSettings.ambienceVolume);
+        sound::gAudio.setMuffling(gSettings.soundWalls != 0);
+        sound::gAudio.setListener(camera.position, camera.front, camera.up);
+        sound::gAudio.update(dt,
+            [&](uint64_t who, glm::vec3& at) { return sound::gSounds.where(who, at, sim); },
+            [&](int x, int y, int z) -> uint16_t { return world && gState != GameState::MainMenu ? world->typeAtVoxel(x, y, z) : 0; });
+
         gRenderer->endFrame();
         glfwSwapBuffers(window);
 

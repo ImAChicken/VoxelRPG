@@ -125,7 +125,7 @@ public:
         if (reviewAge < REVIEW_TIME && !review.empty()) {
             float a = popupAlpha(reviewAge, REVIEW_TIME);
             float pw = 0.0f;
-            for (size_t i = 0; i < review.size(); i++) pw = std::max(pw, (float)ui.textWidth(review[i], i ? 2 : 3));
+            for (size_t i = 0; i < review.size(); i++) pw = std::max(pw, i ? keytext::width(ui, review[i], 2) : (float)ui.textWidth(review[i], 3));
             pw += 48.0f;
             float ph = 30.0f + 34.0f + (review.size() - 1) * 24.0f;
             float px = (sw - pw) * 0.5f, py = sh * 0.30f;
@@ -135,7 +135,7 @@ public:
             ui.drawRect(px, py, pw, ph, bg);
             ui.drawText(review[0], px + (pw - ui.textWidth(review[0], 3)) * 0.5f, py + 14, title, 3);
             for (size_t i = 1; i < review.size(); i++)
-                ui.drawText(review[i], px + 24, py + 30 + 34 + (i - 1) * 24.0f - 20, text, 2);
+                keytext::draw(ui, review[i], px + 24, py + 30 + 34 + (i - 1) * 24.0f - 20, text, 2);
         }
 
         // ── Talking to an NPC (a placeholder menu) ────────

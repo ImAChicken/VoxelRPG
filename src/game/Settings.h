@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <initializer_list>
 #include <fstream>
 #include <iostream>
 
@@ -51,6 +52,14 @@ struct GameSettings {
     int autosave = 1;        // 0 off, 1 on
     int controlHints = 1;    // 0 off, 1 on: what the buttons do now, bottom right (out of combat)
 
+    // Sound (audio/AudioEngine.h). Every in-world effect can go back
+    // to plain too: soundWalls 0 = only distance and direction
+    float masterVolume   = 0.8f;   // 0 .. 1
+    float effectsVolume  = 1.0f;   // steps, hits, blocks
+    float voiceVolume    = 1.0f;   // talk and barks
+    float ambienceVolume = 0.7f;   // the wind
+    int   soundWalls     = 1;      // 0 plain, 1 muffled through walls by material
+
     std::filesystem::path path = "data/settings.toml";
 
     void resetToDefaults() {
@@ -64,6 +73,7 @@ struct GameSettings {
         plantStyle = 1; waterStyle = 1;
         autosave = 1;
         controlHints = 1;
+        masterVolume = 0.8f; effectsVolume = 1.0f; voiceVolume = 1.0f; ambienceVolume = 0.7f; soundWalls = 1;
     }
 
     void clamp() {
@@ -80,6 +90,8 @@ struct GameSettings {
         waterStyle    = std::clamp(waterStyle, 0, 1);
         autosave      = std::clamp(autosave, 0, 1);
         controlHints  = std::clamp(controlHints, 0, 1);
+        for (float* v : { &masterVolume, &effectsVolume, &voiceVolume, &ambienceVolume }) *v = std::clamp(*v, 0.0f, 1.0f);
+        soundWalls    = std::clamp(soundWalls, 0, 1);
     }
 
     bool load() {
@@ -99,6 +111,11 @@ struct GameSettings {
             waterStyle    = (int)t["world"]["water"].value_or((int64_t)waterStyle);
             autosave      = (int)t["game"]["autosave"].value_or((int64_t)autosave);
             controlHints  = (int)t["game"]["control_hints"].value_or((int64_t)controlHints);
+            masterVolume   = (float)t["sound"]["master"].value_or((double)masterVolume);
+            effectsVolume  = (float)t["sound"]["effects"].value_or((double)effectsVolume);
+            voiceVolume    = (float)t["sound"]["voices"].value_or((double)voiceVolume);
+            ambienceVolume = (float)t["sound"]["ambience"].value_or((double)ambienceVolume);
+            soundWalls     = (int)t["sound"]["walls"].value_or((int64_t)soundWalls);
             clamp();
             return true;
         } catch (const std::exception& e) {
@@ -129,7 +146,13 @@ struct GameSettings {
           << "water  = " << waterStyle << "   # 0 plain, 1 moving: rivers run downstream\n\n"
           << "[game]\n"
           << "autosave = " << autosave << "   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)\n"
-          << "control_hints = " << controlHints << "   # 0 off, 1 on: what the buttons do now, bottom right\n";
+          << "control_hints = " << controlHints << "   # 0 off, 1 on: what the buttons do now, bottom right\n\n"
+          << "[sound]\n"
+          << "master   = " << masterVolume << "   # 0 - 1\n"
+          << "effects  = " << effectsVolume << "\n"
+          << "voices   = " << voiceVolume << "\n"
+          << "ambience = " << ambienceVolume << "   # the wind\n"
+          << "walls    = " << soundWalls << "   # 0 plain, 1 muffled through walls by what they're made of\n";
         return (bool)f;
     }
 };

@@ -305,9 +305,15 @@ public:
     }
     // Done here, or sent to the server
     void submit(const WorldRequest& q, Player& player, WorldEditor& editor, StructureManager& structs) {
+        uint16_t before = editor.typeAt(q.pos);
+        const ItemDef& used = gItems.get(q.item);
         if (remote) remote(q);
         else act(q, player, editor, structs);
+        if (onRequest) onRequest(q, before, used.is(IC_BLOCK) ? used.blockID : 0);
     }
+    // Each request made, after (the game plays its sound: audio/SoundDirector.h).
+    // before: the block that was at q.pos; placed: the block put down, if any
+    std::function<void(const WorldRequest&, uint16_t before, uint16_t placed)> onRequest;
 
     // While the copy prompt is up, 1 and 2 answer it instead
     // of picking toolbar slots

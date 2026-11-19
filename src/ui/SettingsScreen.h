@@ -39,6 +39,13 @@ public:
         addChoice("Water", &gSettings.waterStyle, { "Plain", "Moving" });
         addChoice("Auto save", &gSettings.autosave, { "Off", "On" });
         addChoice("Control hints", &gSettings.controlHints, { "Off", "On" });
+        // ── Sound ─────────────────────────────────────────
+        page("Sound");
+        addSlider("Volume",   &gSettings.masterVolume,   0.0f, 1.0f, [](float v) { return outOf100(v); });
+        addSlider("Effects",  &gSettings.effectsVolume,  0.0f, 1.0f, [](float v) { return outOf100(v); });
+        addSlider("Voices",   &gSettings.voiceVolume,    0.0f, 1.0f, [](float v) { return outOf100(v); });
+        addSlider("Wind",     &gSettings.ambienceVolume, 0.0f, 1.0f, [](float v) { return outOf100(v); });
+        addChoice("Through walls", &gSettings.soundWalls, { "Plain", "Muffled" });
     }
 
     void onEnter() override {
@@ -59,14 +66,36 @@ public:
         // behind stays visible while you adjust it
         float dim[4] = {0, 0, 0, 90};
         ui.drawRect(0, 0, sw, sh, dim);
-        float pw = 620.0f, ph = 120.0f + sliders.size() * 58.0f + choices.size() * 40.0f;
+        // the tallest page sets the panel (so it doesn't jump between tabs)
+        float tallest = 0.0f;
+        for (int pg = 0; pg < (int)pages.size(); pg++) {
+            float h = 0.0f;
+            for (const Slider& sl : sliders) if (sl.page == pg) h += 58.0f;
+            for (const Choice& c : choices) if (c.page == pg) h += 40.0f;
+            tallest = std::max(tallest, h);
+        }
+        float pw = 620.0f, ph = 120.0f + tallest;
         float px = (sw - pw) * 0.5f, py = std::max(10.0f, (sh - ph) * 0.5f - 80.0f);
         drawPanel(ui, px, py, pw, ph);
         ui.drawText("Settings", px + 16, py + 14, theme.title, 2);
+        // the tabs
+        {
+            float tx = px + 200;
+            for (int pg = 0; pg < (int)pages.size(); pg++) {
+                float tw = (float)ui.textWidth(pages[pg], 2) + 28.0f;
+                bool on = pg == shown, hov = hovered(tx, py + 8, tw, 30);
+                ui.drawRect(tx, py + 8, tw, 30, on ? theme.buttonBgHover : (hov ? theme.bgHover : theme.inputBg));
+                ui.drawBorder(tx, py + 8, tw, 30, on ? theme.accent : theme.border, on ? 2.0f : 1.0f);
+                ui.drawTextCentered(pages[pg], tx, py + 8, tw, 30, on ? theme.textHover : theme.text, 2);
+                if (hov && clicked()) { shown = pg; dragging = -1; }
+                tx += tw + 8;
+            }
+        }
 
         float y = py + 56;
         for (size_t i = 0; i < sliders.size(); i++) {
             Slider& s = sliders[i];
+            if (s.page != shown) continue;
             ui.drawText(s.label, px + 20, y, theme.text, 2);
             std::string val = s.format(*s.value);
             ui.drawText(val, px + pw - 20 - ui.textWidth(val, 2), y, theme.accent, 2);
@@ -92,6 +121,7 @@ public:
         }
         // Choice rows: click the value (or the arrows) to cycle
         for (Choice& c : choices) {
+            if (c.page != shown) continue;
             ui.drawText(c.label, px + 20, y + 8, theme.text, 2);
             const std::string& val = c.names[*c.value];
             float vw = 230.0f, vx = px + pw - 20 - vw, vh = 32.0f;
@@ -146,16 +176,22 @@ private:
         float* value;
         float  lo, hi;
         std::function<std::string(float)> format;
+        int page = 0;
     };
+    // Tabs: rows added after page("Name") go on it
+    std::vector<const char*> pages = { "General" };
+    int shown = 0;
+    void page(const char* name) { pages.push_back(name); }
     std::vector<Slider> sliders;
     struct Choice {
         std::string label;
         int* value;
         std::vector<std::string> names;
+        int page = 0;
     };
     std::vector<Choice> choices;
     void addChoice(const std::string& label, int* v, std::vector<std::string> names) {
-        choices.push_back({ label, v, std::move(names) });
+        choices.push_back({ label, v, std::move(names), (int)pages.size() - 1 });
     }
     GLFWwindow* window;
     int dragging = -1;
@@ -164,7 +200,7 @@ private:
 
     void addSlider(const std::string& label, float* v, float lo, float hi,
                    std::function<std::string(float)> fmt) {
-        sliders.push_back({ label, v, lo, hi, std::move(fmt) });
+        sliders.push_back({ label, v, lo, hi, std::move(fmt), (int)pages.size() - 1 });
     }
     // The UI font has no % sign, so: "x1.25" and "60 / 100"
     static std::string times(float v) {

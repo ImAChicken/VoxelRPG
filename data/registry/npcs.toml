@@ -66,6 +66,17 @@
 #                   path needs), lunge_speed and lunge_height (its
 #                   attack: a long hop at the target; how far that
 #                   carries is its fighting range)
+#   voice           how it sounds (audio/Voice.h; the character creator's
+#                   Voice tab shows the range): pitch, range (flat ..
+#                   sing-song), size (tiny .. huge throat), speed,
+#                   breath, rough, nasal, volume (all 0 .. 1) and style
+#                   ("soft", "chirpy", "grunty"). Left out: a person
+#                   uses their look's own voice
+#   voice_vary      how different each one of the type sounds (0 .. 0.3)
+#   barks           short lines it says by itself, mumbled in its voice
+#                   from its mouth (no dialogue box): spot (sees an
+#                   enemy), hurt, die, greet (talked to), idle. A list
+#                   each: one is picked at random
 #   contact         it hurts what it touches: damage, poise, knock
 #                   (vox/s it throws the target), every (s between
 #                   touches). Anything not on its side, not just
@@ -92,6 +103,9 @@ battle_cry = { range = 90, cooldown = 20 }
 slots = ["front", "rear_flank", "left", "right"]
 aggression = 0.75
 on_menu_attack = "interrupt"
+voice = { pitch = 0.3, range = 0.45, size = 0.6, speed = 0.55, breath = 0.15, rough = 0.35, nasal = 0.15, style = "soft" }
+voice_vary = 0.12
+barks = { spot = ["Hey! You there!", "Get him!", "Fresh meat!"], hurt = ["Agh!", "Gah!", "Ugh."], die = ["Nooo...", "Argh..."], greet = ["What do you want?"] }
 
 [[npc]]
 id = "swordsman"
@@ -111,6 +125,8 @@ alert_time = [0.4, 0.8]
 battle_cry = { range = 90, cooldown = 20 }
 slots = ["front", "rear_flank", "left", "right"]
 aggression = 0.75
+voice = { pitch = 0.25, range = 0.35, size = 0.65, speed = 0.45, breath = 0.1, rough = 0.25, nasal = 0.1, style = "soft" }
+barks = { spot = ["En garde!", "Draw your blade."], hurt = ["Hm!", "Tch."], die = ["Well... fought..."] }
 
 [[npc]]
 id = "guard"
@@ -134,6 +150,8 @@ battle_cry = { range = 120, cooldown = 15 }
 slots = ["front", "left", "right", "rear_flank"]
 aggression = 0.6
 on_menu_attack = "interrupt"
+voice = { pitch = 0.32, range = 0.3, size = 0.6, speed = 0.45, breath = 0.1, rough = 0.15, nasal = 0.2, style = "soft" }
+barks = { spot = ["Halt!", "Stop right there!"], hurt = ["Oof!", "Hngh!"], die = ["Tell... the captain..."], greet = ["Move along, citizen.", "Stay out of trouble."], idle = ["All quiet.", "Hm."] }
 
 [[npc]]
 id = "villager"
@@ -150,6 +168,8 @@ sight = { range = 50, fov = 160 }
 hearing = 1.0
 alert_time = [0.3, 0.6]
 on_menu_attack = "protected"
+voice_vary = 0.25
+barks = { spot = ["Eek!", "Help! Bandits!"], hurt = ["Ow!", "Please, no!"], die = ["Oh..."], greet = ["Hello there!", "Lovely day, isn't it?", "Oh! A traveller!"], idle = ["Hmm hm hmm.", "Now where did I put that..."] }
 
 [[npc]]
 id = "undead"
@@ -169,6 +189,8 @@ alert_time = [0.8, 1.6]
 slots = ["front", "left", "right", "rear_flank", "ring"]
 aggression = 0.9
 tracks = true
+voice = { pitch = 0.12, range = 0.2, size = 0.85, speed = 0.3, breath = 0.6, rough = 0.8, nasal = 0.0, style = "grunty", volume = 0.7 }
+barks = { spot = ["Hhhhrrr...", "Uuurgh!"], hurt = ["Hhk!"], die = ["Aaahhh..."], idle = ["Hhhuuu...", "Mmmrrr..."] }
 
 [[npc]]
 id = "dummy"
@@ -203,4 +225,7 @@ hearing = 1.2
 alert_time = [0.2, 0.5]
 slots = ["front", "left", "right", "front_left", "front_right", "ring"]
 aggression = 0.85
+voice = { pitch = 0.75, range = 0.6, size = 0.15, speed = 0.75, breath = 0.3, rough = 0.1, nasal = 0.4, style = "chirpy", volume = 0.6 }
+voice_vary = 0.15
+barks = { spot = ["Blub!", "Bloop bloop!"], hurt = ["Plip!"], die = ["Bluuub..."], idle = ["Blub.", "Gloop."] }
 xp = 8

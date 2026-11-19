@@ -1,4 +1,5 @@
 #pragma once
+#include "../audio/Voice.h"
 #include <glm/glm.hpp>
 #include <toml++/toml.hpp>
 #include <algorithm>
@@ -124,6 +125,9 @@ struct Appearance {
     glm::u8vec3 topColor   = look::hex("#6f8db0");
     glm::u8vec3 bottomColor= look::hex("#3b3a4a");
 
+    // ── Voice (audio/Voice.h: the creator's Voice tab) ────
+    Voice voice;
+
     static constexpr int MIN_HEIGHT = 16, MAX_HEIGHT = 18;
 
     void clamp() {
@@ -147,6 +151,7 @@ struct Appearance {
         top        = std::clamp(top,        0, look::count(look::TOPS) - 1);
         bottom     = std::clamp(bottom,     0, look::count(look::BOTTOMS) - 1);
         shoes      = std::clamp(shoes,      0, look::count(look::SHOES) - 1);
+        voice.clamp();
     }
 
     bool operator==(const Appearance& o) const {
@@ -155,7 +160,7 @@ struct Appearance {
                eyeStyle == o.eyeStyle && expression == o.expression && eyeHeight == o.eyeHeight && hairStyle == o.hairStyle &&
                extra == o.extra && top == o.top && bottom == o.bottom && shoes == o.shoes &&
                skin == o.skin && eyes == o.eyes && hair == o.hair && topColor == o.topColor &&
-               bottomColor == o.bottomColor;
+               bottomColor == o.bottomColor && voice == o.voice;
     }
     bool operator!=(const Appearance& o) const { return !(*this == o); }
 
@@ -181,6 +186,7 @@ struct Appearance {
         a.skin = from(gPalettes.skin); a.eyes = from(gPalettes.eyes); a.hair = from(gPalettes.hair);
         a.topColor = from(gPalettes.cloth);
         do { a.bottomColor = from(gPalettes.cloth); } while (gPalettes.cloth.size() > 1 && a.bottomColor == a.topColor);
+        a.voice = Voice::random(rng());
         return a;
     }
 
@@ -202,6 +208,7 @@ struct Appearance {
         };
         col("skin", skin); col("eyes", eyes); col("hairc", hair);
         col("topc", topColor); col("bottomc", bottomColor);
+        out << "look_voice=" << voice.text() << "\n";
     }
 
     bool read(const std::string& key, const std::string& value) {
@@ -224,6 +231,7 @@ struct Appearance {
             if (n == 3) hair = glm::u8vec3((uint8_t)a, (uint8_t)b, (uint8_t)c);
             else if (n >= 1) { hairStyle = a; extra = n >= 2 ? b : 0; }
         } else if (k == "outfit") { std::sscanf(v, "%d %d %d", &top, &bottom, &shoes);
+        } else if (k == "voice")  { voice.parse(value);
         } else if (k == "hairstyle") {                 // old voxel-body styles
             static const int MAP[5] = { 12, 2, 4, 12, 18 };  // short, long, ponytail, buzz, bald
             int o = std::atoi(v);

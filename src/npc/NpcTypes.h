@@ -1,4 +1,5 @@
 #pragma once
+#include "../audio/Voice.h"
 #include "../character/Appearance.h"
 #include <toml++/toml.hpp>
 #include <glm/glm.hpp>
@@ -7,6 +8,7 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -43,6 +45,18 @@ struct NpcType {
     std::string look;
     std::string weapon;
     std::string offhand;               // left hand: a shield (items.toml shield = …) it guards with
+    // How it sounds (audio/Voice.h): npcs.toml voice = { … }. Each NPC
+    // of the type a little different (voice_vary). None given: a person
+    // uses their look's voice. barks: short lines it says on its own —
+    // spot (it sees an enemy), hurt, die, greet (talked to), idle
+    bool  hasVoice = false;
+    Voice voice;
+    float voiceVary = 0.08f;
+    std::map<std::string, std::vector<std::string>> barks;
+    const std::vector<std::string>* barksFor(const std::string& when) const {
+        auto it = barks.find(when);
+        return it == barks.end() || it->second.empty() ? nullptr : &it->second;
+    }
     float health = 100.0f, poise = 35.0f;
     float climb = 1.0f;                // how much slopes slow it (0: not at all; Human::climb)
     std::vector<std::string> states;
@@ -156,6 +170,21 @@ public:
                     d->look = t["look"].value_or(std::string());
                     d->weapon = t["weapon"].value_or(std::string());
                     d->offhand = t["offhand"].value_or(std::string());
+                    if (auto* vt = t["voice"].as_table()) {
+                        Voice& v = d->voice;
+                        auto f = [&](const char* k, float& out) { if (auto x = (*vt)[k].value<double>()) out = (float)*x; };
+                        f("pitch", v.pitch); f("range", v.range); f("size", v.size); f("speed", v.speed);
+                        f("breath", v.breath); f("rough", v.rough); f("nasal", v.nasal); f("volume", v.volume);
+                        std::string st = (*vt)["style"].value_or(std::string("soft"));
+                        v.style = st == "chirpy" ? 1 : st == "grunty" ? 2 : 0;
+                        v.clamp();
+                        d->hasVoice = true;
+                    }
+                    d->voiceVary = (float)t["voice_vary"].value_or(0.08);
+                    if (auto* bt = t["barks"].as_table())
+                        for (auto&& [k, v] : *bt)
+                            if (auto* a = v.as_array())
+                                for (auto& x : *a) if (auto line = x.value<std::string>()) d->barks[std::string(k.str())].push_back(*line);
                     d->loot = t["loot"].value_or(std::string());
                     if (auto* w = t["wear"].as_array())
                         for (auto& x : *w) if (auto v = x.value<std::string>()) d->wear.push_back(*v);

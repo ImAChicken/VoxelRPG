@@ -24,3 +24,10 @@ water  = 1   # 0 plain, 1 moving: rivers run downstream
 [game]
 autosave = 1   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)
 control_hints = 1   # 0 off, 1 on: what the buttons do now, bottom right
+
+[sound]
+master   = 0.75   # 0 - 1
+effects  = 1
+voices   = 1
+ambience = 0.15   # the wind
+walls    = 1   # 0 plain, 1 muffled through walls by what they're made of

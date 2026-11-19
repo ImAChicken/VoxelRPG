@@ -1,0 +1,79 @@
+# How each material sounds, and how much sound it stops (audio/Materials.h)
+#
+# Every block has a material (blocks.toml material = ...); this table
+# says what that material sounds like when stepped on, struck, broken
+# or placed (audio/Sfx.h builds the sound from these numbers: no
+# recordings yet), and how it treats sound passing through it
+# (audio/Acoustics.h). A few names are picked from the block itself
+# rather than its material: snow, glass, sand, gravel, leaves (any
+# block with "leaves" in its name) and plant (flagged "plant").
+#
+#   click_hz   the bright tick at the start of a strike
+#   body_hz    the main ring (a knock's note); body_q how long it rings
+#              (0: no note, only noise)
+#   noise_hz   the grit / rustle in it
+#   decay      seconds it takes to die away
+#   crackle    0 .. 1: grains (gravel, leaves, snow)
+#   wet        0 .. 1: bubbles (water, slime)
+#   ring       0 .. 1: metal partials ringing on
+#   muffle     how much one voxel of it stops a sound passing through
+#              (1: stone). Muffling takes the highs first
+#   echo       0 .. 1 how much it reflects (rooms of it ring; next pass)
+#
+# Change a number, then F6 in game reloads it. Leave a key out to keep
+# the built-in value. New materials can be added the same way.
+
+[stone]
+click_hz = 4200
+body_hz  = 1100
+body_q   = 5
+noise_hz = 2600
+decay    = 0.035
+muffle   = 1.0
+echo     = 0.85
+
+[wood]
+click_hz = 2500
+body_hz  = 420
+body_q   = 9
+noise_hz = 1200
+decay    = 0.06
+muffle   = 0.6
+echo     = 0.55
+
+[dirt]
+click_hz = 1200
+body_hz  = 180
+body_q   = 2
+noise_hz = 600
+decay    = 0.06
+crackle  = 0.1
+muffle   = 0.9
+echo     = 0.25
+
+[leaves]
+noise_hz = 3200
+decay    = 0.07
+crackle  = 1.0
+muffle   = 0.12
+echo     = 0.1
+
+[plant]
+noise_hz = 3000
+decay    = 0.06
+crackle  = 0.9
+muffle   = 0.03
+
+[fluid]
+noise_hz = 1800
+decay    = 0.1
+wet      = 1.0
+muffle   = 0.7
+
+[metal]
+click_hz = 5000
+body_hz  = 1300
+body_q   = 20
+ring     = 1.0
+muffle   = 1.0
+echo     = 0.9
