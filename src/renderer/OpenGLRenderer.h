@@ -8,6 +8,8 @@
 #include <iostream>
 #include "../render/Shader.h"
 #include "../render/Sky.h"
+#include "../render/Wind.h"
+#include "../game/Settings.h"
 #include "../render/ChunkMesh.h"
 #include "../render/AtlasTexture.h"
 #include "../render/BoxRenderer.h"
@@ -152,6 +154,19 @@ public:
             v3("uFogHorizon", fl.sky.horizon); v3("uFogSunGlow", fl.sky.sunGlow); v3("uSunDir", fl.sky.sunDir);
             f1("uFogDensity", fl.fogDensity); f1("uSeamStart", fl.seamStart); f1("uSeamEnd", fl.seamEnd);
             f1("uSeamHaze", fl.seamHaze); f1("uNight", fl.sky.night);
+            // plants: off-grid, rounded light and wind (render/Wind.h), or plain
+            double now = glfwGetTime();
+            wind::Now w = wind::at(now);
+            f1("uTime", (float)std::fmod(now, 3600.0));
+            glUniform3f(glGetUniformLocation(p, "uWind"), w.dir.x, w.dir.y, w.strength);
+            glUniform1i(glGetUniformLocation(p, "uPlantStyle"), gSettings.plantStyle);
+            // water: moving along its flow (world/LightBake.h flow), or plain
+            glUniform1i(glGetUniformLocation(p, "uFlow"), 3);
+            glUniform1i(glGetUniformLocation(p, "uWaterStyle"), gSettings.waterStyle);
+            {
+                FaceUV wf = gResourcePacks.getFaceUV("water");
+                glUniform4f(glGetUniformLocation(p, "uWaterTiles"), (float)wf.topX, (float)wf.topY, (float)wf.sideX, (float)wf.sideY);
+            }
             glUniform1i(glGetUniformLocation(p, "uLight"), 1);
             glUniform1i(glGetUniformLocation(p, "uCanopy"), 2);
         }
@@ -167,7 +182,7 @@ public:
     // Draw one chunk mesh whose corner sits at 'origin'.
     // Chunks completely outside the camera's view are skipped.
     //   lightTex  the section's baked light (3D texture), or 0
-    void drawMesh(const ChunkMesh& mesh, glm::vec3 origin, GLuint lightTex = 0, GLuint canopyTex = 0) {
+    void drawMesh(const ChunkMesh& mesh, glm::vec3 origin, GLuint lightTex = 0, GLuint canopyTex = 0, GLuint flowTex = 0) {
         if (!atlasLoaded || mesh.isEmpty()) return;
 
         glm::vec3 size((float)VOXEL_DIM);
@@ -176,6 +191,8 @@ public:
         glBindTexture(GL_TEXTURE_3D, lightTex ? lightTex : fullSkyTexture());
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, canopyTex ? canopyTex : noCanopyTexture());
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, flowTex ? flowTex : noFlowTexture());
         glActiveTexture(GL_TEXTURE0);
 
         glUniform3f(locChunkOrigin, origin.x, origin.y, origin.z);
@@ -277,6 +294,21 @@ private:
     // isn't baked yet
     GLuint fullSky = 0;
     GLuint noCanopy = 0;
+    GLuint noFlow = 0;
+    GLuint noFlowTexture() {
+        if (!noFlow) {
+            int8_t v[2] = { 0, 0 };
+            glGenTextures(1, &noFlow);
+            glBindTexture(GL_TEXTURE_2D, noFlow);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RG8_SNORM, 1, 1, 0, GL_RG, GL_BYTE, v);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+        return noFlow;
+    }
     GLuint noCanopyTexture() {
         if (!noCanopy) {
             uint16_t v[3] = { 0, 0, 0 };

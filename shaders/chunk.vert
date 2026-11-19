@@ -12,6 +12,14 @@ uniform mat4 uView;
 uniform mat4 uProjection;
 uniform vec3 uChunkOrigin;     // world position of the chunk corner
 uniform vec3 uCamPos;          // for the distance haze
+// Plants (Settings: Plants): 0 plain crossed pictures, 1 natural:
+// each plant a little off its grid spot, lit as a rounded clump,
+// swaying in the wind (render/Wind.h: uWind = way x, z, strength)
+uniform int   uPlantStyle;
+uniform float uTime;
+uniform vec3  uWind;
+uniform sampler3D  uLight;     // the section's baked light (sky in A): open ground feels the wind
+uniform usampler2D uCanopy;    // leaves above each column: a forest floor is sheltered
 
 out      vec2  vFacePos;       // position across the face, in voxels
 flat out vec2  vTile;          // atlas tile (column, row)
@@ -23,6 +31,14 @@ flat out vec3  vNormal;
 flat out float vGlow;          // 1 for blocks that give off light: drawn at full brightness
 out      vec2  vSpriteUV;      // sprites: position in the picture, in tiles (0 = top left)
 flat out float vSprite;        // 1 for sprite quads (flowers, reeds)
+out      vec3  vSpriteNormal;  // sprites: the rounded clump's normal here
+out      float vSpriteLow;     // sprites: 0 at the ground .. 1 at the top (the base is shaded)
+
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
 
 // Fake directional light: top brightest, bottom darkest
 // Order matches enum Face: +Y, -Y, +Z, -Z, -X, +X
@@ -37,6 +53,45 @@ void main() {
     if (face >= 6u) {
         local.xz -= 8.0;
         float cu = float(aTile.w & 1u), cv = float((aTile.w >> 1) & 1u);
+        float rawCu = cu;
+        vec3 n = vec3(0, 1, 0);
+        vSpriteLow = cv;
+        if (uPlantStyle == 1) {
+            // the plant's middle: the corner, back by half its footprint
+            float halfW = float((aTile.z >> 2) & 3u) + 0.5;
+            vec2 sgn = face == 6u ? vec2(rawCu > 0.5 ? -1.0 : 1.0) : vec2(rawCu > 0.5 ? -1.0 : 1.0, rawCu > 0.5 ? 1.0 : -1.0);
+            vec2 mid = local.xz + sgn * halfW;
+            vec2 wmid = mid + uChunkOrigin.xz;
+            // off its grid spot, the whole plant together
+            vec2 jit = vec2(hash12(wmid), hash12(wmid + 17.3)) - 0.5;
+            local.xz += jit * 0.8;
+            // a rounded clump: the normal leans out toward each edge
+            vec2 along = (face == 6u ? vec2(1.0, 1.0) : vec2(1.0, -1.0)) * 0.7071;
+            float across = rawCu * 2.0 - 1.0;
+            n = normalize(vec3(along.x * across * 0.9, 1.0, along.y * across * 0.9));
+            // wind, on the top only: open sky (baked sky light), not
+            // under leaves (canopy), stronger up high; gusts roll
+            // across the land downwind; each plant its own phase
+            if (cv > 0.5) {
+                vec3 lp = vec3(mid.x, local.y - 0.5, mid.y);
+                float sky = texture(uLight, (lp * 0.5 + 1.0) / 66.0).a;
+                uvec3 cn = texelFetch(uCanopy, clamp(ivec2(floor(mid * 0.5)) + 1, ivec2(0), textureSize(uCanopy, 0) - 1), 0).rgb;
+                float shelter = 0.0;
+                if (cn.r > 0u && lp.y * 0.5 + uChunkOrigin.y * 0.5 < float(cn.b) + 1.0)
+                    shelter = clamp(float(cn.r) / 3.0, 0.0, 0.85);
+                float high = clamp((uChunkOrigin.y + local.y - 150.0) / 140.0, 0.45, 1.35);
+                float open = sky * sky * (1.0 - shelter) * high;
+                vec2 wd = uWind.xy;
+                float along2 = dot(wmid, wd);
+                float gust = 0.5 + 0.5 * sin(along2 * 0.045 - uTime * 1.6) * (0.6 + 0.4 * sin(along2 * 0.013 + wmid.x * 0.007 - uTime * 0.4));
+                float phase = hash12(wmid + 3.1) * 6.2832;
+                float flutter = 0.65 + 0.35 * sin(uTime * (2.2 + uWind.z * 1.8) + phase);
+                float push = uWind.z * open * (0.25 + 0.75 * gust) * flutter * 0.9;
+                local.xz += wd * push;
+                local.y  -= push * push * 0.15;          // bends over, a little lower
+            }
+        }
+        vSpriteNormal = n;
         float tw = float(((aTile.w >> 2) & 3u) + 1u), th = float(((aTile.w >> 4) & 7u) + 1u);
         if ((aTile.z & 2u) != 0u) cu = 1.0 - cu;
         vSpriteUV = vec2(mix(0.01, tw - 0.01, cu), mix(0.01, th - 0.01, 1.0 - cv));   // never touch the next tile
@@ -55,6 +110,8 @@ void main() {
     }
     vSprite = 0.0;
     vSpriteUV = vec2(0.0);
+    vSpriteNormal = vec3(0, 1, 0);
+    vSpriteLow = 1.0;
 
     // Lay the texture across the face using the vertex
     // position itself, so it lines up from voxel to voxel

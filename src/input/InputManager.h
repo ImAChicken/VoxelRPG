@@ -127,6 +127,7 @@ public:
             {InputAction::NudgeDown,    "dev", "nudge_down",         "Nudge paste down", "PAGE_DOWN"},
             {InputAction::ToolCancel,   "dev", "tool_cancel",        "Release paste / cancel", "BACKSPACE"},
             {InputAction::RotatePiece,  "actions", "rotate_piece",   "Turn structure (hammer)", "T"},
+            {InputAction::ToolAlt,      "dev", "tool_alt",           "Nudge up / down instead (hold)", "RIGHT_ALT"},
             // system
             {InputAction::Pause,        "system", "pause",           "Pause menu",       "ESCAPE"},
             {InputAction::Screenshot,   "system", "screenshot",      "Screenshot",       "F2"},
@@ -211,10 +212,13 @@ public:
           << "# Change it in game (Esc -> Controls -> Controller) or here.\n"
           << "# Buttons: A B X Y LB RB LT RT Select Start L3 R3 Up Down Left Right\n"
           << "# (positions, Xbox names: A is the bottom face button on any pad).\n"
-          << "# Layers: both (always), combat, quick (combat with the quick\n"
-          << "# button held), explore (out of combat). The jump button also\n"
-          << "# interacts when held.\n";
-        for (pad::Layer l : { pad::Layer::Both, pad::Layer::Combat, pad::Layer::Quick, pad::Layer::Explore }) {
+          << "# Layers: both (always), combat, quick (the quick button held,\n"
+          << "# in combat or out), explore (out of combat), tool (a hammer or\n"
+          << "# dev tool in hand: over explore), tool_alt (tool, Y held). Interact is the\n"
+          << "# quick button + LB. The draw button acts on a tap; held\n"
+          << "# with the quick button it opens the inventory (and the pause\n"
+          << "# menu's buttons, in its left panel).\n";
+        for (pad::Layer l : pad::allLayers()) {
             f << "\n[" << pad::layerKey(l) << "]\n";
             for (const pad::Map& m : pad::layout()) {
                 if (m.layer != l) continue;
@@ -301,11 +305,11 @@ public:
             // happens, so fast scrolling steps through slots
             case InputBinding::Type::MouseScrollUp:
                 currState[idx] = frameScroll > 0.0f;
-                prevState[idx] = false;
+                if (frameScroll > 0.0f) prevState[idx] = false;   // (only a real notch: a pad button held on the same action must not repeat)
                 break;
             case InputBinding::Type::MouseScrollDown:
                 currState[idx] = frameScroll < 0.0f;
-                prevState[idx] = false;
+                if (frameScroll < 0.0f) prevState[idx] = false;
                 break;
             default:
                 currState[idx] = false;
@@ -325,17 +329,22 @@ public:
         for (int i = 0; i < (int)InputAction::COUNT && !keysUsed; i++) keysUsed = currState[i];
 
         // ── The controller (input/PadLayout.h) ────────────
-        double now = glfwGetTime();
-        float frame = padTime > 0.0 ? (float)(now - padTime) : 0.0f;
-        padTime = now;
         padState = readPad();
-        // A: a tap (released before HOLD_A) jumps, a hold interacts
-        bool aDown = padState.connected && padState.down[pad::jumpButton()];   // (the jump button: A unless rebound)
-        bool aTap = !aDown && aHeld > 0.0f && aHeld < pad::HOLD_A;
-        if (aDown) aHeld += frame;
-        padLayer = pad::layerFor(combatLayer, padState.connected && padState.down[pad::quickButton()]);
-        pad::apply(padState, padLayer, aHeld, aTap, currState);
-        if (!aDown) aHeld = 0.0f;
+        // Leaving a menu: the buttons still down from it (A on Resume,
+        // B to go back) don't play until they come up
+        if (wasMenu && !menuMode) swallow = padState.down;
+        wasMenu = menuMode;
+        pad::State play = padState;
+        for (int b = 0; b < pad::COUNT; b++) {
+            if (!padState.down[b]) swallow[b] = false;
+            if (swallow[b]) play.down[b] = false;
+        }
+        padLayer = pad::layerFor(combatLayer, play.connected && play.down[pad::quickButton()], toolLayer,
+                                 play.connected && play.down[pad::toolAltButton()]);
+        if (!menuMode) pad::apply(play, padLayer, currState);   // in a menu the pad drives the menu (ui/PadNav.h)
+        // Select: a tap (on release) draws / sheathes; Select and
+        // Start together open the inventory instead (pad::chord)
+        pad::chord(menuMode ? padState : play, selectChorded, currState);
         if (padState.any) padLast = true;
         else if (keysUsed) padLast = false;
     }
@@ -343,6 +352,17 @@ public:
     // The first connected gamepad (GLFW's mapping database)
     static pad::State readPad() {
         pad::State s;
+        // VOXELRPG_FAKE_PAD=<file>: a pretend controller for testing
+        // without one: the file holds the button names held now
+        // ("A", "Start Back", "Down" …); a missing file, none held
+        static const char* fake = std::getenv("VOXELRPG_FAKE_PAD");
+        if (fake) {
+            s.connected = true;
+            std::ifstream f(fake);
+            std::string name;
+            while (f >> name) { int b = pad::buttonFromName(name); if (b >= 0) { s.down[b] = true; s.any = true; } }
+            return s;
+        }
         for (int j = GLFW_JOYSTICK_1; j <= GLFW_JOYSTICK_LAST; j++) {
             if (!glfwJoystickIsGamepad(j)) continue;
             GLFWgamepadstate g;
@@ -365,6 +385,13 @@ public:
     // Set each frame by the game: is the player in combat mode
     // (the pad's buttons mean other things there)
     void setCombatLayer(bool on) { combatLayer = on; }
+    // Set each frame by the game: a menu is up, so the pad's buttons
+    // don't play (only Select + Start, which closes the inventory)
+    void setMenuMode(bool on) { menuMode = on; }
+    bool inMenu() const { return menuMode; }
+    // Set each frame by the game: the tool in hand takes more of the
+    // pad (the hammer, dev tools: PlayerInteraction::takesPad)
+    void setToolLayer(bool on) { toolLayer = on; }
     const pad::State& padNow() const { return padState; }
     pad::Layer layerNow() const { return padLayer; }
     bool padConnected() const { return padState.connected; }
@@ -511,9 +538,10 @@ private:
 
     pad::State padState;
     pad::Layer padLayer = pad::Layer::Explore;
+    pad::ChordState selectChorded;
+    bool menuMode = false, wasMenu = false, toolLayer = false;
+    std::array<bool, pad::COUNT> swallow{};
     bool   combatLayer = false, padLast = false;
-    float  aHeld = 0.0f;
-    double padTime = 0.0;
 
     static const std::vector<std::pair<std::string, int>>& namedKeys() {
         static const std::vector<std::pair<std::string, int>> keys = {

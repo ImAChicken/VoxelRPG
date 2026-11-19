@@ -3,6 +3,7 @@
 #include "ItemRegistry.h"
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <ostream>
@@ -86,13 +87,15 @@ struct CombatKit {
     // Drop what's no longer carried; the first time, fill in the
     // spells carried
     void tidy(const Inventory& inv) {
-        auto keep = [&](uint16_t& id) { if (id && inv.find(id) < 0) id = 0; };
+        // gone from the inventory, or no longer fits (an old save, a
+        // changed rule): out
+        auto keep = [&](uint16_t& id, bool (*fits)(uint16_t)) { if (id && (inv.find(id) < 0 || !fits(id))) id = 0; };
         for (WeaponSet& w : sets) {
-            keep(w.off);
-            for (auto& s : w.slots) for (uint16_t& id : s) keep(id);
-            for (uint16_t& id : w.charms) keep(id);
+            keep(w.off, fitsOff);
+            for (auto& s : w.slots) for (uint16_t& id : s) keep(id, fitsAbility);
+            for (uint16_t& id : w.charms) keep(id, fitsCharm);
         }
-        for (uint16_t& q : quick) keep(q);
+        for (uint16_t& q : quick) keep(q, fitsAbility);
         if (!made) makeDefaults(inv);
         follow(inv);
     }
@@ -115,10 +118,50 @@ struct CombatKit {
         }
     }
 
-    // What fits where (the inventory screen asks)
-    static bool fitsOff(uint16_t id)   { const ItemDef& d = gItems.get(id); return d.shield || d.is(IC_WEAPON) || d.is(IC_SPELL); }
+    // ── What goes where ───────────────────────────────────
+    // The slots by name (shown in game, ItemKind below):
+    //   Weapon slot     a loadout's primary (the Weapon 1 / 2
+    //                   equipment slots): weapons, and tools that
+    //                   fight (the axe: Inventory::fits, canFight)
+    //   Off hand        shields, weapons, spellbooks
+    //   Ability slots   X / Y / B and the 8 quick options: things
+    //                   that DO something when used — spellbooks,
+    //                   and anything with a cast. Not tools (one day
+    //                   an enchanted tool may get a cast, and then fit)
+    //   Charm slots     charms
+    static bool fitsOff(uint16_t id)   { const ItemDef& d = gItems.get(id); return d.valid() && (d.shield || d.is(IC_WEAPON) || d.is(IC_SPELL)); }
     static bool fitsCharm(uint16_t id) { return gItems.get(id).is(IC_CHARM); }
-    static bool fitsButton(uint16_t id) { const ItemDef& d = gItems.get(id); return d.valid() && !d.is(IC_DEV); }
+    static bool fitsAbility(uint16_t id) {
+        const ItemDef& d = gItems.get(id);
+        return d.valid() && !d.is(IC_DEV) && (d.is(IC_SPELLBOOK) || !d.cast.empty());
+    }
+    static bool fitsButton(uint16_t id) { return fitsAbility(id); }   // (the old name)
+
+    // What kind of item it is, and where it goes, in a few words
+    // (the inventory shows it under the item's name)
+    static std::string itemKind(uint16_t id) {
+        const ItemDef& d = gItems.get(id);
+        if (!d.valid()) return std::string();
+        if (d.is(IC_DEV))       return "Dev tool - Test Play only, from the hotbar";
+        if (d.shield)           return "Shield - goes in a loadout's off hand";
+        if (d.is(IC_SPELLBOOK)) return "Spellbook - ability slots, quick options or off hand";
+        if (d.is(IC_CHARM))     return "Charm - charm slots";
+        if (d.is(IC_TOOL) && d.canFight()) return "Tool and weapon - the hotbar, or a Weapon slot";
+        if (d.is(IC_TOOL))      return "Tool - used from the hotbar";
+        if (d.is(IC_WEAPON))    return "Weapon - a Weapon slot or the off hand";
+        if (!d.cast.empty())    return "Usable - ability slots or quick options";
+        if (d.worn >= 0 || !d.accessory.empty()) return "Worn - its equipment slot";
+        if (d.is(IC_BLOCK) || d.is(IC_DECOR)) return "Placeable - from the hotbar";
+        return std::string();
+    }
+    // Why it won't go in a slot (said when a drop is refused)
+    static std::string whyNot(uint16_t id, const char* slotName) {
+        std::string k = itemKind(id);
+        std::string what = k.substr(0, k.find(" - "));
+        for (char& c : what) c = (char)std::tolower((unsigned char)c);
+        // (the UI font has no brackets or apostrophes)
+        return gItems.get(id).displayName + " is a " + (what.empty() ? "item" : what) + " - it does not go in " + slotName;
+    }
 
     // ── What LT does ──────────────────────────────────────
     enum class Special { None, Guard, Heavy, Cast };

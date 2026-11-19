@@ -332,7 +332,10 @@ public:
         if (h.isPlayer()) {
             const Player& p = static_cast<const Player&>(h);
             if (p.combatStance) id = p.offhandInCombat();
-            else if (const ItemStack& s = p.activeInventory().offhandItem(); !s.empty()) id = s.itemID;
+            else {
+                const ItemStack& s = p.activeInventory().offhandItem();
+                if (!s.empty()) id = s.itemID;
+            }
         } else {
             const Npc& n = static_cast<const Npc&>(h);
             if (n.puppet) return n.offModel;

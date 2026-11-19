@@ -40,9 +40,16 @@ struct GameSettings {
     int charLineColor = 0;   // 0 black, 1 tinted by the surface
     int charHairMesh  = 1;   // 0 voxels, 1 shards, 2 soft shards
 
+    // World look: every shader effect can go back to the plain
+    // look, for speed and for building (Eddie, 2026-11-18)
+    int plantStyle    = 1;   // 0 plain crossed pictures, 1 natural: each plant a little off its
+                             // spot, rounded light, swaying in the wind (shaders/chunk.vert)
+    int waterStyle    = 1;   // 0 plain, 1 moving: rivers run downstream, still water ripples
+
     // Saving: ordinary worlds save themselves every few minutes
     // (dev worlds never do: see world/WorldSaveManager.h)
     int autosave = 1;        // 0 off, 1 on
+    int controlHints = 1;    // 0 off, 1 on: what the buttons do now, bottom right (out of combat)
 
     std::filesystem::path path = "data/settings.toml";
 
@@ -54,7 +61,9 @@ struct GameSettings {
         renderDistance   = DEF_RENDER_DISTANCE;
         eyeHeight        = DEF_EYE_HEIGHT;
         charEdges = 1; charLineColor = 0; charHairMesh = 1;
+        plantStyle = 1; waterStyle = 1;
         autosave = 1;
+        controlHints = 1;
     }
 
     void clamp() {
@@ -67,7 +76,10 @@ struct GameSettings {
         charEdges     = std::clamp(charEdges, 0, 2);
         charLineColor = std::clamp(charLineColor, 0, 1);
         charHairMesh  = std::clamp(charHairMesh, 0, 2);
+        plantStyle    = std::clamp(plantStyle, 0, 1);
+        waterStyle    = std::clamp(waterStyle, 0, 1);
         autosave      = std::clamp(autosave, 0, 1);
+        controlHints  = std::clamp(controlHints, 0, 1);
     }
 
     bool load() {
@@ -83,7 +95,10 @@ struct GameSettings {
             charEdges     = (int)t["characters"]["edges"].value_or((int64_t)charEdges);
             charLineColor = (int)t["characters"]["line_color"].value_or((int64_t)charLineColor);
             charHairMesh  = (int)t["characters"]["hair_mesh"].value_or((int64_t)charHairMesh);
+            plantStyle    = (int)t["world"]["plants"].value_or((int64_t)plantStyle);
+            waterStyle    = (int)t["world"]["water"].value_or((int64_t)waterStyle);
             autosave      = (int)t["game"]["autosave"].value_or((int64_t)autosave);
+            controlHints  = (int)t["game"]["control_hints"].value_or((int64_t)controlHints);
             clamp();
             return true;
         } catch (const std::exception& e) {
@@ -109,8 +124,12 @@ struct GameSettings {
           << "edges      = " << charEdges     << "   # 0 off, 1 lines, 2 lines + colour echo\n"
           << "line_color = " << charLineColor << "   # 0 black, 1 tinted\n"
           << "hair_mesh  = " << charHairMesh  << "   # 0 voxels, 1 shards, 2 soft shards\n\n"
+          << "[world]\n"
+          << "plants = " << plantStyle << "   # 0 plain pictures, 1 natural: off-grid, rounded light, wind\n"
+          << "water  = " << waterStyle << "   # 0 plain, 1 moving: rivers run downstream\n\n"
           << "[game]\n"
-          << "autosave = " << autosave << "   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)\n";
+          << "autosave = " << autosave << "   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)\n"
+          << "control_hints = " << controlHints << "   # 0 off, 1 on: what the buttons do now, bottom right\n";
         return (bool)f;
     }
 };

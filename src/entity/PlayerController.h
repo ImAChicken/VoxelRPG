@@ -321,6 +321,11 @@ private:
         // Attacks are one-shots in the intent (kept until a
         // physics tick uses them); the guard is held
         guarding = false;
+        // Start held (Left Alt): the 8 quick options (Survival: the
+        // kit is the player's own), drawn or not
+        const bool kitQuick = now.hasBody && player.mode == GameMode::Survival &&
+                              gInput.isHeld(InputAction::QuickLayer);
+        if (kitQuick && !now.combatActions) quickButtons(player);   // so the slotted spells don't need combat mode
         if (now.combatActions) {
             if (gInput.isPressed(InputAction::UseLeft)) {
                 note(PlayerAction::Attack);
@@ -330,7 +335,8 @@ private:
                 note(PlayerAction::HeavyAttack);
                 intent.attackHeavy = true;
             }
-            combatKitButtons(player);
+            if (kitQuick) quickButtons(player);
+            else combatKitButtons(player);
         }
         intent.guard = guarding;
 
@@ -349,7 +355,7 @@ private:
             };
             // 1 and 2 put the off-hand item in the left hand (or
             // take it out); 3..0 and the wheel pick the right hand
-            for (int i = 0; i < Inventory::HOTBAR && !slotKeysBlocked; i++)
+            for (int i = 0; i < Inventory::HOTBAR && !slotKeysBlocked && !kitQuick; i++)   // (held: the slot keys pick quick options)
                 if (gInput.isPressed(slots[i]))
                     inv.pressHotbarKey(i);
             if (gInput.isPressed(InputAction::ToolbarNext))
@@ -364,6 +370,17 @@ private:
     // the off-hand item or the weapon. X / Y / B (1 / 2 / 3) use
     // the item up in that slot; the D-pad (4 / 5 / 6) cycles it.
     // Start held (Left Alt): the 8 quick options instead.
+    void useKitItem(uint16_t item) {
+        if (!item) return;
+        const ItemDef& d = gItems.get(item);
+        if (!d.cast.empty()) { intent.useItem = item; note(PlayerAction::UseItem); }
+    }
+    // The quick layer: the slot buttons (D-pad, X / Y / B / A; keys
+    // 1..8) use the 8 quick options. In combat or out.
+    void quickButtons(Player& player) {
+        for (int i = 0; i < CombatKit::QUICK; i++)
+            if (gInput.isPressed((InputAction)((int)InputAction::ToolbarSlot1 + i))) useKitItem(player.kit.quick[i]);
+    }
     void combatKitButtons(Player& player) {
         // A weapon held in the toolbar (not drawn with R): Q guards,
         // the number keys stay the hotbar's
@@ -374,28 +391,18 @@ private:
         }
         CombatKit& kit = player.kit;
         kit.follow(player.inventory);                    // loadout 1 / 2: the drawn weapon
-        auto use = [&](uint16_t item) {
-            if (!item) return;
-            const ItemDef& d = gItems.get(item);
-            if (!d.cast.empty()) { intent.useItem = item; note(PlayerAction::UseItem); }
-        };
-        if (gInput.isHeld(InputAction::QuickLayer)) {
-            for (int i = 0; i < CombatKit::QUICK; i++)
-                if (gInput.isPressed((InputAction)((int)InputAction::ToolbarSlot1 + i))) use(kit.quick[i]);
-            return;                                      // the slot buttons mean the quick options now
-        }
         uint16_t castItem = 0;
         CombatKit::Special sp = kit.special(player.inventory.weapon().itemID, &castItem);
         if (gInput.isPressed(InputAction::Block)) {
             if (sp == CombatKit::Special::Heavy) { intent.attackHeavy = true; note(PlayerAction::HeavyAttack); }
-            else if (sp == CombatKit::Special::Cast) use(castItem);
+            else if (sp == CombatKit::Special::Cast) useKitItem(castItem);
             else note(PlayerAction::Guard);
         }
         guarding = sp == CombatKit::Special::Guard && gInput.isHeld(InputAction::Block);
         const InputAction useKeys[3] = { InputAction::UseSlotX, InputAction::UseSlotY, InputAction::UseSlotB };
         const InputAction cycleKeys[3] = { InputAction::CycleSlotX, InputAction::CycleSlotY, InputAction::CycleSlotB };
         for (int i = 0; i < 3; i++) {
-            if (gInput.isPressed(useKeys[i])) use(kit.slotItem(i));
+            if (gInput.isPressed(useKeys[i])) useKitItem(kit.slotItem(i));
             if (gInput.isPressed(cycleKeys[i])) kit.cycleSlot(i);
         }
     }

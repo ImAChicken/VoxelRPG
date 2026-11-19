@@ -54,6 +54,7 @@ struct CommandContext {
     NpcManager*          npcs = nullptr;  // nullptr outside a world
     Simulation*          sim = nullptr;
     ChestStore*          chests = nullptr;  // structures' containers (nullptr outside a world)
+    const TerrainGenerator* gen = nullptr;  // the world's generator (nullptr outside a world)
 };
 
 class CommandRegistry {
@@ -842,6 +843,27 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             if (c.target.hit)
                 c.log("looking at " + DevTools::blockName((uint16_t)c.target.blockID) +
                       " at " + DevTools::str(c.target.blockPos));
+        });
+    // ── Finding things ────────────────────────────────────
+    reg.add("river", "river", "go to the nearest running water (to look at it flow)",
+        [](C& c, const Args&) {
+            if (!c.gen) { c.log("no world"); return; }
+            glm::ivec3 me = glm::ivec3(glm::floor(c.player.position));
+            for (int r = 0; r <= 2000; r += 8)
+                for (int k = 0; k < std::max(1, r * 6 / 8); k++) {
+                    float a = 6.2832f * k / std::max(1, r * 6 / 8);
+                    int x = me.x + (int)(std::cos(a) * r), z = me.z + (int)(std::sin(a) * r);
+                    if (glm::length(c.gen->flowAt(x, z)) < 0.05f) continue;
+                    TerrainColumn col = c.gen->column(x, z);
+                    int y = std::max(col.waterLevel, col.ground) + 1;
+                    // stand on the bank a little to one side
+                    c.player.position = glm::vec3(x + 0.5f, (float)y + 2.0f, z + 0.5f);
+                    c.player.velocity = glm::vec3(0.0f);
+                    c.player.ragdoll.reset();
+                    c.log("running water at " + DevTools::str(glm::ivec3(x, y, z)));
+                    return;
+                }
+            c.log("no running water within 2000 voxels");
         });
     reg.add("savegame", "savegame", "save the world now",
         [](C& c, const Args&) { c.saveWorld(); });

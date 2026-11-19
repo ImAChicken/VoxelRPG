@@ -453,6 +453,38 @@ public:
     // A single-biome world has no sea around it
     int seaLevel() const override { return chart.singleBiome >= 0 ? -1 : SEA_LEVEL; }
 
+    // Rivers run from the high end of their segments to the low
+    // (lines are traced from the source, so a level stretch runs on
+    // the way the line goes); faster where they drop. Canyon rivers
+    // too. Anything else: still.
+    glm::vec2 flowAt(int wx, int wz) const override {
+        const int S = chart.size;
+        int ci = std::clamp(wx / VOXEL_DIM, 0, S - 1), cj = std::clamp(wz / VOXEL_DIM, 0, S - 1);
+        float best = 1e9f;
+        glm::vec2 out(0.0f);
+        const size_t k = (size_t)cellIndex(ci, cj);
+        for (int which = 0; which < 2; which++) {           // rivers, then canyons
+            const auto& table = which == 0 ? riverSegs : canyonSegs;
+            if (k >= table.size()) continue;
+            for (const Seg& sg : table[k]) {
+                float vx = sg.bx - sg.ax, vz = sg.bz - sg.az;
+                float len2 = vx * vx + vz * vz;
+                if (len2 < 1e-4f) continue;
+                float t = std::clamp(((wx - sg.ax) * vx + (wz - sg.az) * vz) / len2, 0.0f, 1.0f);
+                float dx = wx - (sg.ax + vx * t), dz = wz - (sg.az + vz * t);
+                float d = std::sqrt(dx * dx + dz * dz) - sg.halfWidth;
+                if (d > 2.0f || d >= best) continue;
+                best = d;
+                float len = std::sqrt(len2);
+                glm::vec2 dir(vx / len, vz / len);
+                if (sg.hb > sg.ha + 0.01f) dir = -dir;           // runs to the lower end
+                float drop = std::fabs(sg.ha - sg.hb) / len;
+                out = dir * std::clamp(0.45f + drop * 12.0f, 0.45f, 1.0f);
+            }
+        }
+        return out;
+    }
+
     float forestCover(int wx, int wz) const override {
         float chance = 0.0f;
         int type;

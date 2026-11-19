@@ -27,8 +27,8 @@ public:
         const auto& theme = gResourcePacks.getTheme();
         float sw = (float)ui.getWidth(), sh = (float)ui.getHeight();
         mousePrev = mouseDown;
-        glfwGetCursorPos(window, &mx, &my);
-        mouseDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        gNav.cursor(window, &mx, &my);
+        mouseDown = gNav.button(window, GLFW_MOUSE_BUTTON_LEFT);
 
         ui.begin();
         ui.drawRect(0, 0, sw, sh, theme.overlay);

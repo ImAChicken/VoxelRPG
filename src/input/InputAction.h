@@ -77,6 +77,7 @@ enum class InputAction {
     NudgeDown,      // Page Down — move the paste down
     ToolCancel,     // Backspace — release a locked paste / cancel a prompt
     RotatePiece,    // T — turn the hammer's structure a quarter turn
+    ToolAlt,        // held: the nudge keys go up / down instead (the pad's Y with a tool)
 
     // ── System ───────────────────────────────────────────
     Pause,

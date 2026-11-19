@@ -74,7 +74,7 @@ inline bool draw(UIRenderer& ui, int which, float x, float y, float size, float 
 // input/PadLayout.h), or -1
 inline int buttonFor(InputAction action, pad::Layer layer) {
     for (const pad::Map& m : pad::layout())
-        if (m.action == action && pad::inLayer(m.layer, layer)) return (int)m.button;
+        if (m.action == action && pad::inLayer(m.layer, layer, m.button)) return (int)m.button;
     for (const pad::Map& m : pad::layout())
         if (m.action == action) return (int)m.button;
     return -1;

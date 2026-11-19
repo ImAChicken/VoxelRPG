@@ -23,6 +23,16 @@ flat in vec3  vNormal;
 flat in float vGlow;
 in      vec2  vSpriteUV;
 flat in float vSprite;
+in      vec3  vSpriteNormal;
+in      float vSpriteLow;
+uniform int   uPlantStyle;
+// Water (Settings: Water): 0 plain, 1 moving. uFlow: which way it
+// runs over each cell column (world/LightBake.h flow; rivers from
+// the generator), uWaterTiles: water's top and side tiles
+uniform int       uWaterStyle;
+uniform sampler2D uFlow;
+uniform vec4      uWaterTiles;
+uniform float     uTime;
 
 out vec4 outColor;
 
@@ -59,7 +69,27 @@ float fogAmount(float d) {
 }
 
 void main() {
-    vec2 inTile = fract(vFacePos / uVoxelsPerTile);
+    vec2 facePos = vFacePos;
+    float waterGlint = 0.0;
+    if (uWaterStyle == 1 && vSprite < 0.5 && (vTile == uWaterTiles.xy || vTile == uWaterTiles.zw)) {
+        // moving water: rivers carry the surface downstream (faster
+        // where they drop), falls at their steps run down, still
+        // water barely drifts
+        vec2 fl = texture(uFlow, (vLocal.xz * 0.5 + 1.0) / 66.0).rg;
+        float run = length(fl);
+        if (vNormal.y > 0.5) {
+            facePos -= fl * uTime * 9.0;
+            facePos += vec2(sin(uTime * 0.7 + vWorld.z * 0.21), cos(uTime * 0.6 + vWorld.x * 0.19)) * (0.35 - 0.25 * min(run, 1.0));
+            // streaks along the current
+            vec2 across = run > 0.01 ? vec2(-fl.y, fl.x) / run : vec2(0.0);
+            float lines = sin(dot(vWorld.xz, across) * 1.7 + sin(dot(vWorld.xz, fl) * 0.3 - uTime * 3.0) * 1.5);
+            waterGlint = run * smoothstep(0.8, 1.0, lines) * (0.5 + 0.5 * sin(dot(vWorld.xz, fl) * 0.11 - uTime * 1.3)) * 0.14;
+        } else if (abs(vNormal.y) < 0.5 && run > 0.05) {
+            facePos.y -= uTime * 14.0;                   // a fall: down the face
+            waterGlint = 0.06;
+        }
+    }
+    vec2 inTile = fract(facePos / uVoxelsPerTile);
     vec2 uv     = (vTile + inTile) * uTileUV;
     if (vSprite > 0.5) uv = (vTile + vSpriteUV) * uTileUV;      // sprites: the whole picture once
 
@@ -93,12 +123,16 @@ void main() {
     }
     vec3 block = L.rgb * L.rgb * 1.5;
     // sun / moon side brighter, the rest lit by the sky dome
-    float facing = 0.62 + 0.38 * max(dot(vNormal, uLightDir), 0.0);
+    vec3 nrm = vNormal;
+    if (vSprite > 0.5 && uPlantStyle == 1) nrm = normalize(vSpriteNormal);    // a rounded clump
+    float facing = 0.62 + 0.38 * max(dot(nrm, uLightDir), 0.0);
     facing *= mix(1.0, vShade, 0.35);
+    if (vSprite > 0.5 && uPlantStyle == 1) facing *= mix(0.72, 1.0, clamp(vSpriteLow * 1.4, 0.0, 1.0));   // darker in among the stems
     vec3 lit = uSkyLight * skyTint * sky * facing + block * mix(1.0, vShade, 0.5) + uAmbient;
     if (vGlow > 0.5) lit = vec3(1.15);           // glowing blocks show at full brightness
 
     vec3 rgb = color.rgb * lit;
+    rgb += waterGlint * lit;                     // light on the moving water
     vec3 viewDir = normalize(vWorld - uCamPos);
     float fog = fogAmount(vDist);
     if (vGlow > 0.5) fog *= 0.3;                 // lights shine through the haze

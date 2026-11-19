@@ -340,7 +340,9 @@ private:
     //   x, z   position + 8 (a 3-wide footprint pokes out of the
     //          chunk by one voxel)
     //   face   6 or 7 (which diagonal)
-    //   pad0   bit 0 glow, bit 1 mirror the picture
+    //   pad0   bit 0 glow, bit 1 mirror the picture, bits 2-3 half
+    //          the footprint's width (so the shader can find the
+    //          plant's middle: its off-grid nudge and wind)
     //   pad1   bit 0 corner u, bit 1 corner v (top),
     //          bits 2-3 tiles wide - 1, bits 4-6 tiles tall - 1
     static void sprites(const MeshInput& in, Scratch& s, const BlockRenderTable& table) {
@@ -362,7 +364,7 @@ private:
                     int k2 = info.spriteW / 2;
                     int x0 = x - k2 + 8, x1 = x + 1 + k2 + 8, z0 = z - k2 + 8, z1 = z + 1 + k2 + 8;
                     uint32_t hsh = (uint32_t)(x * 73856093) ^ (uint32_t)(z * 19349663) ^ (uint32_t)(y * 83492791);
-                    uint8_t p0 = (uint8_t)((info.glow ? 1 : 0) | ((hsh >> 7) & 1 ? 2 : 0));
+                    uint8_t p0 = (uint8_t)((info.glow ? 1 : 0) | ((hsh >> 7) & 1 ? 2 : 0) | ((k2 & 3) << 2));
                     uint8_t span = (uint8_t)(((info.spanW - 1) & 3) << 2 | ((info.spanH - 1) & 7) << 4);
                     auto quad = [&](uint8_t face, int ax, int az, int bx, int bz) {
                         auto v = [&](int cu, int cv) {

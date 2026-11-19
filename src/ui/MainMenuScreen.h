@@ -218,10 +218,9 @@ private:
 
     void handleInput() {
         mousePrevPressed = mousePressed;
-        glfwGetCursorPos(window, &mouseX, &mouseY);
+        gNav.cursor(window, &mouseX, &mouseY);
         mousePressed =
-            glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT)
-            == GLFW_PRESS;
+            gNav.button(window, GLFW_MOUSE_BUTTON_LEFT);
     }
 
     bool justClicked() const {
@@ -229,6 +228,7 @@ private:
     }
 
     bool isHovered(float x, float y, float w, float h) const {
+        gNav.add(x, y, w, h);                    // every rectangle asked about: the controller can reach it
         return mouseX >= x && mouseX <= x+w &&
                mouseY >= y && mouseY <= y+h;
     }

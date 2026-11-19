@@ -10,8 +10,17 @@ mouse_sensitivity = 0.1   # 0.02 - 0.4
 [view]
 chunk_distance  = 6   # chunks drawn as voxels, 2 - 16
 render_distance = 160   # distant terrain, chunks, 16 - 160 (160 = whole world)
+eye_height      = 16   # first-person eye height, voxels (4 in each), 13 - 17.5
 
 [characters]
 edges      = 1   # 0 off, 1 lines, 2 lines + colour echo
 line_color = 0   # 0 black, 1 tinted
 hair_mesh  = 1   # 0 voxels, 1 shards, 2 soft shards
+
+[world]
+plants = 1   # 0 plain pictures, 1 natural: off-grid, rounded light, wind
+water  = 1   # 0 plain, 1 moving: rivers run downstream
+
+[game]
+autosave = 1   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)
+control_hints = 1   # 0 off, 1 on: what the buttons do now, bottom right

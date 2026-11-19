@@ -1,9 +1,11 @@
 #pragma once
 #include <glm/glm.hpp>
 #include <string>
+#include <vector>
 #include "UIRenderer.h"
 #include "ItemIcon.h"
 #include "PadGlyphs.h"
+#include "KeyText.h"
 #include "../entity/Player.h"
 #include "../entity/PlayerController.h"
 #include "../game/DevTools.h"
@@ -138,12 +140,12 @@ public:
 
         // ── Talking to an NPC (a placeholder menu) ────────
         if (!talkingTo.empty()) {
-            std::string t = "Talking to " + talkingTo + "   (E to leave)";
-            float w = (float)ui.textWidth(t, 2);
+            std::string t = "Talking to " + talkingTo + "   {interact}: leave";
+            float w = keytext::width(ui, t, 2);
             float bg[4] = {0, 0, 0, 170};
             float col[4] = {240, 230, 200, 255};
             ui.drawRect((sw - w) * 0.5f - 12, sh * 0.62f - 8, w + 24, 34, bg);
-            ui.drawText(t, (sw - w) * 0.5f, sh * 0.62f, col, 2);
+            keytext::draw(ui, t, (sw - w) * 0.5f, sh * 0.62f, col, 2);
         }
 
         // ── Debug overlay ─────────────────────────────────
@@ -213,6 +215,8 @@ public:
         if (combat) {
             drawWeaponPanel(ui, player, controller, sw, sh);
         } else if (rules.hasBody) {
+            if (player.mode == GameMode::Survival && gInput.isHeld(InputAction::QuickLayer)) drawQuickPanel(ui, player, sw, sh, true);   // the quick options work out of combat too
+            else if (gSettings.controlHints && !gInput.inMenu()) drawControlHints(ui, player, sw, sh);   // (a menu has its own)
             const Inventory& inv = player.activeInventory();
             float top = drawToolbar(ui, inv, sw, sh, player.mode == GameMode::Survival);
 
@@ -224,9 +228,7 @@ public:
                 float w = (float)ui.textWidth(name, 2);
                 ui.drawText(name, (sw - w) * 0.5f, top - 26.0f, theme.textHover, 2);
                 if (d.is(IC_DEV) && player.mode != GameMode::Survival) {
-                    std::string hint = DevTools::toolHint(d.devTool);
-                    float hw = (float)ui.textWidth(hint, 1);
-                    ui.drawText(hint, (sw - hw) * 0.5f, top - 40.0f, theme.textDim, 1);
+                    keytext::drawCentred(ui, DevTools::toolHint(d.devTool), sw * 0.5f, top - 40.0f, theme.textDim, 1, theme.accent);
                     drawToolStatus(ui, d.devTool, dev, sw, sh, top - 66.0f);
                 }
                 if (d.is(IC_DEV) && player.mode == GameMode::Survival) {
@@ -239,10 +241,9 @@ public:
 
         // ── Structure under the crosshair ─────────────────
         if (!hands.aimLabel.empty() && !combat) {
-            float w = (float)ui.textWidth(hands.aimLabel, 2);
+            float w = keytext::width(ui, hands.aimLabel, 2);
             ui.drawRect((sw - w) * 0.5f - 6, sh * 0.5f + 22, w + 12, 21, SHADOW);
-            ui.drawText(hands.aimLabel, (sw - w) * 0.5f, sh * 0.5f + 25,
-                        theme.textHover, 2);
+            keytext::draw(ui, hands.aimLabel, (sw - w) * 0.5f, sh * 0.5f + 25, theme.textHover, 2, theme.accent);
         }
 
         // ── Tree health while chopping ────────────────────
@@ -261,30 +262,30 @@ public:
                                   : std::string("Builder's Hammer");
             std::string line2 = t ? (player.mode == GameMode::Survival
                                      ? "cost: " + t->costText(gStructures.costsEnabled) : std::string("free in Test Play"))
-                                  : std::string("right click: choose a structure");
+                                  : std::string("{use_right}: choose a structure");
             std::string line3 = hands.previewWhy.empty()
-                ? (build->locked ? "LOCKED - left click builds" : "left click builds")
+                ? (build->locked ? "LOCKED - {use_left} builds   {tool_cancel}: let go" : "{use_left} builds")
                 : hands.previewWhy;
             if (build->mode == HammerMode::Copy) {
                 line1 = "Copy a building";
-                line2 = "click any piece of it to save the whole building";
+                line2 = "{use_left} any piece of it to save the whole building";
                 line3 = hands.previewWhy.empty() ? hands.aimLabel : hands.previewWhy;
             } else if (build->mode == HammerMode::Blueprint) {
                 const Blueprint* bp = build->chosenBlueprint();
                 line1 = bp ? bp->display + "   " + std::to_string(bp->size.x / 3) + " x " + std::to_string(bp->size.z / 3) + " ft"
                            : std::string("Blueprint");
-                line2 = bp ? std::to_string(bp->parts.size()) + " pieces   T turns it" + (build->style.sitePrep ? "   levels the ground" : "")
-                           : std::string("right click: choose a blueprint");
-                if (hands.previewWhy.empty()) line3 = build->locked ? "LOCKED - left click places it" : "left click places it";
+                line2 = bp ? std::to_string(bp->parts.size()) + " pieces   {rotate_piece} turns it" + (build->style.sitePrep ? "   levels the ground" : "")
+                           : std::string("{use_right}: choose a blueprint");
+                if (hands.previewWhy.empty()) line3 = build->locked ? "LOCKED - {use_left} places it   {tool_cancel}: let go" : "{use_left} places it";
             }
             float y = sh - 196.0f;     // above the held item's name
             const std::string* lines[3] = { &line1, &line2, &line3 };
             for (int i = 0; i < 3; i++) {
-                float w = (float)ui.textWidth(*lines[i], 2);
+                float w = keytext::width(ui, *lines[i], 2);
                 ui.drawRect((sw - w) * 0.5f - 6, y - 3, w + 12, 21, SHADOW);
                 const float* col = i == 2 ? (hands.previewWhy.empty() ? theme.accent : COMBAT_RED)
                                           : (i == 0 ? theme.textHover : theme.textDim);
-                ui.drawText(*lines[i], (sw - w) * 0.5f, y, col, 2);
+                keytext::draw(ui, *lines[i], (sw - w) * 0.5f, y, col, 2, theme.accent);
                 y += 22;
             }
         }
@@ -299,9 +300,9 @@ public:
 
         // ── Short notice ("inventory full") ───────────────
         if (hands.noticeAge < NOTICE_TIME) {
-            float w = (float)ui.textWidth(hands.notice, 2);
+            float w = keytext::width(ui, hands.notice, 2);
             float col[4] = { COMBAT_RED[0], COMBAT_RED[1], COMBAT_RED[2], COMBAT_RED[3] * popupAlpha(hands.noticeAge, NOTICE_TIME) };
-            ui.drawText(hands.notice, (sw - w) * 0.5f, sh * 0.5f + 40.0f, col, 2);
+            keytext::draw(ui, hands.notice, (sw - w) * 0.5f, sh * 0.5f + 40.0f, col, 2);
         }
 
         // ── The attack in progress (game/Combat.h) ────────
@@ -434,12 +435,12 @@ private:
         const auto& theme = gResourcePacks.getTheme();
         const pad::State& s = gInput.padNow();
         pad::Layer layer = gInput.layerNow();
-        if (layer == pad::Layer::Combat && gInput.isHeld(InputAction::QuickLayer)) layer = pad::Layer::Quick;   // its key stands in for Start
+        if (gInput.isHeld(InputAction::QuickLayer)) layer = pad::Layer::Quick;   // its key stands in for Start
         const auto& held = gInput.heldStates();
         float x0 = 20.0f, y0 = sh - 330.0f, W = 300.0f, H = 160.0f;
         ui.drawRect(x0, y0, W, H, SHADOW);
         ui.drawBorder(x0, y0, W, H, theme.border, 1.0f);
-        const char* ln = layer == pad::Layer::Combat ? "combat" : layer == pad::Layer::Quick ? "quick (Start held)" : "explore";
+        const char* ln = layer == pad::Layer::Combat ? "combat" : layer == pad::Layer::Quick ? "quick (Start held)" : layer == pad::Layer::Tool ? "tool" : layer == pad::Layer::ToolAlt ? "tool, Y held" : "explore";
         ui.drawText(std::string(s.connected ? "pad" : "no pad: keys shown") + "   " + ln, x0 + 8, y0 + 6, theme.textDim, 1);
         auto btn = [&](int b, float bx, float by, float bw = 30.0f, float bh = 18.0f) {
             bool lit = pad::lit(s, (pad::Button)b, layer, held);
@@ -463,6 +464,95 @@ private:
         stick(s.left, 130, 96); stick(s.right, 170, 96);
     }
 
+    // ── Out of combat: what the buttons do now ─────────────
+    // Bottom right, one line each: the button (its picture with the
+    // pad, else the key) and what it does with what's in hand. The
+    // held tool changes the list (input/PadLayout.h: the hammer and
+    // some dev tools take B, Y and the D-pad). Settings → Control
+    // hints turns it off.
+    struct Hint { InputAction key; int pad1; int pad2; std::string what; std::string keyText = std::string(); };   // keyText: the keys, said in words
+    std::vector<Hint> controlHints(const Player& player) const {
+        const bool pad = gInput.padLastUsed();
+        const pad::Layer l = gInput.layerNow();
+        auto at = [&](InputAction a) { return padglyph::buttonFor(a, l); };
+        std::vector<Hint> h;
+        auto add = [&](InputAction a, const std::string& what) { h.push_back({ a, at(a), -1, what }); };
+        const ItemDef& d = player.activeInventory().heldDef();
+        const bool tool = PlayerInteraction::takesPad(player);
+        const bool devOk = d.is(IC_DEV) && player.mode != GameMode::Survival;
+        // what the triggers / mouse buttons do with this in hand
+        std::string left = "use / place", right = "break";
+        if (d.is(IC_TOOL) && d.tool == ToolKind::Hammer)   { left = "build"; right = "choose a piece"; }
+        else if (d.is(IC_TOOL) && d.tool == ToolKind::Hoe)   { left = "shape the ground"; right = ""; }
+        else if (d.is(IC_TOOL) && d.tool == ToolKind::Blast) { left = "blast"; right = "big blast"; }
+        else if (devOk) {
+            switch (d.devTool) {
+            case DevToolKind::Wand:    left = "corner 1"; right = "corner 2"; break;
+            case DevToolKind::Fill:    left = "fill"; right = "clear"; break;
+            case DevToolKind::Replace: left = "replace"; right = ""; break;
+            case DevToolKind::Brush:   left = "paint"; right = "carve"; break;
+            case DevToolKind::Copy:    left = "copy"; right = ""; break;
+            case DevToolKind::Paste:   left = "paste"; right = "turn it"; break;
+            case DevToolKind::Explode: left = "explode"; right = ""; break;
+            case DevToolKind::Breaker: left = "break one"; right = "break 3 x 3"; break;
+            case DevToolKind::Cube:    left = "place a cube"; right = "break a cube"; break;
+            default: break;
+            }
+        }
+        add(InputAction::UseLeft, left);
+        if (!right.empty()) add(InputAction::UseRight, right);
+        if (d.is(IC_TOOL) && d.tool == ToolKind::Hammer) add(InputAction::RotatePiece, "turn the piece");
+        if (d.is(IC_TOOL) && d.tool == ToolKind::Hoe)    add(InputAction::RotatePiece, "change what it does");
+        if (tool) {
+            bool size = devOk && (d.devTool == DevToolKind::Brush || d.devTool == DevToolKind::Explode || d.devTool == DevToolKind::Cube);
+            if (pad) h.push_back({ InputAction::NudgeForward, pad::Up, pad::Down, size ? "bigger / smaller" : "move it, locks it there" });
+            else     h.push_back({ InputAction::NudgeForward, -1, -1, size ? "bigger / smaller" : "move it, Page Up / Down: up / down", "ARROWS" });
+            if (!size) {
+                if (pad) h.push_back({ InputAction::ToolAlt, pad::toolAltButton(), -1, "hold: D-pad up / down is up / down" });
+                add(InputAction::ToolCancel, devOk ? "let go / cancel" : "let go, follow the aim");
+            }
+        }
+        if (pad) h.push_back({ InputAction::ToolbarNext, pad::LB, pad::RB, "tool" });
+        else     h.push_back({ InputAction::ToolbarNext, -1, -1, "tool", "WHEEL, 1 - 0" });
+        add(InputAction::Jump, "jump");
+        if (!(tool && pad)) add(InputAction::Sprint, "sprint / roll");
+        if (pad) h.push_back({ InputAction::Interact, pad::quickButton(), padglyph::buttonFor(InputAction::Interact, pad::Layer::Quick), "interact" });
+        else     add(InputAction::Interact, "interact");
+        add(InputAction::DrawWeapon, "combat");
+        if (pad) h.push_back({ InputAction::Inventory, pad::drawButton(), pad::quickButton(), "inventory, menu" });
+        else     add(InputAction::Inventory, "inventory");
+        if (player.mode == GameMode::Survival) {
+            if (pad) h.push_back({ InputAction::QuickLayer, pad::quickButton(), -1, "hold: quick spells" });
+            else     add(InputAction::QuickLayer, "hold: quick spells");
+        }
+        return h;
+    }
+    void drawControlHints(UIRenderer& ui, const Player& player, float sw, float sh) {
+        const auto& theme = gResourcePacks.getTheme();
+        const bool pad = gInput.padLastUsed();
+        std::vector<Hint> hints = controlHints(player);
+        const float lineH = pad ? 25.0f : 15.0f, gh = 14.0f;     // a glyph is gh * 1.5 square
+        float right = sw - 16.0f, y = sh - 120.0f - lineH * hints.size();
+        for (const Hint& h : hints) {
+            // width: the button(s) and the words
+            std::string what = "  " + h.what;
+            float bw;
+            if (pad) bw = gh * 1.5f * (h.pad2 >= 0 ? 2.0f : 1.0f) + (h.pad2 >= 0 ? 6.0f : 0.0f);
+            else bw = (float)ui.textWidth(h.keyText.empty() ? InputManager::bindingLabel(gInput.getBinding(h.key)) : h.keyText, 1);
+            float tw = bw + (float)ui.textWidth(what, 1), x = right - tw;
+            if (pad) ui.drawRect(x - 4, y - 7, tw + 8, 22, SHADOW);   // round the button pictures
+            else     ui.drawRect(x - 4, y - 2, tw + 8, 13, SHADOW);
+            if (pad) {
+                float gx = x;
+                if (h.pad1 >= 0) gx += padglyph::keyOrPad(ui, h.pad1, h.key, gx, y, gh, theme.accent);
+                if (h.pad2 >= 0) { gx += 6.0f; padglyph::keyOrPad(ui, h.pad2, h.key, gx, y, gh, theme.accent); }
+            } else if (!h.keyText.empty()) ui.drawText(h.keyText, x, y, theme.accent, 1);
+            else padglyph::keyOrPad(ui, -1, h.key, x, y, gh, theme.accent);
+            ui.drawText(what, x + bw, y, theme.text, 1);
+            y += lineH;
+        }
+    }
+
     // ── Combat: the controller layout (game/CombatKit.h) ─
     // Bottom centre: the weapon set. Bottom right: the face
     // buttons (X / Y / B items; at the bottom the weapon in hand, its
@@ -473,6 +563,69 @@ private:
     // (ui/PadGlyphs.h: with the pad, its button's picture, from the
     // layout in use; with the keys, the key's name)
     static int padFor(InputAction a, pad::Layer l = pad::Layer::Combat) { return padglyph::buttonFor(a, l); }
+    static constexpr float KIT_CELL = 58.0f;
+    // One cell of the button diamond: its item (or a word), and in
+    // its corner the button's picture (pad) or the key's name
+    void kitCell(UIRenderer& ui, float bx, float by, int padButton, InputAction keyAction, uint16_t item,
+                 const std::string& label, bool lit) {
+        const auto& theme = gResourcePacks.getTheme();
+        const float cell = KIT_CELL;
+        float x0 = bx - cell * 0.5f, y0 = by - cell * 0.5f;
+        ui.drawRect(x0, y0, cell, cell, lit ? theme.bgHover : SHADOW);
+        ui.drawBorder(x0, y0, cell, cell, lit ? WHITE : theme.border, lit ? 2.0f : 1.0f);
+        if (item) drawItemIcon(ui, gItems.get(item), x0 + 9, y0 + 9, cell - 18);
+        else {
+            float lw = (float)ui.textWidth(label, 1);
+            ui.drawText(label, bx - lw * 0.5f, by - 4, theme.textDim, 1);
+        }
+        if (gInput.padLastUsed() && padButton >= 0 && padglyph::draw(ui, padButton, x0, y0, 24.0f)) return;
+        std::string key = gInput.padLastUsed() ? std::string(padButton >= 0 ? pad::buttonName(padButton) : "?")
+                                               : InputManager::bindingLabel(gInput.getBinding(keyAction));
+        float kw = (float)ui.textWidth(key, 1);
+        ui.drawRect(x0 + 2, y0 + 2, kw + 6, 12, SHADOW);
+        ui.drawText(key, x0 + 5, y0 + 4, theme.accent, 1);
+    }
+    // Start held (Left Alt), in combat or out: the 8 quick options,
+    // bottom right — D-pad on the left, face buttons on the right
+    // (out of combat it sits higher, clear of the hotbar: 'raised')
+    void drawQuickPanel(UIRenderer& ui, const Player& player, float sw, float sh, bool raised = false) {
+        const auto& theme = gResourcePacks.getTheme();
+        const CombatKit& kit = player.kit;
+        const float cell = KIT_CELL;
+        float cx = sw - cell * 2.0f - 30.0f, cy = raised ? sh * 0.42f : sh - cell * 2.0f - 40.0f;
+        const auto& held = gInput.heldStates();
+        const int pb[8] = { pad::Left, pad::Up, pad::Right, pad::Down, pad::X, pad::Y, pad::B, pad::A };
+        const glm::vec2 at[8] = { {-1, 0}, {0, -1}, {1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 0}, {0, 1} };
+        for (int i = 0; i < CombatKit::QUICK; i++) {
+            float ox = i < 4 ? -cell * 3.4f : 0.0f;
+            InputAction a = (InputAction)((int)InputAction::ToolbarSlot1 + i);
+            int b = pad::buttonOf(a, pad::Layer::Quick);
+            kitCell(ui, cx + ox + at[i].x * cell, cy + at[i].y * cell, b >= 0 ? b : pb[i], a, kit.quick[i], "empty", held[(int)a]);
+        }
+        std::string t = "QUICK";
+        ui.drawText(t, cx - cell * 1.7f - ui.textWidth(t, 2) * 0.5f, cy - cell * 2.0f, theme.title, 2);
+        // the way to the pause menu, highlighted at the top (with the
+        // pad: add Select to the Start already held)
+        {
+            std::string m = gInput.padLastUsed() ? "{inventory}: pause menu" : "{pause}: pause menu";
+            float mw = keytext::width(ui, m, 1), mx = cx - cell * 1.7f - mw * 0.5f, my = cy - cell * 2.0f - 30.0f;
+            static const float BACK[4] = { 20, 16, 12, 235 };
+            ui.drawRect(mx - 8, my - 8, mw + 16, 24, BACK);
+            ui.drawBorder(mx - 8, my - 8, mw + 16, 24, theme.accent, 2.0f);
+            keytext::draw(ui, m, mx, my, theme.accent, 1);
+        }
+        // and interact (LB here; E on the keyboard)
+        {
+            std::string w = "  interact";
+            int b = padglyph::buttonFor(InputAction::Interact, pad::Layer::Quick);
+            float kw = padglyph::keyOrPadWidth(ui, InputAction::Interact, 16.0f);
+            float tw = kw + (float)ui.textWidth(w, 1), tx = cx - cell * 1.7f - tw * 0.5f, ty = cy + cell * 1.75f;
+            ui.drawRect(tx - 4, ty - 2, tw + 8, 13, SHADOW);
+            padglyph::keyOrPad(ui, b, InputAction::Interact, tx, ty, 16.0f, theme.accent);
+            ui.drawText(w, tx + kw, ty, held[(int)InputAction::Interact] ? WHITE : theme.text, 1);
+        }
+    }
+
     void drawWeaponPanel(UIRenderer& ui, const Player& player,
                          const PlayerController& controller, float sw, float sh) {
         const auto& theme = gResourcePacks.getTheme();
@@ -501,42 +654,14 @@ private:
         }
 
         // the buttons, bottom right
-        const float cell = 58.0f;
+        const float cell = KIT_CELL;
         float cx = sw - cell * 2.0f - 30.0f, cy = sh - cell * 2.0f - 40.0f;     // centre of the diamond
-        // one cell: its item (or a word), and in its corner the button's
-        // picture (pad) or the key's name
         auto button = [&](float bx, float by, int padButton, InputAction keyAction, uint16_t item, const std::string& label, bool lit) {
-            float x0 = bx - cell * 0.5f, y0 = by - cell * 0.5f;
-            ui.drawRect(x0, y0, cell, cell, lit ? theme.bgHover : SHADOW);
-            ui.drawBorder(x0, y0, cell, cell, lit ? WHITE : theme.border, lit ? 2.0f : 1.0f);
-            if (item) drawItemIcon(ui, gItems.get(item), x0 + 9, y0 + 9, cell - 18);
-            else {
-                float lw = (float)ui.textWidth(label, 1);
-                ui.drawText(label, bx - lw * 0.5f, by - 4, theme.textDim, 1);
-            }
-            if (gInput.padLastUsed() && padButton >= 0 && padglyph::draw(ui, padButton, x0, y0, 24.0f)) return;
-            std::string key = gInput.padLastUsed() ? std::string(padButton >= 0 ? pad::buttonName(padButton) : "?")
-                                                   : InputManager::bindingLabel(gInput.getBinding(keyAction));
-            float kw = (float)ui.textWidth(key, 1);
-            ui.drawRect(x0 + 2, y0 + 2, kw + 6, 12, SHADOW);
-            ui.drawText(key, x0 + 5, y0 + 4, theme.accent, 1);
+            kitCell(ui, bx, by, padButton, keyAction, item, label, lit);
         };
         const auto& held = gInput.heldStates();
         auto on = [&](InputAction a) { return held[(int)a]; };
-        if (gInput.isHeld(InputAction::QuickLayer)) {
-            // the quick layer: D-pad and the face buttons, 8 fixed
-            const int pb[8] = { pad::Left, pad::Up, pad::Right, pad::Down, pad::X, pad::Y, pad::B, pad::A };
-            const glm::vec2 at[8] = { {-1, 0}, {0, -1}, {1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 0}, {0, 1} };
-            for (int i = 0; i < CombatKit::QUICK; i++) {
-                float ox = i < 4 ? -cell * 3.4f : 0.0f;
-                InputAction a = (InputAction)((int)InputAction::ToolbarSlot1 + i);
-                int b = pad::buttonOf(a, pad::Layer::Quick);
-                button(cx + ox + at[i].x * cell, cy + at[i].y * cell, b >= 0 ? b : pb[i], a, kit.quick[i], "empty", on(a));
-            }
-            std::string t = "QUICK";
-            ui.drawText(t, cx - cell * 1.7f - ui.textWidth(t, 2) * 0.5f, cy - cell * 2.0f, theme.title, 2);
-            return;
-        }
+        if (gInput.isHeld(InputAction::QuickLayer)) { drawQuickPanel(ui, player, sw, sh); return; }
         button(cx - cell, cy, padFor(InputAction::UseSlotX), InputAction::UseSlotX, kit.slotItem(0), "X", on(InputAction::UseSlotX));
         button(cx, cy - cell, padFor(InputAction::UseSlotY), InputAction::UseSlotY, kit.slotItem(1), "Y", on(InputAction::UseSlotY));
         button(cx + cell, cy, padFor(InputAction::UseSlotB), InputAction::UseSlotB, kit.slotItem(2), "B", on(InputAction::UseSlotB));
@@ -592,9 +717,9 @@ private:
                         float sw, float sh, float y) {
         const auto& theme = gResourcePacks.getTheme();
         auto centred = [&](const std::string& t, float yy, const float* col) {
-            float w = (float)ui.textWidth(t, 2);
+            float w = keytext::width(ui, t, 2);
             ui.drawRect((sw - w) * 0.5f - 6, yy - 3, w + 12, 21, SHADOW);
-            ui.drawText(t, (sw - w) * 0.5f, yy, col, 2);
+            keytext::draw(ui, t, (sw - w) * 0.5f, yy, col, 2, theme.accent);
         };
         char b[128];
         switch (tool) {
@@ -606,7 +731,7 @@ private:
                 float py = sh * 0.5f + 46.0f;
                 centred(b, py, theme.textHover);
                 centred("Set as corner  1  or  2 ?", py + 24, theme.accent);
-                centred("press 1 or 2   Backspace cancels", py + 48, theme.textDim);
+                centred("{toolbar_slot_1} or {toolbar_slot_2}   {tool_cancel} cancels", py + 48, theme.textDim);
             }
             break;
         case DevToolKind::Paste:
@@ -615,11 +740,11 @@ private:
                               dev.pasteSpot.y, dev.pasteSpot.z);
                 centred(b, y, theme.accent);
             } else {
-                centred("follows crosshair - arrow keys lock it", y, theme.textDim);
+                centred("follows crosshair - {nudge} locks it", y, theme.textDim);
             }
             break;
         case DevToolKind::Explode:
-            std::snprintf(b, sizeof(b), "blast radius %d   right click %d",
+            std::snprintf(b, sizeof(b), "blast radius %d   {use_right}: %d",
                           (int)dev.brushRadius, (int)(dev.brushRadius * 2));
             centred(b, y, COMBAT_RED);
             break;

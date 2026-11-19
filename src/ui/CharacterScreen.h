@@ -97,8 +97,8 @@ public:
         float sw = (float)ui.getWidth(), sh = (float)ui.getHeight();
         mousePrev = mouseDown;
         double pmx = mx;
-        glfwGetCursorPos(window, &mx, &my);
-        mouseDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        gNav.cursor(window, &mx, &my);
+        mouseDown = gNav.button(window, GLFW_MOUSE_BUTTON_LEFT);
         caret += dt;
 
         ui.begin();
@@ -219,6 +219,7 @@ private:
 
     bool clicked() const { return mouseDown && !mousePrev; }
     bool hovered(float x, float yy, float w, float h) const {
+        gNav.add(x, yy, w, h);                    // every rectangle asked about: the controller can reach it
         return mx >= x && mx <= x + w && my >= yy && my <= yy + h;
     }
 
@@ -511,6 +512,7 @@ private:
         ui.drawBorder(x, sy, w, th, theme.border, 1.0f);
         float kx = x + w * t;
         ui.drawRect(kx - 6, sy - 6, 12, th + 12, dragging == id ? theme.textHover : theme.accent);
+        gNav.setKind(x - 8, sy - 10, w + 16, th + 20, PadNav::Kind::Slider, (8.0f + w * t) / (w + 16.0f));   // pad: left / right
         if (clicked() && hovered(x - 8, sy - 10, w + 16, th + 20)) dragging = id;
         if (dragging == id) {
             float f = std::clamp((float)(mx - x) / w, 0.0f, 1.0f);

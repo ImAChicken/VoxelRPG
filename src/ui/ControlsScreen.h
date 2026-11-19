@@ -69,6 +69,10 @@ public:
         const auto& theme = gResourcePacks.getTheme();
         const auto& table = InputManager::actionTable();
         float sw = (float)ui.getWidth(), sh = (float)ui.getHeight();
+        // waiting for a key: the pad's B gives up (a pad has no keys to give)
+        bool padB = gInput.padNow().down[pad::B];
+        if (capturing >= 0 && padB && !padBWas) capturing = -1;
+        padBWas = padB;
         pollMouse();
 
         // A mouse button pressed while waiting becomes the
@@ -126,10 +130,11 @@ public:
             total += rowH;
         }
         if (capturing < 0) {
-            scroll -= scrollInput * 40.0f;
+            scroll -= (scrollInput + gNav.scroll()) * 40.0f;
         }
         scrollInput = 0.0f;
         scroll = std::clamp(scroll, 0.0f, std::max(0.0f, total - listH));
+        gNav.scrollArea(listX, listY, listW, listH);    // the pad scrolls it (ui/PadNav.h)
 
         float y = listY - scroll;
         sec.clear();
@@ -188,13 +193,15 @@ public:
             result = ScreenResult::CloseMenu;
         }
         ui.end();
+        gNav.pause(isCapturing());
         return result;
     }
 
 private:
     GLFWwindow* window;
     bool  padTab = false;        // the Controller tab
-    int   padCapturing = -1;     // pad layout entry waiting for a button
+    int   padCapturing = -1;
+    bool  padBWas = false;     // pad layout entry waiting for a button
     std::array<bool, pad::COUNT> padWas{};   // the buttons down last frame (a press is new)
     int   capturing    = -1;     // row waiting for a new key
     bool  captureArmed = false;  // mouse released since the wait began
@@ -215,11 +222,12 @@ private:
 
     void pollMouse() {
         mousePrev = mouseDown;
-        glfwGetCursorPos(window, &mx, &my);
-        mouseDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        gNav.cursor(window, &mx, &my);
+        mouseDown = gNav.button(window, GLFW_MOUSE_BUTTON_LEFT);
     }
     bool clicked() const { return mouseDown && !mousePrev; }
     bool hovered(float x, float y, float w, float h) const {
+        gNav.add(x, y, w, h);                    // every rectangle asked about: the controller can reach it
         return mx >= x && mx <= x + w && my >= y && my <= y + h;
     }
     bool anyButtonDown() const {
@@ -244,7 +252,6 @@ private:
     static std::string padLabel(const pad::Map& m) {
         int q = (int)m.action - (int)InputAction::ToolbarSlot1;
         if (m.layer == pad::Layer::Quick && q >= 0 && q < 8) return "Quick option " + std::to_string(q + 1);
-        if (m.action == InputAction::Jump) return "Jump   (held: interact)";
         if (m.action == InputAction::QuickLayer) return "Quick options (hold)";
         const ActionInfo* i = InputManager::infoFor(m.action);
         return i ? i->label : "?";
@@ -253,7 +260,9 @@ private:
         switch (l) {
         case pad::Layer::Both:   return "Always";
         case pad::Layer::Combat: return "Combat";
-        case pad::Layer::Quick:  return "Combat, quick button held";
+        case pad::Layer::Quick:  return "Quick button held (Start)";
+        case pad::Layer::Tool:   return "A tool in hand (hammer ...): over Out of combat";
+        case pad::Layer::ToolAlt: return "Tool, its alt button held (Y)";
         default:                 return "Out of combat";
         }
     }
@@ -293,15 +302,16 @@ private:
         const float rowH = 34.0f, headH = 28.0f;
         float listX = px + 16, listY = py + 76, listW = pw - 32, listH = ph - 76 - 60;
         const auto& L = pad::layout();
-        const pad::Layer order[4] = { pad::Layer::Both, pad::Layer::Combat, pad::Layer::Quick, pad::Layer::Explore };
+        const std::vector<pad::Layer>& order = pad::allLayers();
         float total = 0.0f;
         for (pad::Layer l : order) {
             total += headH;
             for (const pad::Map& m : L) if (m.layer == l) total += rowH;
         }
-        if (padCapturing < 0) scroll -= scrollInput * 40.0f;
+        if (padCapturing < 0) scroll -= (scrollInput + gNav.scroll()) * 40.0f;
         scrollInput = 0.0f;
         scroll = std::clamp(scroll, 0.0f, std::max(0.0f, total - listH));
+        gNav.scrollArea(listX, listY, listW, listH);    // the pad scrolls it (ui/PadNav.h)
         float y = listY - scroll;
         for (pad::Layer l : order) {
             if (visible(y, headH, listY, listH)) ui.drawText(layerTitle(l), listX, y + 8, theme.accent, 2);
@@ -345,6 +355,7 @@ private:
         if (resetHov && clicked()) { pad::resetLayout(); gInput.savePad(); }
         if ((backHov && clicked()) || wantBack) { wantBack = false; padCapturing = -1; result = ScreenResult::CloseMenu; }
         ui.end();
+        gNav.pause(isCapturing());       // binding a pad button: the pad is the screen's, not the menu's
         return result;
     }
 

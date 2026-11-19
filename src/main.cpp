@@ -367,8 +367,9 @@ int main() {
     // Messages from commands, tools and saving go to the
     // console (and the terminal)
     auto say = [&console](const std::string& msg) {
-        console.print(msg);
-        std::cout << msg << "\n";
+        std::string m = keytext::plain(msg);     // {interact} → the key bound to it (ui/KeyText.h)
+        console.print(m);
+        std::cout << m << "\n";
     };
 
     // ── Building and commands ─────────────────────────────
@@ -672,6 +673,10 @@ int main() {
         // rebuilt from the seed: GameSession::chunkSource)
         streamer = std::make_unique<WorldStreamer>(
             *world, session.chunkSource(), blockTable, lightTable());
+        {   // where rivers run (the generator knows; the water moves that way)
+            const TerrainGenerator* g = session.gen.get();
+            streamer->flowAt = [g](int x, int z) { return g->flowAt(x, z); };
+        }
         memory.load(gWorldSave.getWorldPath() + "/lowres.dat");
         memorySeen = 0;
 
@@ -832,6 +837,7 @@ int main() {
         hud.devWorld = false;
         pauseMenu.setRemote(true);
         streamer = std::make_unique<WorldStreamer>(*world, remote->chunkSource(), blockTable, lightTable());
+        if (const TerrainGenerator* g = remote->gen.get()) streamer->flowAt = [g](int x, int z) { return g->flowAt(x, z); };
         // columns the server has changed come from the server, not the seed
         streamer->skipLoad = [&](int cx, int cz) { return remote && remote->isModified(cx, cz); };
         memory.load(remote->cacheFolder() + "/lowres.dat");
@@ -964,7 +970,8 @@ int main() {
                 const ChunkMesh* mesh = streamer->getMesh(cx, sy, cz);
                 if (!mesh || mesh->isEmpty()) continue;
                 glr->drawMesh(*mesh, origin + glm::vec3(0.0f, (float)(sy * VOXEL_DIM), 0.0f),
-                              streamer->getLightTexture(cx, sy, cz), streamer->getCanopyTexture(cx, cz));
+                              streamer->getLightTexture(cx, sy, cz), streamer->getCanopyTexture(cx, cz),
+                              streamer->getFlowTexture(cx, cz));
             }
         }
 
@@ -1440,6 +1447,67 @@ int main() {
     int   titleFrames = 0;
     float worstFrame  = 0.0f;
 
+    // ── The pause menu's buttons, from either place ─────────
+    // Esc's pause menu and the inventory's left panel (the pad's
+    // way there: Select + Start) offer the same buttons
+    // (ui/PauseMenuScreen.h pauseButtons). Controls, Settings,
+    // Character and the Dev Menu go back to where they came from.
+    GameState menuReturn = GameState::Paused;
+    auto backToMenu = [&]() {
+        if (menuReturn == GameState::Inventory) {
+            inventoryScreen.setContext(&player);
+            inventoryScreen.onEnter();
+            inventoryOpenedFrame = true;
+            gState = GameState::Inventory;
+        } else {
+            gState = GameState::Paused;
+            pauseMenu.onEnter();
+        }
+        menuReturn = GameState::Paused;
+    };
+    // True if it was one of them (and it's been done)
+    auto pauseButton = [&](ScreenResult r, GameState from) -> bool {
+        menuReturn = from;
+        if (r == ScreenResult::OpenDevMenu) {
+            devMenu.setContext(&player, &dev, &build);
+            devMenu.onEnter();
+            gState = GameState::DevMenu;
+        } else if (r == ScreenResult::OpenControls) {
+            controlsScreen.onEnter();
+            gState = GameState::Controls;
+        } else if (r == ScreenResult::OpenSettings) {
+            settingsScreen.onEnter();
+            gState = GameState::Settings;
+        } else if (r == ScreenResult::OpenCharacter) {
+            characterScreen.begin(player.appearance);
+            previewBody->resetAnimation();
+            gState = GameState::Character;
+        } else if (r == ScreenResult::ResumeGame) {
+            gState = GameState::Playing;
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            camera.firstMouse = true;
+            gInput.resetMouseDelta(window);
+        } else if (r == ScreenResult::SaveGame) {
+            saveWorld();
+            if (from == GameState::Inventory) inventoryScreen.notice("world saved");
+            else pauseMenu.notice("world saved");
+        } else if (r == ScreenResult::SaveAndQuit || r == ScreenResult::QuitNoSave) {
+            leaveWorld(r == ScreenResult::SaveAndQuit);
+            gState = GameState::MainMenu;
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            glfwSetWindowTitle(window, "VoxelRPG");
+            mainMenu.onEnter();
+        } else {
+            menuReturn = GameState::Paused;
+            return false;
+        }
+        if (gState != GameState::Controls && gState != GameState::Settings &&
+            gState != GameState::Character && gState != GameState::DevMenu) menuReturn = GameState::Paused;
+        return true;
+    };
+
+    GameState navState = gState;          // the screen PadNav last saw
+    auto menuBack = [&]() { return gInput.isPressed(InputAction::Pause) || gNav.back(); };   // Esc, or the pad's B
     std::cout << "Entering main loop\n";
     std::cout.flush();
 
@@ -1467,7 +1535,13 @@ int main() {
         // any isPressed / isHeld check this frame
         glfwPollEvents();
         gInput.setCombatLayer(player.combatStance);   // the pad's combat buttons (input/PadLayout.h)
+        const bool menuUp = gState != GameState::Playing && gState != GameState::Console;
+        gInput.setMenuMode(menuUp);
+        gInput.setToolLayer(!player.combatStance && rulesFor(player.mode, false).hasBody && PlayerInteraction::takesPad(player));
         gInput.poll(window);
+        // the controller in menus (ui/PadNav.h): a new screen starts its focus afresh
+        if (gState != navState) { gNav.reset(); navState = gState; }
+        gNav.frame(menuUp);
 
         // ── On a server: what it sent, every frame ────────
         if (remote && gState != GameState::MainMenu) {
@@ -1956,7 +2030,7 @@ int main() {
                 if (pendingKit && player.grounded && structs) {
                     pendingKit = false;
                     int n = devkit::placeKit(*structs, chests, player.position, player.facing, say);
-                    if (n) say("showcase chests: take a copy of anything (E opens; chest kit makes more)");
+                    if (n) say("showcase chests: take a copy of anything ({interact} opens; chest kit makes more)");
                 }
 
                 // A body in front of you that may be searched (its pack:
@@ -1997,7 +2071,7 @@ int main() {
                             if (flat < bestD) { bestD = flat; best = n.get(); }
                         }
                         if (best) {
-                            if (sim.openMenu(best->uuid, player.uuid)) { talkingTo = best->uuid; say("talking to " + best->name + " (E to leave)"); }
+                            if (sim.openMenu(best->uuid, player.uuid)) { talkingTo = best->uuid; say("talking to " + best->name + " ({interact} to leave)"); }
                             else say(best->name + " won't talk now");
                         }
                     }
@@ -2014,7 +2088,7 @@ int main() {
                               player.mode == GameMode::Dev);
                     hands.update(player, *editor, dev, *structs, build, dt);
                     if (hands.aimLabel.empty() && !talkingTo)
-                        if (Npc* body = bodyInView()) hands.aimLabel = body->name + (body->pack.mayHoldItems() ? "   E: search" : "   searched - empty");
+                        if (Npc* body = bodyInView()) hands.aimLabel = body->name + (body->pack.mayHoldItems() ? "   {interact}: search" : "   searched - empty");
 
                     // E on a chest → the inventory, the chest beside it
                     if (hands.openChest) {
@@ -2088,6 +2162,7 @@ int main() {
                     [&](GameMode m) { changeMode(m); },
                     [&]() { saveWorld(); },
                     say, &npcs, &sim, &chests };
+                ctx.gen = session.gen.get();
                 commands.run(line, ctx);
             }
             gConsoleLines.clear();
@@ -2106,7 +2181,7 @@ int main() {
 
             drawWorld();
             ScreenResult r = stationScreen.update(*gRenderer->getUIRenderer(), dt);
-            if (r == ScreenResult::CloseMenu || gInput.isPressed(InputAction::Pause) ||
+            if (r == ScreenResult::CloseMenu || menuBack() ||
                 gInput.isPressed(InputAction::Interact)) {
                 gState = GameState::Playing;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -2121,7 +2196,7 @@ int main() {
                      player, controller, hands, dev);
             ScreenResult r = buildMenu.update(*gRenderer->getUIRenderer(), dt);
             if (r == ScreenResult::CloseMenu ||
-                gInput.isPressed(InputAction::Pause)) {
+                menuBack()) {
                 gState = GameState::Playing;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 camera.firstMouse = true;
@@ -2134,13 +2209,17 @@ int main() {
             hud.draw(*gRenderer->getUIRenderer(),
                      player, controller, hands, dev);
             if (gInput.isPressed(InputAction::SwapWeapon)) player.activeInventory().swapWeapons();
+            inventoryScreen.setPauseContext(pauseMenu.isRemote(), player.mode != GameMode::Survival,
+                                            gWorldSave.isDevWorld());
             ScreenResult r = inventoryScreen.update(*gRenderer->getUIRenderer(), dt);
             bool justOpened = inventoryOpenedFrame;
             inventoryOpenedFrame = false;
-            if (!justOpened && (r == ScreenResult::CloseMenu ||
+            if (r != ScreenResult::CloseMenu && pauseButton(r, GameState::Inventory)) {
+                // a pause button (left panel): done, or another screen opened
+            } else if (!justOpened && (r == ScreenResult::CloseMenu ||
                 gInput.isPressed(InputAction::Inventory) ||
                 gInput.isPressed(InputAction::Interact) ||        // E closes a chest it opened
-                gInput.isPressed(InputAction::Pause))) {
+                menuBack())) {
                 gState = GameState::Playing;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 camera.firstMouse = true;
@@ -2153,8 +2232,7 @@ int main() {
             ScreenResult r = controlsScreen.update(
                 *gRenderer->getUIRenderer(), dt);
             if (r == ScreenResult::CloseMenu) {   // Back or Esc
-                gState = GameState::Paused;
-                pauseMenu.onEnter();
+                backToMenu();
             }
 
         } else if (gState == GameState::Settings) {
@@ -2167,10 +2245,9 @@ int main() {
             ScreenResult r = settingsScreen.update(
                 *gRenderer->getUIRenderer(), dt);
             if (r == ScreenResult::CloseMenu ||
-                gInput.isPressed(InputAction::Pause)) {
+                menuBack()) {
                 gSettings.save();
-                gState = GameState::Paused;
-                pauseMenu.onEnter();
+                backToMenu();
             }
 
         } else if (gState == GameState::Character) {
@@ -2180,7 +2257,7 @@ int main() {
             // Esc while typing a favorite's name only leaves the box
             bool typing = characterScreen.escLeftTyping();
             ScreenResult r = characterScreen.update(*ui, dt);
-            bool esc = gInput.isPressed(InputAction::Pause) && !typing;
+            bool esc = menuBack() && !typing;
             if (esc) characterScreen.cancel();
 
             // The turning preview, drawn into the screen's
@@ -2217,8 +2294,7 @@ int main() {
                     saveDefaultCharacter(player.appearance);
                     say("character saved");
                 }
-                gState = GameState::Paused;
-                pauseMenu.onEnter();
+                backToMenu();
             }
 
         } else if (gState == GameState::DevMenu) {
@@ -2227,9 +2303,8 @@ int main() {
             UIRenderer* ui = gRenderer->getUIRenderer();
             ScreenResult r = devMenu.update(*ui, dt);
             if (r == ScreenResult::CloseMenu ||
-                gInput.isPressed(InputAction::Pause)) {
-                gState = GameState::Paused;
-                pauseMenu.onEnter();
+                menuBack()) {
+                backToMenu();
             }
 
         } else if (gState == GameState::Paused) {
@@ -2241,46 +2316,10 @@ int main() {
             pauseMenu.setDevMenuAllowed(player.mode != GameMode::Survival);
             pauseMenu.setDevWorld(gWorldSave.isDevWorld());
             ScreenResult r = pauseMenu.update(*ui, dt);
-
-            if (r == ScreenResult::OpenDevMenu) {
-                devMenu.setContext(&player, &dev, &build);
-                devMenu.onEnter();
-                gState = GameState::DevMenu;
-
-            } else if (r == ScreenResult::OpenControls) {
-                controlsScreen.onEnter();
-                gState = GameState::Controls;
-
-            } else if (r == ScreenResult::OpenSettings) {
-                settingsScreen.onEnter();
-                gState = GameState::Settings;
-
-            } else if (r == ScreenResult::OpenCharacter) {
-                characterScreen.begin(player.appearance);
-                previewBody->resetAnimation();
-                gState = GameState::Character;
-
-            } else if (r == ScreenResult::ResumeGame) {
-                gState = GameState::Playing;
-                glfwSetInputMode(window, GLFW_CURSOR,
-                                 GLFW_CURSOR_DISABLED);
-                camera.firstMouse = true;
-                gInput.resetMouseDelta(window);
-
-            } else if (r == ScreenResult::SaveGame) {
-                saveWorld();
-                pauseMenu.notice("world saved");
-
-            } else if (r == ScreenResult::SaveAndQuit || r == ScreenResult::QuitNoSave) {
-                leaveWorld(r == ScreenResult::SaveAndQuit);
-                gState = GameState::MainMenu;
-                glfwSetInputMode(window, GLFW_CURSOR,
-                                 GLFW_CURSOR_NORMAL);
-                glfwSetWindowTitle(window, "VoxelRPG");
-                mainMenu.onEnter();
-            }
+            pauseButton(r, GameState::Paused);
         }
 
+        gNav.drawFocus(*gRenderer->getUIRenderer());   // the controller's focus, over the menu
         gRenderer->endFrame();
         glfwSwapBuffers(window);
 

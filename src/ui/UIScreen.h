@@ -1,6 +1,7 @@
 #pragma once
 #include "UIRenderer.h"
 #include "../render/ResourcePack.h"
+#include "PadNav.h"
 
 enum class ScreenResult {
     Continue,
@@ -40,6 +41,7 @@ protected:
         const auto& theme = gResourcePacks.getTheme();
         float w = width > 0.0f ? width : (float)theme.buttonW;
         float h = (float)theme.buttonH;
+        gNav.add(x, y, w, h, label);               // the controller can reach it (ui/PadNav.h)
 
         const float* bg = hovered
             ? theme.buttonBgHover : theme.buttonBg;

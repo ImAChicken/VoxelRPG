@@ -19,12 +19,12 @@ int main() {
     std::printf("the pad layout\n");
     {
         using A = InputAction;
-        auto press = [](std::initializer_list<pad::Button> bs, pad::Layer layer, float aHeld = 0.0f, bool aTap = false) {
+        auto press = [](std::initializer_list<pad::Button> bs, pad::Layer layer) {
             pad::State s;
             s.connected = true;
             for (pad::Button b : bs) s.down[b] = true;
             std::array<bool, (int)A::COUNT> held{};
-            pad::apply(s, layer, aHeld, aTap, held);
+            pad::apply(s, layer, held);
             return held;
         };
         auto c = press({ pad::RB, pad::RT, pad::LT, pad::LB }, pad::Layer::Combat);
@@ -35,26 +35,68 @@ int main() {
               f[(int)A::CycleSlotY] && f[(int)A::CycleSlotB] && f[(int)A::SwapWeapon],
               "  X / Y / B use, D-pad left / up / right cycle them, down the weapon set");
         check(!f[(int)A::Inventory] && !press({ pad::Start }, pad::Layer::Combat)[(int)A::Pause], "  no menus in combat");
+        check(!press({ pad::Start }, pad::Layer::Explore)[(int)A::Pause], "  Start pauses nothing out of combat either (the menu is in the inventory)");
         auto q = press({ pad::X, pad::Down, pad::A }, pad::Layer::Quick);
         check(q[(int)A::QuickLayer] && q[(int)A::ToolbarSlot5] && q[(int)A::ToolbarSlot4] && q[(int)A::ToolbarSlot8] &&
               !q[(int)A::UseSlotX] && !q[(int)A::Jump], "Start held: the D-pad and face buttons pick quick options");
         auto e = press({ pad::LB, pad::RB, pad::LT, pad::RT, pad::B }, pad::Layer::Explore);
         check(e[(int)A::ToolbarPrev] && e[(int)A::ToolbarNext] && e[(int)A::UseLeft] && e[(int)A::UseRight] && e[(int)A::Roll],
               "out of combat: LB / RB the hotbar, LT / RT left and right click, B sprint and roll");
-        check(press({ pad::Back }, pad::Layer::Combat)[(int)A::DrawWeapon] && press({ pad::Back }, pad::Layer::Explore)[(int)A::DrawWeapon],
-              "Select toggles combat in both");
-        check(!press({ pad::A }, pad::Layer::Combat, 0.1f)[(int)A::Jump] && press({}, pad::Layer::Combat, 0.1f, true)[(int)A::Jump],
-              "A: a tap jumps when it comes up");
-        auto h = press({ pad::A }, pad::Layer::Combat, 0.5f);
-        check(h[(int)A::Interact] && !h[(int)A::Jump], "A held: interact, no jump");
-        check(pad::layerFor(true, true) == pad::Layer::Quick && pad::layerFor(false, true) == pad::Layer::Explore,
-              "the quick layer only in combat");
+        {
+            // Select: a tap, on release, draws; with Start it's the inventory
+            pad::ChordState cs;
+            auto step = [&](std::initializer_list<pad::Button> bs) {
+                pad::State st; st.connected = true;
+                for (pad::Button b : bs) st.down[b] = true;
+                std::array<bool, (int)A::COUNT> h{};
+                pad::apply(st, pad::layerFor(false, st.down[pad::quickButton()]), h);
+                pad::chord(st, cs, h);
+                return h;
+            };
+            bool downDraws = step({ pad::Back })[(int)A::DrawWeapon];
+            bool upDraws = step({})[(int)A::DrawWeapon];
+            check(!downDraws && upDraws, "Select: a tap draws, when it comes up");
+            bool inv1 = step({ pad::Back })[(int)A::Inventory];
+            bool inv2 = step({ pad::Back, pad::Start })[(int)A::Inventory];
+            auto up1 = step({ pad::Start });
+            auto up2 = step({});
+            check(!inv1 && inv2 && !up1[(int)A::DrawWeapon] && !up2[(int)A::DrawWeapon],
+                  "Select + Start: the inventory, and no draw when they come up");
+            step({ pad::Start });
+            bool inv3 = step({ pad::Start, pad::Back })[(int)A::Inventory];
+            bool d3 = step({ pad::Start })[(int)A::DrawWeapon];
+            step({});
+            check(inv3 && !d3, "  either first");
+            check(step({ pad::Back })[(int)A::DrawWeapon] == false && step({})[(int)A::DrawWeapon], "  then a plain tap draws again");
+        }
+        check(press({ pad::A }, pad::Layer::Combat)[(int)A::Jump] && press({ pad::A }, pad::Layer::Explore)[(int)A::Jump] &&
+              !press({ pad::A }, pad::Layer::Explore)[(int)A::Interact], "A jumps at once (and only jumps)");
+        check(!press({ pad::Y }, pad::Layer::Explore)[(int)A::Inventory], "Y no longer opens the inventory (Select + Start does)");
+        {
+            // a tool in hand: B, Y and the D-pad are the tool's, the rest stay explore's
+            auto t = press({ pad::B, pad::Up, pad::LT, pad::RB, pad::X }, pad::Layer::Tool);
+            check(t[(int)A::ToolCancel] && !t[(int)A::Sprint] && !t[(int)A::Roll] && t[(int)A::NudgeForward] &&
+                  t[(int)A::UseLeft] && t[(int)A::ToolbarNext] && t[(int)A::RotatePiece],
+                  "tool: B lets go (not sprint), the D-pad moves it; LT, RB, X as out of combat");
+            check(!press({ pad::Up }, pad::Layer::Explore)[(int)A::NudgeForward] && press({ pad::B }, pad::Layer::Explore)[(int)A::Sprint],
+                  "  without one: the D-pad does nothing, B sprints");
+            auto ta = press({ pad::Y, pad::Up, pad::Left }, pad::Layer::ToolAlt);
+            check(ta[(int)A::ToolAlt] && ta[(int)A::NudgeUp] && !ta[(int)A::NudgeForward] && ta[(int)A::NudgeLeft],
+                  "  Y held: D-pad up goes up (left still left)");
+            check(pad::layerFor(false, false, true, false) == pad::Layer::Tool && pad::layerFor(false, false, true, true) == pad::Layer::ToolAlt &&
+                  pad::layerFor(true, false, true, true) == pad::Layer::Combat && pad::layerFor(false, true, true, true) == pad::Layer::Quick,
+                  "  the tool layers only out of combat, under the quick layer");
+        }
+        auto it = press({ pad::LB }, pad::Layer::Quick);
+        check(it[(int)A::Interact] && !it[(int)A::Sprint] && !it[(int)A::ToolbarPrev], "Start + LB: interact");
+        check(pad::layerFor(true, true) == pad::Layer::Quick && pad::layerFor(false, true) == pad::Layer::Quick &&
+              pad::layerFor(false, false) == pad::Layer::Explore, "the quick layer in combat or out (Start held)");
     }
 
     std::printf("rebinding the pad\n");
     {
         using A = InputAction;
-        // jump (and interact, held) moved to B; the quick layer to Select
+        // jump moved to B; the quick layer to Select
         for (pad::Map& m : pad::current()) {
             if (m.action == A::Jump) m.button = pad::B;
             if (m.action == A::QuickLayer) m.button = pad::Back;
@@ -62,11 +104,9 @@ int main() {
         check(pad::jumpButton() == pad::B && pad::quickButton() == pad::Back, "the jump and quick buttons follow the layout");
         pad::State s; s.connected = true;
         std::array<bool, (int)A::COUNT> held{};
-        pad::apply(s, pad::Layer::Combat, 0.1f, true, held);
-        check(held[(int)A::Jump], "  a tap of B jumps");
-        s.down[pad::B] = true; held = {};
-        pad::apply(s, pad::Layer::Combat, 0.5f, false, held);
-        check(held[(int)A::Interact] && !held[(int)A::Jump], "  holding B interacts");
+        s.down[pad::B] = true;
+        pad::apply(s, pad::Layer::Explore, held);
+        check(held[(int)A::Jump], "  B jumps");
         check(pad::layerFor(true, true) == pad::Layer::Quick, "  (the quick layer: whichever button is held)");
         pad::resetLayout();
         check(pad::jumpButton() == pad::A && pad::quickButton() == pad::Start && pad::layout().size() == pad::defaults().size(),
@@ -89,12 +129,13 @@ int main() {
 
     std::printf("the combat kit\n");
     const uint16_t SWORD = gItems.find("iron_sword"), CLUB = gItems.find("wooden_club"), WIND = gItems.find("windburst"),
-                   TORCH = gItems.find("torch");
+                   TORCH = gItems.find("torch"), ICE = gItems.find("ice_spike"), PICK = gItems.find("iron_pickaxe"),
+                   AXE = gItems.find("iron_axe");
     check(SWORD && CLUB && WIND && gItems.get(WIND).is(IC_SPELL) && gItems.get(WIND).cast == "windburst_cast",
           "Windburst is a spell item that casts windburst_cast");
     {
         Inventory inv;
-        inv.add(SWORD, 1); inv.add(CLUB, 1); inv.add(WIND, 1); inv.add(TORCH, 4);
+        inv.add(SWORD, 1); inv.add(CLUB, 1); inv.add(WIND, 1); inv.add(TORCH, 4); inv.add(ICE, 1);
         inv.equipFrom(inv.find(SWORD), EquipSlot::Weapon1);
         inv.equipFrom(inv.find(CLUB), EquipSlot::Weapon2);
         CombatKit k;
@@ -105,10 +146,10 @@ int main() {
         inv.swapWeapons();
         k.follow(inv);
         check(k.setAt == 1 && inv.weapon().itemID == CLUB, "switching loadouts draws the other primary");
-        k.sets[1].slots[1] = { 0, WIND, TORCH };
+        k.sets[1].slots[1] = { 0, WIND, ICE };
         check(k.slotItem(1) == WIND, "Y shows the first item set in it");
         k.cycleSlot(1);
-        check(k.slotItem(1) == TORCH, "  the D-pad steps to the next");
+        check(k.slotItem(1) == ICE, "  the D-pad steps to the next");
         k.cycleSlot(1);
         check(k.slotItem(1) == WIND, "  skipping empty slots, round again");
         uint16_t cast = 0;
@@ -117,15 +158,28 @@ int main() {
         check(k.special(CLUB, &cast) == CombatKit::Special::Cast && cast == WIND, "  a spell in the off hand: LT casts it");
         check(CombatKit::fitsOff(SWORD) && CombatKit::fitsOff(WIND) && !CombatKit::fitsOff(TORCH), "the off hand takes weapons, shields and spells");
         check(!CombatKit::fitsCharm(TORCH), "charm slots take only charms");
-        k.quick[0] = TORCH;
+        check(CombatKit::fitsAbility(ICE) && !CombatKit::fitsAbility(PICK) && !CombatKit::fitsAbility(AXE) &&
+              !CombatKit::fitsAbility(TORCH) && !CombatKit::fitsAbility(SWORD), "ability slots: spellbooks, not tools, torches or swords");
+        check(Inventory::fits(AXE, EquipSlot::Weapon1) && !Inventory::fits(PICK, EquipSlot::Weapon1) && !CombatKit::fitsOff(AXE) && !CombatKit::fitsOff(PICK),
+              "  the axe fits a Weapon slot (a tool that fights), nowhere else; the pickaxe nowhere");
+        {
+            CombatKit old; old.made = true;
+            old.sets[0].slots[1][0] = PICK; old.quick[2] = PICK;
+            Inventory with; with.add(PICK, 1);
+            old.tidy(with);
+            check(!old.sets[0].slots[1][0] && !old.quick[2], "  an old save's tool in an ability slot is taken out");
+        }
+        check(CombatKit::itemKind(PICK).rfind("Tool -", 0) == 0 && CombatKit::itemKind(AXE).rfind("Tool and weapon", 0) == 0 &&
+              CombatKit::itemKind(ICE).rfind("Spellbook", 0) == 0, "each kind has a name shown in game (" + CombatKit::itemKind(AXE) + ")");
+        k.quick[0] = ICE;
         std::stringstream ss;
         k.write(ss);
         CombatKit back;
         std::string line;
         while (std::getline(ss, line)) { size_t eq = line.find('='); back.read(line.substr(0, eq), line.substr(eq + 1)); }
-        check(back.made && back.sets[1].off == WIND && back.sets[1].slots[1][2] == TORCH && back.sets[1].at[1] == 1 &&
-              back.quick[0] == TORCH, "saves and loads (player.dat kit.*)");
-        inv.slots[inv.find(TORCH)].clear();
+        check(back.made && back.sets[1].off == WIND && back.sets[1].slots[1][2] == ICE && back.sets[1].at[1] == 1 &&
+              back.quick[0] == ICE, "saves and loads (player.dat kit.*)");
+        inv.slots[inv.find(ICE)].clear();
         back.tidy(inv);
         check(back.sets[1].slots[1][2] == 0 && back.quick[0] == 0, "an item no longer carried drops out");
     }

@@ -1,6 +1,7 @@
 #pragma once
 #include "UIScreen.h"
 #include "ItemIcon.h"
+#include "KeyText.h"
 #include "../entity/Player.h"
 #include "../game/BuildTool.h"
 #include "../game/Blueprint.h"
@@ -47,9 +48,9 @@ public:
         const auto& theme = gResourcePacks.getTheme();
         float sw = (float)ui.getWidth(), sh = (float)ui.getHeight();
         mousePrev = mouseDown; rightPrev = rightDown;
-        glfwGetCursorPos(window, &mx, &my);
-        mouseDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT)  == GLFW_PRESS;
-        rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+        gNav.cursor(window, &mx, &my);
+        mouseDown = gNav.button(window, GLFW_MOUSE_BUTTON_LEFT);
+        rightDown = gNav.button(window, GLFW_MOUSE_BUTTON_RIGHT);
         result = ScreenResult::Continue;
 
         ui.begin();
@@ -78,9 +79,9 @@ public:
         if (tab == 0) piecesTab(ui, px, top, pw, bottom);
         else          blueprintsTab(ui, px, top, pw, bottom);
 
-        ui.drawText(tab == 0 ? "click to choose   T turns it   arrows / Page Up / Page Down fine-tune   wheel scrolls"
-                             : "click a blueprint to place it   T turns it   arrows fine-tune   wheel scrolls",
-                    px + 16, py + ph - 22, theme.textDim, 1);
+        keytext::draw(ui, tab == 0 ? "{click} to choose   {rotate_piece} turns it   {nudge} {nudge_up} {nudge_down} fine-tune"
+                                   : "{click} a blueprint to place it   {rotate_piece} turns it   {nudge} fine-tune",
+                      px + 16, py + ph - 22, theme.textDim, 1, theme.accent);
         if (rightDown && !rightPrev) result = ScreenResult::CloseMenu;
         ui.end();
         return result;
@@ -280,7 +281,7 @@ private:
     }
 
     void scrollBy(float total, float shown) {
-        scroll -= gInput.getScrollDelta() * 40.0f;
+        scroll -= (gInput.getScrollDelta() + gNav.scroll()) * 40.0f;
         scroll = std::clamp(scroll, 0.0f, std::max(0.0f, total - shown));
     }
 
@@ -297,6 +298,7 @@ private:
     }
     bool clicked() const { return mouseDown && !mousePrev; }
     bool hovered(float x, float y, float w, float h) const {
+        gNav.add(x, y, w, h);                    // every rectangle asked about: the controller can reach it
         return mx >= x && mx <= x + w && my >= y && my <= y + h;
     }
 };

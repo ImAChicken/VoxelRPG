@@ -77,6 +77,10 @@ struct ColumnLight {
     // block the sky: the shader tints the light under them green
     // by this instead. Empty when the column has no leaves.
     std::vector<uint16_t> canopy;
+    // Which way the water runs over each cell column (TEX × TEX,
+    // like the canopy; x, z as signed bytes, 127 = full speed).
+    // Empty when nothing flows here (TerrainGenerator::flowAt)
+    std::vector<int8_t> flow;
 };
 
 // How much canopy shades a point at cell height cy (0..1). Same

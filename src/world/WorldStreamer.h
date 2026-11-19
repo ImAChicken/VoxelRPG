@@ -99,6 +99,9 @@ public:
     // Columns the streamer must not load itself: a client playing
     // on a server gets the ones the server has changed from it
     std::function<bool(int, int)> skipLoad;
+    // Which way water runs at a world column (TerrainGenerator::
+    // flowAt; worker threads call it). Unset: all water is still
+    std::function<glm::vec2(int, int)> flowAt;
 
     void update(int playerCX, int playerCZ) {
         collectResults(playerCX, playerCZ);
@@ -125,6 +128,12 @@ public:
         if (!s.hasLight) return 0;
         if (s.lightTex[sy]) return s.lightTex[sy];
         return uniformTexture(s.lightValue[sy]);
+    }
+    // The water flow texture for a column (light::ColumnLight::flow),
+    // or 0 if nothing flows there
+    GLuint getFlowTexture(int cx, int cz) const {
+        if (!ChunkManager::inWorld(cx, cz)) return 0;
+        return slots[(size_t)world.index(cx, cz)].flowTex;
     }
     // The canopy texture for a column (see light::ColumnLight::canopy),
     // or 0 if it has no leaves
@@ -219,6 +228,7 @@ private:
         uint16_t  lightValue[SECTIONS] = {};
         std::array<std::vector<uint16_t>, SECTIONS> lightCpu;
         GLuint    canopyTex = 0;
+        GLuint    flowTex = 0;
         std::vector<uint16_t> canopyCpu;
 
         void cleanupMeshes() { for (auto& m : mesh) m.cleanup(); }
@@ -226,6 +236,7 @@ private:
             for (GLuint& t : lightTex) if (t) { glDeleteTextures(1, &t); t = 0; }
             for (auto& v : lightCpu) { v.clear(); v.shrink_to_fit(); }
             if (canopyTex) { glDeleteTextures(1, &canopyTex); canopyTex = 0; }
+            if (flowTex) { glDeleteTextures(1, &flowTex); flowTex = 0; }
             canopyCpu.clear(); canopyCpu.shrink_to_fit();
             hasLight = false;
         }
@@ -280,6 +291,25 @@ private:
         return t;
     }
 
+    // The water's way over a column, cell by cell (2 voxels, with
+    // a cell's border all round: light::TEX), from the generator.
+    // Left empty where nothing in it flows
+    void bakeFlow(int cx, int cz, light::ColumnLight& L) const {
+        const int T = light::TEX;
+        std::vector<int8_t> f((size_t)T * T * 2, 0);
+        bool any = false;
+        for (int tz = 0; tz < T; tz++)
+            for (int tx = 0; tx < T; tx++) {
+                int wx = cx * VOXEL_DIM + (tx - 1) * 2 + 1, wz = cz * VOXEL_DIM + (tz - 1) * 2 + 1;
+                glm::vec2 v = flowAt(wx, wz);
+                if (v.x == 0.0f && v.y == 0.0f) continue;
+                any = true;
+                f[((size_t)tz * T + tx) * 2 + 0] = (int8_t)std::clamp((int)std::lround(v.x * 127.0f), -127, 127);
+                f[((size_t)tz * T + tx) * 2 + 1] = (int8_t)std::clamp((int)std::lround(v.y * 127.0f), -127, 127);
+            }
+        if (any) L.flow.swap(f);
+    }
+
     // light results onto the GPU (and a CPU copy for sampling)
     void uploadLight(Slot& s, int cx, int cz, const light::ColumnLight& L) {
         for (int sy = 0; sy < SECTIONS; sy++) {
@@ -318,6 +348,19 @@ private:
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
             glBindTexture(GL_TEXTURE_2D, 0);
             s.canopyCpu = L.canopy;
+        }
+        if (L.flow.empty()) {
+            if (s.flowTex) { glDeleteTextures(1, &s.flowTex); s.flowTex = 0; }
+        } else {
+            if (!s.flowTex) glGenTextures(1, &s.flowTex);
+            glBindTexture(GL_TEXTURE_2D, s.flowTex);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RG8_SNORM, light::TEX, light::TEX, 0, GL_RG, GL_BYTE, L.flow.data());
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glBindTexture(GL_TEXTURE_2D, 0);
         }
         glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
         s.hasLight = true;
@@ -399,6 +442,7 @@ private:
                     }
                     result.lit = std::make_shared<light::ColumnLight>();
                     light::Baker::bake(s9, *job.lights, job.cx, job.cz, *result.lit);
+                    if (flowAt) bakeFlow(job.cx, job.cz, *result.lit);
                 }
                 for (int sy = 0; sy < SECTIONS; sy++) {
                     if (!(job.mask & (1u << sy))) continue;

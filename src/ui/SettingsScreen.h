@@ -35,7 +35,10 @@ public:
         addChoice("Character edges", &gSettings.charEdges, { "Off", "Lines", "Lines + echo" });
         addChoice("Edge line colour", &gSettings.charLineColor, { "Black", "Tinted" });
         addChoice("Hair mesh", &gSettings.charHairMesh, { "Voxels", "Shards", "Soft shards" });
+        addChoice("Plants", &gSettings.plantStyle, { "Plain", "Windy" });
+        addChoice("Water", &gSettings.waterStyle, { "Plain", "Moving" });
         addChoice("Auto save", &gSettings.autosave, { "Off", "On" });
+        addChoice("Control hints", &gSettings.controlHints, { "Off", "On" });
     }
 
     void onEnter() override {
@@ -48,16 +51,16 @@ public:
         const auto& theme = gResourcePacks.getTheme();
         float sw = (float)ui.getWidth(), sh = (float)ui.getHeight();
         mousePrev = mouseDown;
-        glfwGetCursorPos(window, &mx, &my);
-        mouseDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        gNav.cursor(window, &mx, &my);
+        mouseDown = gNav.button(window, GLFW_MOUSE_BUTTON_LEFT);
 
         ui.begin();
         // Lighter overlay than other menus, so the toolbar
         // behind stays visible while you adjust it
         float dim[4] = {0, 0, 0, 90};
         ui.drawRect(0, 0, sw, sh, dim);
-        float pw = 620.0f, ph = 120.0f + sliders.size() * 64.0f + choices.size() * 44.0f;
-        float px = (sw - pw) * 0.5f, py = std::max(20.0f, (sh - ph) * 0.5f - 80.0f);
+        float pw = 620.0f, ph = 120.0f + sliders.size() * 58.0f + choices.size() * 40.0f;
+        float px = (sw - pw) * 0.5f, py = std::max(10.0f, (sh - ph) * 0.5f - 80.0f);
         drawPanel(ui, px, py, pw, ph);
         ui.drawText("Settings", px + 16, py + 14, theme.title, 2);
 
@@ -77,6 +80,7 @@ public:
             ui.drawRect(kx - 6, ty - 6, 12, th + 12,
                         dragging == (int)i ? theme.textHover : theme.accent);
 
+            gNav.setKind(tx, ty - 10, tw, th + 20, PadNav::Kind::Slider, t);   // pad: left / right move it
             if (clicked() && mx >= tx - 8 && mx <= tx + tw + 8 &&
                 my >= ty - 10 && my <= ty + th + 10)
                 dragging = (int)i;
@@ -84,13 +88,14 @@ public:
                 float f = std::clamp((float)(mx - tx) / tw, 0.0f, 1.0f);
                 *s.value = s.lo + f * (s.hi - s.lo);
             }
-            y += 64;
+            y += 58;
         }
         // Choice rows: click the value (or the arrows) to cycle
         for (Choice& c : choices) {
             ui.drawText(c.label, px + 20, y + 8, theme.text, 2);
             const std::string& val = c.names[*c.value];
             float vw = 230.0f, vx = px + pw - 20 - vw, vh = 32.0f;
+            gNav.setKind(vx, y, vw, vh, PadNav::Kind::Choice);                 // pad: left / right step it
             bool hov = hovered(vx, y, vw, vh);
             ui.drawRect(vx, y, vw, vh, hov ? theme.buttonBgHover : theme.inputBg);
             ui.drawBorder(vx, y, vw, vh, hov ? theme.accent : theme.border, 1.0f);
@@ -102,7 +107,7 @@ public:
                 *c.value = (mx < vx + vw * 0.3f) ? (*c.value + n - 1) % n : (*c.value + 1) % n;
                 gSettings.save();
             }
-            y += 44;
+            y += 40;
         }
 
         if (!mouseDown && dragging >= 0) {     // let go → save
@@ -189,6 +194,7 @@ private:
     }
     bool clicked() const { return mouseDown && !mousePrev; }
     bool hovered(float x, float y, float w, float h) const {
+        gNav.add(x, y, w, h);                    // every rectangle asked about: the controller can reach it
         return mx >= x && mx <= x + w && my >= y && my <= y + h;
     }
 };

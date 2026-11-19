@@ -2,9 +2,12 @@
 # Change it in game (Esc -> Controls -> Controller) or here.
 # Buttons: A B X Y LB RB LT RT Select Start L3 R3 Up Down Left Right
 # (positions, Xbox names: A is the bottom face button on any pad).
-# Layers: both (always), combat, quick (combat with the quick
-# button held), explore (out of combat). The jump button also
-# interacts when held.
+# Layers: both (always), combat, quick (the quick button held,
+# in combat or out), explore (out of combat), tool (a hammer or
+# dev tool in hand: over explore), tool_alt (tool, Y held). Interact is the
+# quick button + LB. The draw button acts on a tap; held
+# with the quick button it opens the inventory (and the pause
+# menu's buttons, in its left panel).
 
 [both]
 jump            = "A"   # Jump
@@ -36,6 +39,7 @@ toolbar_slot_5  = "X"   # Hotbar slot 5
 toolbar_slot_6  = "Y"   # Hotbar slot 6
 toolbar_slot_7  = "B"   # Hotbar slot 7
 toolbar_slot_8  = "A"   # Hotbar slot 8
+interact        = "LB"   # Interact
 
 [explore]
 toolbar_prev    = "LB"   # Previous tool
@@ -44,10 +48,16 @@ use_left        = "LT"   # Use / place / attack
 use_right       = "RT"   # Break / heavy attack
 sprint          = "B"   # Sprint (hold)
 roll            = "B"   # Roll (tap)
-inventory       = "Y"   # Inventory
 rotate_piece    = "X"   # Turn structure (hammer)
+
+[tool]
+tool_cancel     = "B"   # Release paste / cancel
+tool_alt        = "Y"   # Nudge up / down instead (hold)
 nudge_forward   = "Up"   # Nudge paste away / size up
 nudge_back      = "Down"   # Nudge paste closer / size down
 nudge_left      = "Left"   # Nudge paste left
 nudge_right     = "Right"   # Nudge paste right
-pause           = "Start"   # Pause menu
+
+[tool_alt]
+nudge_up        = "Up"   # Nudge paste up
+nudge_down      = "Down"   # Nudge paste down

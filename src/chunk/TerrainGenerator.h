@@ -368,6 +368,12 @@ public:
     // far view draws an ocean out to the horizon at this height
     virtual int seaLevel() const { return -1; }
 
+    // Which way the water runs here, and how fast (x, z; length
+    // 0..1): rivers downstream, still water (lakes, the sea) zero.
+    // The chunk shader moves the water's surface along it
+    // (world/LightBake.h flow). Called from worker threads.
+    virtual glm::vec2 flowAt(int wx, int wz) const { (void)wx; (void)wz; return glm::vec2(0.0f); }
+
     // 0..1: how much of the ground near here is under trees.
     // The far view tints and raises forests by this.
     virtual float forestCover(int wx, int wz) const {

@@ -59,6 +59,19 @@
 // (Survival) or Dev (Test Play).
 class PlayerInteraction : public WorldActions {
 public:
+    // Does the tool in hand take more of the pad (its tool layer:
+    // B lets go, the D-pad moves, Y up / down — input/PadLayout.h)
+    static bool takesPad(const Player& p) {
+        const ItemDef& h = p.activeInventory().heldDef();
+        if (h.is(IC_TOOL) && h.tool == ToolKind::Hammer) return true;
+        if (!h.is(IC_DEV) || p.mode == GameMode::Survival) return false;
+        switch (h.devTool) {
+        case DevToolKind::Copy: case DevToolKind::Paste: case DevToolKind::Explode:
+        case DevToolKind::Brush: case DevToolKind::Cube: return true;
+        default: return false;
+        }
+    }
+
     // How far the hands reach, in voxels (25 ≈ 8 ft).
     // Test Play reaches much further for building.
     // Held button repeat in Test Play, seconds
@@ -213,7 +226,7 @@ public:
                     blastCooldown = BLAST_COOLDOWN;
                 }
             }
-            aimLabel = "Blast Wand   L: blast   R: big blast";
+            aimLabel = "Blast Wand   {use_left}: blast   {use_right}: big blast";
             return;
         }
 
@@ -317,6 +330,9 @@ private:
     }
 
     // Arrow / Page keys and the copy prompt, per dev tool
+    // Tool alt held (the pad's Y, Right Alt): forward / back go up / down
+    static glm::ivec3 altFwd(glm::ivec3 fwd) { return gInput.isHeld(InputAction::ToolAlt) ? glm::ivec3(0, 1, 0) : fwd; }
+
     void devToolKeys(DevTools& dev, DevToolKind tool, const Player& player,
                      float dt) {
         if (tool == DevToolKind::Copy && dev.copyPending) {
@@ -335,8 +351,8 @@ private:
             glm::ivec3 right(-fwd.z, 0, fwd.x);
             int n = gInput.isHeld(InputAction::Sprint) ? 8 : 1;
             struct { InputAction a; glm::ivec3 d; } keys[] = {
-                { InputAction::NudgeForward, fwd },
-                { InputAction::NudgeBack,   -fwd },
+                { InputAction::NudgeForward, altFwd(fwd) },
+                { InputAction::NudgeBack,   -altFwd(fwd) },
                 { InputAction::NudgeRight,   right },
                 { InputAction::NudgeLeft,   -right },
                 { InputAction::NudgeUp,      glm::ivec3(0, 1, 0) },
@@ -461,9 +477,9 @@ private:
         const StructureType* t = structs.typeOf(*s);
         if (!t) return;
         if (t->kind == StructureKind::Door)
-            aimLabel = t->displayName + (s->state ? "   E: close" : "   E: open");
+            aimLabel = t->displayName + (s->state ? "   {interact}: close" : "   {interact}: open");
         else if (t->kind == StructureKind::Station)
-            aimLabel = t->displayName + "   E: use";
+            aimLabel = t->displayName + "   {interact}: use";
         else if (t->kind == StructureKind::Chest) {
             char b[112];
             std::string name = t->displayName;
@@ -471,7 +487,7 @@ private:
                 if (!c->label.empty()) name = c->label;
                 if (c->showcase) name += " - showcase";
             }
-            std::snprintf(b, sizeof(b), "%s  %.0f / %.0f   E: open", name.c_str(), s->health, t->health);
+            std::snprintf(b, sizeof(b), "%s  %.0f / %.0f   {interact}: open", name.c_str(), s->health, t->health);
             aimLabel = b;
         }
         else if (t->kind == StructureKind::Tree) {
@@ -496,7 +512,7 @@ private:
         const StructureType* t = build.type();
         if (!t) {
             previewHas = false;
-            previewWhy = "right click to choose a structure";
+            previewWhy = "{use_right}: choose a structure";
             return;
         }
         if (gInput.isPressed(InputAction::RotatePiece)) build.rot = (build.rot + 1) & 3;
@@ -542,7 +558,7 @@ private:
         glm::ivec3 right(-fwd.z, 0, fwd.x);
         int n = gInput.isHeld(InputAction::Sprint) ? 8 : 1;
         struct { InputAction a; glm::ivec3 d; } keys[] = {
-            { InputAction::NudgeForward, fwd },  { InputAction::NudgeBack, -fwd },
+            { InputAction::NudgeForward, altFwd(fwd) },  { InputAction::NudgeBack, -altFwd(fwd) },
             { InputAction::NudgeRight, right },  { InputAction::NudgeLeft, -right },
             { InputAction::NudgeUp, {0, 1, 0} }, { InputAction::NudgeDown, {0, -1, 0} },
         };
@@ -604,7 +620,7 @@ private:
     void hoeKeys(Player& player, WorldEditor& editor, StructureManager& structs, const ItemDef& held, float dt) {
         if (gInput.isPressed(InputAction::RotatePiece))
             hoeMode = (HoeMode)(((int)hoeMode + 1) % (int)HoeMode::COUNT);
-        aimLabel = std::string("Hoe: ") + hoeName(hoeMode) + "   T: change";
+        aimLabel = std::string("Hoe: ") + hoeName(hoeMode) + "   {rotate_piece}: change";
         if (!target.hit) return;
         float r = std::clamp(held.toolPower, 2.0f, 16.0f);
         glm::ivec3 c = target.blockPos;
@@ -666,7 +682,7 @@ private:
         const Blueprint* bp = build.chosenBlueprint();
         if (!bp) {
             previewHas = false;
-            previewWhy = "right click to choose a blueprint";
+            previewWhy = "{use_right}: choose a blueprint";
             return;
         }
         if (gInput.isPressed(InputAction::RotatePiece)) build.rot = (build.rot + 1) & 3;
@@ -685,7 +701,7 @@ private:
         glm::ivec3 right(-fwd.z, 0, fwd.x);
         int n = gInput.isHeld(InputAction::Sprint) ? 8 : 1;
         struct { InputAction a; glm::ivec3 d; } keys[] = {
-            { InputAction::NudgeForward, fwd },  { InputAction::NudgeBack, -fwd },
+            { InputAction::NudgeForward, altFwd(fwd) },  { InputAction::NudgeBack, -altFwd(fwd) },
             { InputAction::NudgeRight, right },  { InputAction::NudgeLeft, -right },
             { InputAction::NudgeUp, {0, 1, 0} }, { InputAction::NudgeDown, {0, -1, 0} },
         };
@@ -713,7 +729,7 @@ private:
                     previewWhy = "needs " + std::to_string(cnt) + " " + gItems.get(item).displayName;
                     break;
                 }
-        aimLabel = bp->display + "   T: turn";
+        aimLabel = bp->display + "   {rotate_piece}: turn";
 
         if (gInput.isPressed(InputAction::UseLeft)) {
             if (!previewWhy.empty()) { say(previewWhy); return; }

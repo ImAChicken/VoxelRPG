@@ -401,15 +401,15 @@ public:
     // One-line help for the HUD while a dev tool is held
     static const char* toolHint(DevToolKind kind) {
         switch (kind) {
-        case DevToolKind::Wand:    return "L: corner 1   R: corner 2";
-        case DevToolKind::Fill:    return "L: fill selection   R: clear selection";
-        case DevToolKind::Replace: return "L: clicked type -> material   R: material -> air";
-        case DevToolKind::Brush:   return "L: sphere   R: carve   Up/Down: size";
-        case DevToolKind::Copy:    return "L: pick a point (then 1 or 2)   R: copy selection";
-        case DevToolKind::Paste:   return "L: paste   R: turn 90   arrows/PgUp/PgDn: move   Bksp: release";
-        case DevToolKind::Explode: return "L: blast   R: double blast   Up/Down: size";
-        case DevToolKind::Breaker: return "L: break   R: break 3x3x3";
-        case DevToolKind::Cube:    return "L: place cube   R: break cube   Up/Down: size   Shift: off grid";
+        case DevToolKind::Wand:    return "{use_left}: corner 1   {use_right}: corner 2";
+        case DevToolKind::Fill:    return "{use_left}: fill selection   {use_right}: clear selection";
+        case DevToolKind::Replace: return "{use_left}: clicked type -> material   {use_right}: material -> air";
+        case DevToolKind::Brush:   return "{use_left}: sphere   {use_right}: carve   {nudge_forward} {nudge_back}: size";
+        case DevToolKind::Copy:    return "{use_left}: pick a point   {use_right}: copy selection";
+        case DevToolKind::Paste:   return "{use_left}: paste   {use_right}: turn 90   {nudge} {nudge_up} {nudge_down}: move   {tool_cancel}: release";
+        case DevToolKind::Explode: return "{use_left}: blast   {use_right}: double blast   {nudge_forward} {nudge_back}: size";
+        case DevToolKind::Breaker: return "{use_left}: break   {use_right}: break 3x3x3";
+        case DevToolKind::Cube:    return "{use_left}: place cube   {use_right}: break cube   {nudge_forward} {nudge_back}: size   {sprint}: off grid";
         default:                   return "";
         }
     }

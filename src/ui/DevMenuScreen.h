@@ -166,13 +166,14 @@ private:
     void pollMouse() {
         mousePrev = mousePressed;
         rightPrev = rightPressed;
-        glfwGetCursorPos(window, &mx, &my);
-        mousePressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT)  == GLFW_PRESS;
-        rightPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+        gNav.cursor(window, &mx, &my);
+        mousePressed = gNav.button(window, GLFW_MOUSE_BUTTON_LEFT);
+        rightPressed = gNav.button(window, GLFW_MOUSE_BUTTON_RIGHT);
     }
     bool clicked()      const { return mousePressed && !mousePrev; }
     bool rightClicked() const { return rightPressed && !rightPrev; }
     bool hovered(float x, float y, float w, float h) const {
+        gNav.add(x, y, w, h);                    // every rectangle asked about: the controller can reach it
         return mx >= x && mx <= x + w && my >= y && my <= y + h;
     }
 
@@ -204,8 +205,9 @@ private:
         float contentH = rows * (tileH + gap);
 
         // Mouse wheel scrolls a long page
-        if (hovered(a.x, a.y, a.w, a.h)) {
-            scroll -= gInput.getScrollDelta() * 40.0f;
+        gNav.scrollArea(a.x, a.y, a.w, a.h);           // the pad scrolls it (ui/PadNav.h)
+        if (mx >= a.x && mx <= a.x + a.w && my >= a.y && my <= a.y + a.h) {   // (not hovered(): that makes it a button for the pad)
+            scroll -= (gInput.getScrollDelta() + gNav.scroll()) * 40.0f;
             scroll = std::clamp(scroll, 0.0f, std::max(0.0f, contentH - a.h));
         }
 

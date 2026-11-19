@@ -6,6 +6,8 @@
 #include "../game/CombatKit.h"
 #include "../input/InputManager.h"
 #include "PadGlyphs.h"
+#include "KeyText.h"
+#include "PauseMenuScreen.h"
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cstdio>
@@ -15,8 +17,10 @@
 // Inventory screen (I)
 // ══════════════════════════════════════════════════════════
 // Three windows side by side:
-//   left    a placeholder, kept for another menu (crafting,
-//           a chest, a trade …)
+//   left    the pause menu's buttons (Resume, Character,
+//           Controls, Settings, Save … : pauseButtons()), so the
+//           pad, which opens this with Select + Start, has them;
+//           an open chest takes their place
 //   middle  the 50 slots: the hotbar on top (slots 1 and 2
 //           are the off-hand), then the pack
 //   right   equipment (Survival): armour and amulet (and the other
@@ -53,6 +57,15 @@ public:
         player = p; chest = chestInv; chestName = chestTitle;
     }
 
+    // What the pause menu would offer (the left panel's buttons)
+    void setPauseContext(bool remoteGame, bool devMenuOk, bool devWorldNow) {
+        remote = remoteGame; devMenuAllowed = devMenuOk; devWorld = devWorldNow;
+    }
+    // A line under the buttons for a moment ("world saved")
+    void notice(const std::string& text) { noticeText = text; noticeAge = 0.0f; }
+    // A drop it wouldn't take: why, in red where the item's name goes
+    void refuse(const std::string& text) { refusal = text; refusalAge = 0.0f; }
+
     void onEnter() override {
         mouseDown = mousePrev = true;      // ignore the opening click
         rightDown = rightPrev = true;
@@ -60,17 +73,19 @@ public:
     }
 
     ScreenResult update(UIRenderer& ui, float dt) override {
-        (void)dt;
+        noticeAge += dt; refusalAge += dt;
         if (!player) return ScreenResult::CloseMenu;
+        ScreenResult menuResult = ScreenResult::Continue;
         Inventory& inv = player->activeInventory();
         const auto& theme = gResourcePacks.getTheme();
         float sw = (float)ui.getWidth(), sh = (float)ui.getHeight();
         mousePrev = mouseDown; rightPrev = rightDown;
-        glfwGetCursorPos(window, &mx, &my);
-        mouseDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT)  == GLFW_PRESS;
-        rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+        gNav.cursor(window, &mx, &my);
+        mouseDown = gNav.button(window, GLFW_MOUSE_BUTTON_LEFT);
+        rightDown = gNav.button(window, GLFW_MOUSE_BUTTON_RIGHT);
         bool shift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
-                     glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+                     glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS ||
+                     gNav.shift();                     // the pad's X (ui/PadNav.h)
 
         ui.begin();
         ui.drawRect(0, 0, sw, sh, theme.overlay);
@@ -92,7 +107,7 @@ public:
 
         hoverSlot = -1; hoverEquip = -1; hoverChest = -1; hoverRef = nullptr;
 
-        // ── Left: an open chest, or room for another menu ─
+        // ── Left: an open chest, or the pause menu's buttons ─
         drawPanel(ui, lx, py, sideW, ph);
         bool takeAll = false, storeAll = false;
         if (chest) {
@@ -115,8 +130,48 @@ public:
             for (int i = 0; i < std::min(chest->capacity, (int)Inventory::SLOTS); i++)   // a pack may be smaller
                 drawSlot(ui, *chest, i, lx + pad + (i % cols) * (cs + gap), py + 46 + (i / cols) * (cs + gap), true, cs);
         } else {
-            ui.drawText("Placeholder", lx + pad, py + 14, theme.title, 2);
-            ui.drawText("room for another menu", lx + pad, py + 44, theme.textDim, 1);
+            ui.drawText("Menu", lx + pad, py + 14, theme.title, 2);
+            if (!noticeText.empty() && noticeAge < 2.5f) ui.drawText(noticeText, lx + pad, py + 36, theme.accent, 1);
+            else if (remote) ui.drawText("on a server - the world keeps running", lx + pad, py + 36, theme.textDim, 1);
+            else ui.drawText("the world keeps running", lx + pad, py + 36, theme.textDim, 1);
+            bool pressed = mouseDown && !mousePrev;
+            float bw = sideW - 2 * pad, bh = std::min(32.0f, (float)theme.buttonH), by = py + 58.0f;
+            for (const PauseButton& b : pauseButtons(remote, devMenuAllowed, devWorld)) {
+                if (by + bh > py + ph - pad) break;
+                bool hov = mx >= lx + pad && mx < lx + pad + bw && my >= by && my < by + bh;
+                drawButton(ui, b.label, lx + pad, by, hov, 1, bw);
+                if (hov && pressed && drag < 0 && dragEquip < 0) menuResult = b.result;
+                by += bh + 8.0f;
+            }
+            // the controls here, under the buttons (the device used last;
+            // ui/KeyText.h names the buttons)
+            const bool padNow = gInput.padLastUsed();
+            static const char* PAD[] = {
+                "{nudge} / stick: move around",
+                "{button:A}: pick, click",
+                "hold {button:A}, move: drag a stack",
+                "hold {button:Y}, move: drag half",
+                "{button:X}: equip / take off",
+                "{button:B}: back to the game",
+                "{inventory}: close",
+            };
+            static const char* KEYS[] = {
+                "drag: move a stack",
+                "right drag: half a stack",
+                "shift click: equip / take off",
+                "1 - 0 on a slot: to the hotbar",
+                "click a hotbar slot: hold it",
+                "{swap_weapon}: swap weapons",
+                "{inventory} or {pause}: close",
+            };
+            const float lh = padNow ? 24.0f : 17.0f;
+            float cy = std::max(by + 14.0f, py + ph - pad - 7 * lh - 18.0f);
+            if (cy + 18.0f + 7 * lh <= py + ph) {
+                ui.drawText("Controls", lx + pad, cy, theme.title, 1);
+                cy += 18.0f + (padNow ? 6.0f : 0.0f);
+                for (int i = 0; i < 7; i++, cy += lh)
+                    keytext::draw(ui, padNow ? PAD[i] : KEYS[i], lx + pad, cy, theme.text, 1, theme.accent);
+            }
         }
 
         // ── Middle: the slots ─────────────────────────────
@@ -148,7 +203,7 @@ public:
                 drawEquip(ui, inv, e, rx + pad, ey, es);
                 ey += rowH;
             }
-            if (button(ui, "Swap weapons  X", rx + pad, ey + 6, rightW - 2 * pad, 26)) inv.swapWeapons();
+            if (button(ui, keytext::plain("Swap weapons  {swap_weapon}"), rx + pad, ey + 6, rightW - 2 * pad, 26)) inv.swapWeapons();
         }
 
         // ── Info line: what's under the mouse ─────────────
@@ -158,7 +213,10 @@ public:
         if (hoverEquip >= 0 && !inv.equipped((EquipSlot)hoverEquip).empty()) { hs = &inv.equipped((EquipSlot)hoverEquip); hsEquip = hoverEquip; }
         if (hoverChest >= 0 && !chest->slots[hoverChest].empty()) hs = &chest->slots[hoverChest];
         if (hoverRef && *hoverRef) { int k = inv.find(*hoverRef); if (k >= 0) hs = &inv.slots[k]; }
-        if (hoverRef && !*hoverRef && drag < 0 && !dragRef) {
+        if (!refusal.empty() && refusalAge < 3.0f && drag < 0 && !dragRef) {
+            static const float RED[4] = { 235, 90, 70, 255 };
+            ui.drawText(refusal, gx, infoY + 6, RED, 1);
+        } else if (hoverRef && !*hoverRef && drag < 0 && !dragRef) {
             ui.drawText(refHint(hoverRefKind), gx, infoY, theme.textHover, 2);
             hs = nullptr;
         } else if (hs && drag < 0 && dragEquip < 0 && !dragRef) {
@@ -168,10 +226,15 @@ public:
             ui.drawText(t, gx, infoY, theme.textHover, 2);
             std::string s2 = tags(d);
             if (hsEquip >= 0) s2 += "   equipped: " + std::string(equipSlotName((EquipSlot)hsEquip));
+            ui.drawText(CombatKit::itemKind(hs->itemID), gx + ui.textWidth(t, 2) + 14, infoY + 6, theme.accent, 1);   // what it is, where it goes
             ui.drawText(s2, gx, infoY + 22, theme.textDim, 1);
         } else {
-            ui.drawText(chest ? "drag to move   shift click: send across   right drag: half"
-                              : "drag to move   shift click: equip   right drag: half", gx, infoY + 6, theme.textDim, 1);
+            if (gInput.padLastUsed())      // (ui/PadNav.h: A holds like the mouse button, X shift clicks, Y right drags)
+                keytext::draw(ui, chest ? "hold {button:A} and move: move   {button:X}: send across   hold {button:Y}: half   {button:B}: close"
+                                        : "hold {button:A} and move: move   {button:X}: equip   hold {button:Y}: half   {button:B}: resume",
+                              gx, infoY + 6, theme.textDim, 1, theme.accent);
+            else ui.drawText(chest ? "drag to move   shift click: send across   right drag: half"
+                                   : "drag to move   shift click: equip   right drag: half", gx, infoY + 6, theme.textDim, 1);
             char w[64];
             std::snprintf(w, sizeof(w), "carrying %.1f kg", carried(inv));
             ui.drawText(w, gx, infoY + 22, theme.textDim, 1);
@@ -212,8 +275,13 @@ public:
             Inventory& from = dragChest ? *chest : inv;
             if (hoverSlot >= 0 && (dragChest || hoverSlot != drag)) Inventory::moveAcross(from, drag, inv, hoverSlot, dragHalf);
             else if (hoverChest >= 0 && (!dragChest || hoverChest != drag)) Inventory::moveAcross(from, drag, *chest, hoverChest, dragHalf);
-            else if (hoverEquip >= 0 && !dragChest) inv.equipFrom(drag, (EquipSlot)hoverEquip);
+            else if (hoverEquip >= 0 && !dragChest) {
+                if (!Inventory::fits(inv.slots[drag].itemID, (EquipSlot)hoverEquip))
+                    refuse(CombatKit::whyNot(inv.slots[drag].itemID, equipSlotName((EquipSlot)hoverEquip)));
+                inv.equipFrom(drag, (EquipSlot)hoverEquip);
+            }
             else if (hoverRef && !dragChest && refFits(hoverRefKind, inv.slots[drag].itemID)) *hoverRef = inv.slots[drag].itemID;
+            else if (hoverRef && !dragChest) refuse(CombatKit::whyNot(inv.slots[drag].itemID, refName(hoverRefKind)));
             else if (!moved && !dragChest && hoverSlot == drag && drag < Inventory::HOTBAR) inv.pressHotbarKey(drag);
             drag = -1; dragChest = false;
         }
@@ -238,6 +306,7 @@ public:
             if (hoverRef && hoverRef != dragRef) {
                 uint16_t theirs = *hoverRef;
                 if (refFits(hoverRefKind, mine) && (!theirs || refFits(dragRefKind, theirs))) { *hoverRef = mine; *dragRef = theirs; }
+                else if (!refFits(hoverRefKind, mine)) refuse(CombatKit::whyNot(mine, refName(hoverRefKind)));
             } else if (!hoverRef) *dragRef = 0;
             dragRef = nullptr;
         }
@@ -265,7 +334,7 @@ public:
             swatch(ui, gItems.get(dragInv.slots[dragging].itemID), (float)mx - slot * 0.35f, (float)my - slot * 0.35f, slot * 0.7f);
 
         ui.end();
-        return ScreenResult::Continue;
+        return menuResult;          // a pause button, or Continue
     }
 
 private:
@@ -273,6 +342,10 @@ private:
     Player*     player = nullptr;
     double mx = 0, my = 0, dragX = 0, dragY = 0;
     bool   mouseDown = false, mousePrev = false, rightDown = false, rightPrev = false;
+    bool   remote = false, devMenuAllowed = false, devWorld = false;
+    std::string noticeText, refusal;
+    float  refusalAge = 99.0f;
+    float  noticeAge = 99.0f;
     bool   keyPrev[Inventory::HOTBAR] = {};
     float  slot = 48.0f;
     int    hoverSlot = -1, hoverEquip = -1, hoverChest = -1;
@@ -288,10 +361,11 @@ private:
     std::string chestName;
 
     bool hovered(float x, float y, float w, float h) const {
+        gNav.add(x, y, w, h);                    // every rectangle asked about: the controller can reach it
         return mx >= x && mx < x + w && my >= y && my < y + h;
     }
 
-    bool button(UIRenderer& ui, const char* text, float x, float y, float w, float h) {
+    bool button(UIRenderer& ui, const std::string& text, float x, float y, float w, float h) {
         const auto& theme = gResourcePacks.getTheme();
         bool hov = hovered(x, y, w, h);
         ui.drawRect(x, y, w, h, hov ? theme.buttonBgHover : theme.buttonBg);
@@ -361,14 +435,18 @@ private:
         default:       return CombatKit::fitsButton(id);
         }
     }
+    static const char* refName(RefKind k) {
+        switch (k) {
+        case RefOff: return "an off hand"; case RefCharm: return "a charm slot";
+        case RefQuick: return "a quick slot"; default: return "an ability slot";
+        }
+    }
     static const char* refHint(RefKind k) {
         switch (k) {
-        case RefOff:    return "off hand: a shield, a weapon or a spell";
-        case RefCharm:  return "charm: none in the game yet";
-        case RefQuick:  return gInput.padLastUsed() ? "quick: hold Start and press its button"
-                                                    : "quick: hold its key with the quick key";
-        default:        return gInput.padLastUsed() ? "drag an item here: the D-pad steps through them"
-                                                    : "drag an item here: the next-item key steps through them";
+        case RefOff:    return "Off hand: shield, weapon, spellbook";
+        case RefCharm:  return "Charm slot: none yet";
+        case RefQuick:  return "Quick slot: spellbooks";
+        default:        return "Ability slot: spellbooks";
         }
     }
     // One loadout slot: the item it names, or 'empty' (a word)
@@ -396,7 +474,7 @@ private:
         float colW = (rw - 2 * pad - labelW - 12.0f) * 0.5f;
         float ks = std::clamp((colW - 2 * g) / 3.0f, 20.0f, 30.0f);
         // the height it needs, shrunk to fit
-        float need = 46 + (ks + 8) + (ks * 0.7f + 14) + 16 + 6 * (ks + 6) + 14 + (ks + 14) + 14 + 2 * (ks + 18) + 10;
+        float need = 46 + (ks + 8) + (ks * 0.7f + 14) + 16 + 6 * (ks + 6) + 14 + 13 + (ks + 14) + 14 + 2 * (ks + 18) + 10;
         if (need > ph) ks = std::max(18.0f, ks - (need - ph) / 10.0f);
         float x0 = rx + pad, y = py + 44;
         auto label = [&](const std::string& t, float yy, float h) { ui.drawText(t, x0, yy + (h - 8) * 0.5f, theme.textDim, 1); };
@@ -423,8 +501,8 @@ private:
             ui.drawText(h, cx[k], y, inHand ? theme.accent : theme.text, 1);
         }
         y += 16;
-        // primary: the Weapon 1 / 2 equipment slots
-        label("Primary", y, ks);
+        // the weapon slot: the Weapon 1 / 2 equipment slots
+        label("Weapon", y, ks);
         for (int k = 0; k < 2; k++) drawEquipBox(ui, inv, k == 0 ? (int)EquipSlot::Weapon1 : (int)EquipSlot::Weapon2, cx[k], y, ks, nullptr);
         y += ks + 6;
         // off hand: empty means the primary blocks and parries
@@ -437,6 +515,8 @@ private:
         y += ks + 2;
         if (anyEmpty) { ui.drawText("empty: block and parry", cx[0], y, theme.textDim, 1); }
         y += 12;
+        ui.drawText("Ability slots", x0, y, theme.text, 1);   // (CombatKit::fitsAbility: spellbooks, things with a cast)
+        y += 13;
         // the pad's button, or (keyboard last used) the keys: use / next
         const bool padNames = gInput.padLastUsed();
         auto key = [](InputAction a) { return InputManager::bindingLabel(gInput.getBinding(a)); };
