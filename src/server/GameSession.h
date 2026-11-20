@@ -10,6 +10,9 @@
 #include "../world/Woodcutting.h"
 #include "../world/WorldEditor.h"
 #include "../world/WorldSaveManager.h"
+#include "../world/TerrainOps.h"
+#include "../game/Village.h"
+#include "../game/Villagers.h"
 #include "../worldgen/WorldType.h"
 #include <cmath>
 #include <fstream>
@@ -155,6 +158,16 @@ public:
             return "";
         };
         if (int n = sim.npcs().load(path + "/npcs.dat")) std::cout << n << " NPCs loaded\n";
+        // the world's village sites, and the ones already built
+        sites = gen->villageSites();
+        sitesBuilt.assign(sites.size(), false);
+        {
+            std::ifstream vf(path + "/villages.dat");
+            int x, z;
+            while (vf >> x >> z)
+                for (size_t i = 0; i < sites.size(); i++)
+                    if (sites[i].at == glm::ivec2(x, z)) sitesBuilt[i] = true;
+        }
         std::ifstream tf(path + "/time.txt");
         float t; gClock.time = (tf >> t) ? std::fmod(std::fabs(t), 1.0f) : 0.35f;
     }
@@ -254,6 +267,62 @@ public:
         return false;
     }
 
+    // ── Villages at the world's sites ─────────────────────
+    // The generator's village sites (TerrainGenerator::villageSites:
+    // the island's villages and hamlets) are built from blueprints
+    // (game/Village.h) with their people (game/Villagers.h) the first
+    // time a player comes within SITE_NEAR, once the ground round the
+    // site has loaded (a lot over unloaded ground would be skipped).
+    // Remembered in villages.dat, so each is built once. Not on a
+    // client: its server builds them. 'say' hears what was built.
+    static constexpr float SITE_NEAR = 420.0f;
+    static constexpr int   SITE_REACH = 200;   // ground that must be loaded round the square
+    void tickVillages(const std::vector<glm::vec3>& players, const std::function<void(const std::string&)>& say = nullptr) {
+        if (!world || !structs || !editor || !gen) return;
+        for (size_t i = 0; i < sites.size(); i++) {
+            if (sitesBuilt[i]) continue;
+            const glm::ivec2 at = sites[i].at;
+            float nearest = 1e9f;
+            glm::vec3 who(0.0f);
+            for (const glm::vec3& p : players) {
+                float d = glm::length(glm::vec2(p.x - at.x, p.z - at.y));
+                if (d < nearest) { nearest = d; who = p; }
+            }
+            if (nearest > SITE_NEAR) continue;
+            auto loaded = [&](int dx, int dz) { return world->isColumnLoaded(at.x + dx, at.y + dz); };
+            const int R = SITE_REACH;
+            if (!(loaded(0, 0) && loaded(R, 0) && loaded(-R, 0) && loaded(0, R) && loaded(0, -R) &&
+                  loaded(R, R) && loaded(-R, -R) && loaded(R, -R) && loaded(-R, R))) continue;
+            int y = terrain::groundLevel(*world, at.x, at.y, 400, 400);
+            if (y < 0) continue;
+            sitesBuilt[i] = true;
+            // a few layouts (seeds, road lengths: hilly ground takes
+            // shorter roads); the one with the most buildings is built
+            village::Options vo;
+            village::Plan vp;
+            for (int attempt = 0; attempt < 6; attempt++) {
+                village::Options o;
+                o.seed = (uint32_t)gWorldSave.getSeed() * 2654435761u + 977u * (uint32_t)(i + 1) + 7919u * (uint32_t)attempt;
+                if (sites[i].small) { o.roads = 2 + attempt % 2; o.roadLen = 110 - 10 * (attempt / 2); o.lanes = 2; }
+                else { o.roads = 3 + (int)(o.seed % 2); o.roadLen = 100 - 10 * (attempt / 2); }
+                if (nearest < 160.0f) { o.keepClear = { (int)who.x, (int)who.z }; o.clearRadius = 15; }   // not on top of anyone
+                village::pickPalette(o);
+                village::Plan p = village::plan(*world, gBlueprints, glm::ivec3(at.x, y, at.y), o);
+                if (attempt == 0 || p.lots.size() > vp.lots.size()) { vp = p; vo = o; }
+                if (vp.lots.size() >= (sites[i].small ? 6u : 10u)) break;
+            }
+            village::Built vb = village::build(vp, *structs, *editor, &chests, vo, EditSource::Script);
+            villagers::Populated pop = villagers::populate(vp, vb, *structs, *world, sim.npcs(), vo.seed);
+            std::string line = sites[i].name + ": " + std::to_string(vb.buildings) + " buildings, " + std::to_string(pop.villagers) +
+                               " villagers" + (pop.guards ? ", " + std::to_string(pop.guards) + " guards" : std::string());
+            std::cout << "village built at " << at.x << " " << y << " " << at.y << ": " << line << " (" << vp.lots.size() << " lots, " << vp.roads.size()
+                      << " roads" << (vb.failed ? ", " + std::to_string(vb.failed) + " didn't fit: " + vb.why : std::string()) << ")\n";
+            if (say) say(line);
+        }
+    }
+    const std::vector<TerrainGenerator::VillageSite>& villageSites() const { return sites; }
+    bool villageBuilt(size_t i) const { return i < sitesBuilt.size() && sitesBuilt[i]; }
+
     // ── Saving ────────────────────────────────────────────
     // extra(folder): anything else to write into the same
     // staging folder (the game's player file and far-view
@@ -280,6 +349,10 @@ public:
         if (wood) ok = wood->save(stage) && ok;
         sim.npcs().save(stage + "/npcs.dat");
         { std::ofstream tf(stage + "/time.txt"); tf << gClock.time << "\n"; }
+        {   // the village sites built so far
+            std::ofstream vf(stage + "/villages.dat");
+            for (size_t i = 0; i < sites.size(); i++) if (sitesBuilt[i]) vf << sites[i].at.x << " " << sites[i].at.y << "\n";
+        }
         if (extra) extra(stage);
         if (chunks) std::cout << "Saved " << chunks << " chunks" << (commit ? "" : " (checkpoint)") << "\n";
         if (commit) ok = savestage::commit(path) && ok;
@@ -303,4 +376,6 @@ private:
     std::string path;
     std::vector<Spawners::Placed> placed;
     std::vector<glm::vec3> built;              // every piece anyone built (syncSpawners), for roaming spawns
+    std::vector<TerrainGenerator::VillageSite> sites;   // the generator's village sites
+    std::vector<bool> sitesBuilt;                        // … built yet (villages.dat)
 };

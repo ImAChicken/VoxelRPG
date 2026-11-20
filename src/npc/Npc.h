@@ -159,6 +159,9 @@ public:
     glm::vec3   pathGoal{0.0f};
     float       pathAge = 99.0f;       // s since it was planned
     bool        pathReached = false;   // the plan gets all the way
+    bool        pathTried = false;     // a search has been made for pathGoal (Simulation::steerToward)
+    uint32_t    restTicks = 0;         // ticks standing still with its physics left out (NpcManager)
+    int         pathBudget = 0;        // spots a search may look at (0: nav::MAX_NODES); a stroll needs fewer
     glm::vec3   stuckFrom{0.0f};
     float       stuckFor = 0.0f;
     bool        untouchable = false;   // in a protected menu: hits don't land

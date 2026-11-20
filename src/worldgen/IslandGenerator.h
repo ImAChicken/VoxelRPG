@@ -139,10 +139,19 @@ public:
         // ── Features centred on their cell ───────────────
         float cx = (ni + 0.5f) * VOXEL_DIM, cz = (nj + 0.5f) * VOXEL_DIM;
         float dc = std::hypot(wx - cx, wz - cz);        // distance to cell centre
-        if (biome == Village || biome == PlainsVillage) {
-            float flat = baked ? bake.height(cx, cz) : cellHeight[cellIndex(ni, nj)];
-            float t = std::clamp((dc - 30.0f) / 30.0f, 0.0f, 1.0f);
-            h = flat + (h - flat) * t;                  // level the plaza
+        // Level the ground round each village site (by distance to the
+        // site, across cell borders): flat out to VILLAGE_FLAT, easing
+        // back to the land by VILLAGE_FLAT + VILLAGE_EASE. The village
+        // itself is built from blueprints there (GameSession::tickVillages)
+        bool levelled = false;
+        for (const VillageGround& v : villageGround()) {
+            float d = std::hypot(wx - v.x, wz - v.z);
+            if (d >= VILLAGE_FLAT + VILLAGE_EASE) continue;
+            float t = std::clamp((d - VILLAGE_FLAT) / VILLAGE_EASE, 0.0f, 1.0f);
+            t = t * t * (3.0f - 2.0f * t);
+            if (h < v.flat - 2.0f && h < sh.lakeLvl) continue;      // (not across a lake or the sea)
+            h = v.flat + (h - v.flat) * t;
+            levelled = true;
         }
 
         c.ground = (int)std::floor(h);
@@ -154,7 +163,7 @@ public:
         const float rockSlope = (ecoTile && ecoTile->lvHi <= 3) ? 1.8f : 1.0f;
 
         // ── Rock on steep ground, snow up high ───────────
-        if (h > SEA_LEVEL + 40.0f && !flatBiome(biome)) {
+        if (h > SEA_LEVEL + 40.0f && !flatBiome(biome) && !levelled) {
             float slope = baked ? bake.slope((float)wx, (float)wz)
                                 : std::max(std::fabs(shape(wx + 3, wz).h - h),
                                            std::fabs(shape(wx, wz + 3).h - h)) / 3.0f;
@@ -171,7 +180,8 @@ public:
         }
 
         if (biome == Village || biome == PlainsVillage) {
-            if (dc < 34) { c.top = BLOCK_COBBLESTONE; c.sub = BLOCK_DIRT; }
+            // (levelled above; the village itself, from blueprints, is
+            // built there when a player first comes near: GameSession)
         } else if (biome == HotSpring) {
             if (dc < 14) { c.waterLevel = c.ground; c.ground -= 3; c.top = BLOCK_GRAVEL; }
             else if (dc < 20) { c.top = BLOCK_GRAVEL; }
@@ -391,6 +401,21 @@ public:
         int z = s ? s->y * VOXEL_DIM + VOXEL_DIM / 2 : chart.size * VOXEL_DIM / 2;
         TerrainColumn c = column(x, z);
         return { x, std::max(c.ground, c.waterLevel), z };
+    }
+
+    // The chart's villages (markers of kind "village"), at their cell's
+    // middle: the plaza the generator levels there
+    std::vector<VillageSite> villageSites() const override {
+        std::vector<VillageSite> out;
+        for (const island::Marker& m : chart.markers) {
+            if (m.kind != "village") continue;
+            VillageSite s;
+            s.at = { m.x * VOXEL_DIM + VOXEL_DIM / 2, m.y * VOXEL_DIM + VOXEL_DIM / 2 };
+            s.name = m.label;
+            s.small = m.label.find("amlet") != std::string::npos;
+            out.push_back(s);
+        }
+        return out;
     }
 
 protected:
@@ -1449,6 +1474,23 @@ private:
     Options options;
     TerrainBake bake;
     bool baked = false;
+
+    // The ground levelled round each village site (column()): worked
+    // out once, the first time it's asked for (worker threads too)
+    static constexpr float VILLAGE_FLAT = 110.0f, VILLAGE_EASE = 60.0f;
+    struct VillageGround { float x, z, flat; };
+    mutable std::once_flag villageOnce;
+    mutable std::vector<VillageGround> villageGroundList;
+    const std::vector<VillageGround>& villageGround() const {
+        std::call_once(villageOnce, [this] {
+            for (const VillageSite& s : villageSites()) {
+                int ci = std::clamp(s.at.x / VOXEL_DIM, 0, chart.size - 1), cj = std::clamp(s.at.y / VOXEL_DIM, 0, chart.size - 1);
+                float flat = baked ? bake.height((float)s.at.x, (float)s.at.y) : cellHeight[cellIndex(ci, cj)];
+                villageGroundList.push_back({ (float)s.at.x, (float)s.at.y, flat });
+            }
+        });
+        return villageGroundList;
+    }
     std::vector<TerrainBake::RiverLine> guideLines;   // designed rivers, smoothed
     struct Fall { float x, z, dx, dz, top, bottom, hw; };
     std::vector<Fall> falls;

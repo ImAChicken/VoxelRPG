@@ -48,7 +48,9 @@ public:
     struct DebugLabel { float x, y; std::string text; glm::vec3 color; };
     std::vector<DebugLabel> debugLabels;
     std::vector<std::string> debugText;
-    std::string talkingTo;              // an NPC menu is open (placeholder until menus exist)
+    std::string talkingTo;              // an NPC menu is open
+    std::string talkLine;               // … what it just said (game/Dialogue.h)
+    std::vector<std::string> talkOptions;   // … what you can ask (keys 1-4)
 
     // Encounter bookends (npc/Encounters.h): a banner when a
     // fight starts, a review when it ends. Neither pauses.
@@ -138,14 +140,45 @@ public:
                 keytext::draw(ui, review[i], px + 24, py + 30 + 34 + (i - 1) * 24.0f - 20, text, 2);
         }
 
-        // ── Talking to an NPC (a placeholder menu) ────────
+        // ── Talking to an NPC (game/Dialogue.h) ───────────
+        // its name, what it said (wrapped), and the questions, 1-4
         if (!talkingTo.empty()) {
-            std::string t = "Talking to " + talkingTo + "   {interact}: leave";
-            float w = keytext::width(ui, t, 2);
-            float bg[4] = {0, 0, 0, 170};
-            float col[4] = {240, 230, 200, 255};
-            ui.drawRect((sw - w) * 0.5f - 12, sh * 0.62f - 8, w + 24, 34, bg);
-            keytext::draw(ui, t, (sw - w) * 0.5f, sh * 0.62f, col, 2);
+            const float bw = std::min(sw - 40.0f, 760.0f), x0 = (sw - bw) * 0.5f;
+            std::vector<std::string> lines;
+            {   // wrap the line to the box
+                std::string cur, word;
+                auto flush = [&] {
+                    std::string trial = cur.empty() ? word : cur + " " + word;
+                    if (!cur.empty() && ui.textWidth(trial, 2) > bw - 40.0f) { lines.push_back(cur); cur = word; }
+                    else cur = trial;
+                    word.clear();
+                };
+                for (char ch : talkLine) { if (ch == ' ') { if (!word.empty()) flush(); } else word += ch; }
+                if (!word.empty()) flush();
+                if (!cur.empty()) lines.push_back(cur);
+            }
+            const float lineH = 24.0f;
+            const float bh = 20 + 30 + lines.size() * lineH + 14 + talkOptions.size() * lineH + 34;
+            const float y0 = sh * 0.60f - bh * 0.5f;
+            float bg[4] = {12, 10, 8, 205};
+            float edge[4] = {120, 90, 50, 255};
+            float name[4] = {235, 190, 110, 255};
+            float say[4] = {240, 232, 210, 255};
+            float ask[4] = {200, 200, 190, 255};
+            float hint[4] = {150, 150, 140, 255};
+            ui.drawRect(x0 - 2, y0 - 2, bw + 4, bh + 4, edge);
+            ui.drawRect(x0, y0, bw, bh, bg);
+            float y = y0 + 16;
+            ui.drawText(talkingTo, x0 + 20, y, name, 3);
+            y += 34;
+            for (const std::string& l : lines) { ui.drawText(l, x0 + 20, y, say, 2); y += lineH; }
+            y += 14;
+            for (size_t i = 0; i < talkOptions.size(); i++) {
+                ui.drawText(std::to_string(i + 1) + "   " + talkOptions[i], x0 + 32, y, ask, 2);
+                y += lineH;
+            }
+            std::string t = "1 - " + std::to_string(talkOptions.size()) + ": ask   {interact}: leave";
+            keytext::draw(ui, t, x0 + bw - 20 - keytext::width(ui, t, 2), y + 6, hint, 2);
         }
 
         // ── Debug overlay ─────────────────────────────────

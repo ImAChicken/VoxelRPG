@@ -11,6 +11,7 @@
 #include "game/Palettes.h"
 #include "game/Village.h"
 #include "game/Villagers.h"
+#include "game/Dialogue.h"
 #include "world/StructureManager.h"
 #include "world/WorldEditor.h"
 #include <cstdio>
@@ -60,8 +61,13 @@ int main() {
     check(pop.villagers > 0 && pop.villagers == beds, "a villager for every place in a bed: " + std::to_string(pop.villagers) +
           " in " + std::to_string(pop.homes) + " homes");
     check(pop.jobs >= 1, "some have jobs: " + std::to_string(pop.jobs));
-    std::vector<Npc*> folk;
-    for (auto& n : w.sim.npcs().all()) folk.push_back(n.get());
+    std::vector<Npc*> folk, guards;
+    for (auto& n : w.sim.npcs().all()) (n->life.on ? folk : guards).push_back(n.get());
+    {
+        bool posted = !guards.empty() && pop.guards == (int)guards.size();
+        for (Npc* g : guards) posted = posted && g->typeId == "guard" && g->patrol.size() >= 4 && g->name.find("the Guard") != std::string::npos;
+        check(posted, "guards walk the roads: " + std::to_string(guards.size()) + (guards.empty() ? "" : " (" + guards[0]->name + ")"));
+    }
     bool named = true, placed = true;
     for (Npc* n : folk) {
         named = named && !n->name.empty() && n->name != "Villager";
@@ -70,6 +76,10 @@ int main() {
     check(named, "each has a name (" + folk[0]->name + ", ...)");
     check(placed, "each has a bed behind a door, and somewhere to work");
     for (Npc* n : folk) std::printf("    %-24s %s\n", n->name.c_str(), n->life.job.empty() ? "(keeps house)" : n->life.job.c_str());
+    if (std::getenv("VERBOSE"))
+        for (const LifePlace& h : folk[0]->life.haunts)
+            std::printf("    haunt: door %u out (%.0f %.0f %.0f) in (%.0f %.0f %.0f) spot (%.0f %.0f %.0f), %zu to the square\n", h.door, h.out.x, h.out.y, h.out.z,
+                        h.in.x, h.in.y, h.in.z, h.spot.x, h.spot.y, h.spot.z, h.toSquare.size());
 
     if (const char* dump = std::getenv("VOXELRPG_DUMP")) {
         std::FILE* f = std::fopen((std::string(dump) + "/villagers_top.txt").c_str(), "w");
@@ -275,10 +285,11 @@ int main() {
         w.sim.npcs().save(path);
         NpcManager back;
         int n = back.load(path);
-        check(n == (int)folk.size(), "they load: " + std::to_string(n));
+        check(n == (int)(folk.size() + guards.size()), "they load: " + std::to_string(n));
         bool same = n > 0;
         for (auto& b2 : back.all()) {
             Npc* a = w.sim.npcs().find(b2->uuid);
+            if (b2->typeId == "guard") { same = same && a && b2->name == a->name && b2->patrol.size() == a->patrol.size(); continue; }
             same = same && a && b2->life.on && b2->name == a->name && b2->life.job == a->life.job &&
                    glm::length(b2->life.bed.lieAt - a->life.bed.lieAt) < 0.01f && b2->life.bed.door == a->life.bed.door &&
                    b2->life.haunts.size() == a->life.haunts.size();
@@ -286,9 +297,88 @@ int main() {
         check(same, "  with their names, jobs, beds and haunts");
     }
 
+    std::printf("the guards come\n");
+    if (!guards.empty()) {
+        gClock.time = 12.0f / 24.0f;
+        w.run(20.0f);
+        // the villager nearest a guard, hit by a bandit nearby
+        Npc* v = folk[0]; float best = 1e9f;
+        for (Npc* f : folk) for (Npc* g : guards) { float d = flat(f->position, g->position); if (d < best) { best = d; v = f; } }
+        // (the bandit on the far side from the middle of the test world,
+        // so the villager runs inward, not off the edge of the loaded ground)
+        glm::vec2 out(v->position.x - 256.0f, v->position.z - 256.0f);
+        out = glm::length(out) > 1.0f ? glm::normalize(out) : glm::vec2(1, 0);
+        glm::vec3 at = v->position + glm::vec3(out.x, 0.0f, out.y) * 15.0f;
+        Npc* bandit = w.sim.npcs().spawn("bandit", at, glm::vec3(-1, 0, 0));
+        bandit->position = bandit->prevPosition = at;
+        v->health -= 5.0f;
+        v->lastHitBy = bandit->uuid;
+        w.run(1.5f);
+        int coming = 0;
+        for (Npc* g : guards) {
+            if (g->target == bandit->uuid && (g->stateName == "alert" || g->stateName == "combat" || g->stateName == "search")) coming++;
+            if (std::getenv("VERBOSE") || coming == 0) std::printf("    %s: %s (target %llu, the bandit %llu), %.0f from the villager, %.0f from home\n", g->name.c_str(), g->stateName.c_str(), (unsigned long long)g->target, (unsigned long long)bandit->uuid,
+                                                    flat(g->position, v->position), flat(g->position, g->home));
+        }
+        bandit->health = 0.0f;                                  // (and the fight's over: the villager comes back)
+        check(coming > 0, "a villager hurt: the guards go for whoever did it (" + std::to_string(coming) + " of " +
+                          std::to_string(guards.size()) + ", nearest " + std::to_string((int)best) + " away)");
+    }
+
+    std::printf("talking\n");
+    {
+        using dialogue::Topic;
+        uint32_t rng = 1;
+        Npc* smith = nullptr;
+        for (Npc* f : folk) if (f->life.job == "smith") smith = f;
+        if (!smith) smith = folk[0];
+        auto clean = [](const std::string& s) { return !s.empty() && s.find('{') == std::string::npos; };
+        bool all = true;
+        for (Topic t : { Topic::Greet, Topic::About, Topic::News, Topic::People, Topic::Bye })
+            all = all && clean(dialogue::say(*smith, t, 12.0f, w.sim.npcs(), rng));
+        check(all, "a villager answers every question (" + dialogue::say(*smith, Topic::About, 12.0f, w.sim.npcs(), rng) + ")");
+        std::string people = dialogue::say(*smith, Topic::People, 12.0f, w.sim.npcs(), rng);
+        bool named = true;
+        for (Npc* f : folk) if (f != smith) named = named && people.find(f->name.substr(0, f->name.find(' '))) != std::string::npos;
+        check(named, "who lives here: " + people);
+        // a roaming band near: the news
+        Npc* b = w.sim.npcs().spawn("bandit", smith->position + glm::vec3(0, 0, -150.0f), glm::vec3(0, 0, 1));
+        b->roamGroup = 77;
+        std::string news = dialogue::say(*smith, Topic::News, 12.0f, w.sim.npcs(), rng);
+        check(news.find("bandits") != std::string::npos && news.find("north") != std::string::npos, "the news: " + news);
+        w.sim.npcs().removeIf([&](const Npc& x) { return x.roamGroup == 77; });
+        if (!guards.empty()) {
+            std::string g = dialogue::say(*guards[0], Topic::About, 12.0f, w.sim.npcs(), rng);
+            check(clean(g) && (g.find("road") != std::string::npos || g.find("duty") != std::string::npos), "a guard has its own lines: " + g);
+        }
+    }
+
     std::printf("woken\n");
+    gClock.time = 23.0f / 24.0f;
+    // (one that ran from the bandit to the edge of this small test
+    // world waits there for ground that never loads: put it home)
+    auto homeFromEdge = [&] {
+        for (Npc* f : folk)
+            if (f->position.x < 12.0f || f->position.z < 12.0f || f->position.x > 500.0f || f->position.z > 500.0f)
+                f->position = f->prevPosition = f->life.bed.in;
+    };
+    if (std::getenv("TRACEBED"))
+        std::printf("    %s bed: out (%.0f %.0f %.0f) in (%.0f %.0f %.0f) spot (%.0f %.0f %.0f) home (%.0f %.0f %.0f)\n", folk[0]->name.c_str(),
+                    folk[0]->life.bed.out.x, folk[0]->life.bed.out.y, folk[0]->life.bed.out.z, folk[0]->life.bed.in.x, folk[0]->life.bed.in.y, folk[0]->life.bed.in.z,
+                    folk[0]->life.bed.spot.x, folk[0]->life.bed.spot.y, folk[0]->life.bed.spot.z, folk[0]->home.x, folk[0]->home.y, folk[0]->home.z);
+    for (int k = 0; k < 24 && !folk[0]->lying; k++) {          // (back in bed after the guards' test)
+        w.run(10.0f);
+        homeFromEdge();
+        if (std::getenv("TRACEBED")) std::printf("    t%3d %s %s move (%.2f %.2f) hp %.0f tier %d rag %d (%.0f %.0f %.0f) path %zu/%zu\n", k * 10, folk[0]->name.c_str(), folk[0]->state ? folk[0]->state->debug(*folk[0]).c_str() : folk[0]->stateName.c_str(), folk[0]->intent.move.x, folk[0]->intent.move.y, folk[0]->health, (int)folk[0]->tier, (int)folk[0]->ragdoll.simulating(),
+                                                folk[0]->position.x, folk[0]->position.y, folk[0]->position.z, folk[0]->pathAt, folk[0]->path.size());
+        if (std::getenv("VERBOSE"))
+            for (auto& o : w.sim.npcs().all()) if (!o->life.on) std::printf("         %s %s (%.0f %.0f %.0f)%s\n", o->name.c_str(), o->stateName.c_str(), o->position.x, o->position.y, o->position.z, o->dead() ? " dead" : "");
+    }
     {
         Npc* n = folk[0];
+        check(n->lying, "back in bed");
+        if (!n->lying) std::printf("    %s: %s at (%.0f %.0f %.0f), %.0f from bed\n", n->name.c_str(), n->state ? n->state->debug(*n).c_str() : n->stateName.c_str(),
+                                   n->position.x, n->position.y, n->position.z, flat(n->position, n->life.bed.spot));
         n->health -= 5.0f;
         n->lastHitBy = pl.uuid;
         w.run(1.0f);

@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <algorithm>
 #include <cmath>
+#include <string>
 #include <vector>
 
 // ── TerrainGenerator ──────────────────────────────────────
@@ -362,6 +363,12 @@ public:
         int x = worldSizeX * VOXEL_DIM / 2, z = worldSizeZ * VOXEL_DIM / 2;
         return { x, getSurfaceY(x, z), z };
     }
+
+    // Where villages stand (world x, z of the square; GameSession
+    // builds one from blueprints at each, game/Village.h, when a player
+    // first comes near). small: a hamlet. None by default
+    struct VillageSite { glm::ivec2 at{ 0 }; std::string name; bool small = false; };
+    virtual std::vector<VillageSite> villageSites() const { return {}; }
 
     // ── For the distant terrain (render/FarTerrain.h) ─────
     // Water surface around the world, or -1 for none: the

@@ -71,6 +71,7 @@
 #include "game/Kits.h"
 #include "game/Village.h"
 #include "game/Villagers.h"
+#include "game/Dialogue.h"
 #include "ui/InventoryScreen.h"
 #include "world/StructureManager.h"
 #include "world/Chests.h"
@@ -249,7 +250,7 @@ int main() {
     sound::gAudio.init();
     gLoot.load("data/registry/loot.toml");
     gKits.load("data/registry/kits.toml");
-    gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml"); gVillagers.load();
+    gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml"); gVillagers.load(); dialogue::gDialogue.load();
     gAnims.load("data/animations", "data/animations/retarget.toml");
     gAnimMap.load("data/animations/anim_map.toml");
     gOutlineFx.load("data/registry/outline.toml");
@@ -452,6 +453,9 @@ int main() {
     // Enemies live in the simulation; their bodies to draw (by id)
     NpcManager& npcs = sim.npcs();
     EntityId talkingTo = 0;           // the NPC this player is in a menu with
+    std::string talkLine;             // what it last said (game/Dialogue.h)
+    float talkCloseIn = -1.0f;        // after goodbye: the menu closes in this many s
+    uint32_t talkRng = 0x2f6b1d3u;
     bool pendingVillage = false;      // a new flat world with a village: built once you stand on the ground
     glm::ivec3 villageAt{ 0 };        // where its square goes (picked when you land)
     bool villageAtSet = false;
@@ -1779,7 +1783,7 @@ int main() {
                 gFactions.load("data/registry/factions.toml");
                 gLoot.load("data/registry/loot.toml");
                 gKits.load("data/registry/kits.toml");
-                gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml"); gVillagers.load(); gVillagers.load();
+                gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml"); gVillagers.load(); dialogue::gDialogue.load(); gRoaming.load();
                 gAnims.load("data/animations", "data/animations/retarget.toml");
                 gAnimMap.load("data/animations/anim_map.toml");
                 gOutlineFx.load("data/registry/outline.toml");
@@ -1897,6 +1901,9 @@ int main() {
                            mainMenu.getNewWorldDev());
                 pendingKit = mainMenu.getNewWorldKit();   // laid out once the ground under you is there
                 pendingVillage = mainMenu.getNewWorldVillage();
+                // the Enemies row: roaming spawns on or off for this world
+                gWorldSave.setRoamingSpawns(mainMenu.getNewWorldRoaming());
+                sim.roaming.enabled = mainMenu.getNewWorldRoaming();
             } else if (r == ScreenResult::LoadWorld) {
                 // Seed and mode come from the save file
                 enterWorld(false,
@@ -2005,7 +2012,7 @@ int main() {
                 //    Which buttons do what depends on the
                 //    mode and stance (see PlayerController).
                 controller.slotKeysBlocked =
-                    PlayerInteraction::blocksToolbarKeys(dev);
+                    PlayerInteraction::blocksToolbarKeys(dev) || talkingTo != 0;   // (talking: 1-4 ask)
                 controller.readInput(player, camera, dt);
 
                 // 2. The simulation, in fixed 1/60 s ticks. A
@@ -2016,6 +2023,8 @@ int main() {
                 // the spawner structures placed in the world, for the
                 // simulation to run (sim/Spawners.h)
                 if (!remote) session.syncSpawners();
+                // the world's village sites, built when a player first comes near
+                if (!remote) session.tickVillages({ player.position }, [&](const std::string& s) { say("a village: " + s); });
                 while (physicsTime >= PHYSICS_STEP) {
                     controller.beforeTick(player);
                     if (remote) remoteTick(controller.intent);
@@ -2109,8 +2118,9 @@ int main() {
                         break;
                     case SimEvent::Kind::MenuClosed:
                         if (e.a == talkingTo) {
-                            if (Npc* n = npcs.find(e.a)) say(n->name + " stopped talking");
+                            if (talkCloseIn < 0.0f) if (Npc* n = npcs.find(e.a)) say(n->name + " stopped talking");
                             talkingTo = 0;
+                            talkCloseIn = -1.0f;
                         }
                         break;
                     case SimEvent::Kind::Pickup:
@@ -2238,15 +2248,44 @@ int main() {
                         if (best) {
                             if (sim.openMenu(best->uuid, player.uuid)) {
                                 talkingTo = best->uuid;
-                                say("talking to " + best->name + " ({interact} to leave)");
-                                sound::gSounds.bark(*best, "greet");
+                                talkCloseIn = -1.0f;
+                                // villagers and guards talk (game/Dialogue.h); others just greet
+                                if (best->life.on || best->typeId == "guard") {
+                                    talkLine = dialogue::say(*best, dialogue::Topic::Greet, gClock.time * 24.0f, npcs, talkRng);
+                                    sound::gSounds.say(best->uuid, sound::gSounds.voiceOf(*best), talkLine, sound::SoundDirector::mouthOf(*best));
+                                } else {
+                                    talkLine.clear();
+                                    sound::gSounds.bark(*best, "greet");
+                                }
                             }
                             else say(best->name + " won't talk now");
                         }
                     }
                 }
+                // talking: 1-4 ask (game/Dialogue.h); after goodbye it closes
+                if (talkingTo && !remote) {
+                    Npc* tn = npcs.find(talkingTo);
+                    const auto& qs = dialogue::questions();
+                    if (tn && !talkLine.empty() && talkCloseIn < 0.0f)
+                        for (size_t i = 0; i < qs.size(); i++) {
+                            if (!gInput.isPressed((InputAction)((int)InputAction::ToolbarSlot1 + (int)i))) continue;
+                            talkLine = dialogue::say(*tn, qs[i].first, gClock.time * 24.0f, npcs, talkRng);
+                            sound::gSounds.say(tn->uuid, sound::gSounds.voiceOf(*tn), talkLine, sound::SoundDirector::mouthOf(*tn));
+                            if (qs[i].first == dialogue::Topic::Bye) talkCloseIn = 1.8f;
+                        }
+                    if (talkCloseIn >= 0.0f && (talkCloseIn -= dt) < 0.0f) { sim.closeMenu(talkingTo); }
+                }
                 hud.talkingTo.clear();
-                if (talkingTo) { if (Npc* n = npcs.find(talkingTo)) hud.talkingTo = n->name; else talkingTo = 0; }
+                hud.talkLine.clear();
+                hud.talkOptions.clear();
+                if (talkingTo) {
+                    if (Npc* n = npcs.find(talkingTo)) {
+                        hud.talkingTo = n->name;
+                        hud.talkLine = talkLine;
+                        if (!talkLine.empty() && talkCloseIn < 0.0f)
+                            for (auto& q : dialogue::questions()) hud.talkOptions.push_back(q.second);
+                    } else talkingTo = 0;
+                }
 
                 // 5. Hands: what is under the crosshair, and
                 //    break / place / use the held tool

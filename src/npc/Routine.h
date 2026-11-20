@@ -34,19 +34,29 @@ public:
 
     const char* name() const override { return "routine"; }
 
-    void enter(Npc& n, NpcWorld&) override {
+    void enter(Npc& n, NpcWorld& w) override {
         steps.clear();
         goal = nullptr;
         goalHaunt = -2;
         settled = false;
-        locate(n);
+        locate(n, w);
     }
     // Which building it's in now (near the inside of one of its
-    // doors, or its bed): worked out from where it stands
-    void locate(Npc& n) {
+    // doors, or its bed): worked out from where it stands. Near a
+    // door's inside spot; or further in (a church, after running from
+    // a fight): it sees the inside spot and not the outside one (the
+    // shut door between), or the inside one is the nearer
+    void locate(Npc& n, NpcWorld& w) {
         inside = LifePlace();
         auto near = [&](const LifePlace& p) {
-            return p.valid && p.door && glm::length(glm::vec2(n.position.x - p.in.x, n.position.z - p.in.z)) < INSIDE_NEAR;
+            if (!p.valid || !p.door) return false;
+            float dIn = glm::length(glm::vec2(n.position.x - p.in.x, n.position.z - p.in.z));
+            if (dIn < INSIDE_NEAR) return true;
+            if (dIn > 60.0f) return false;
+            float dOut = glm::length(glm::vec2(n.position.x - p.out.x, n.position.z - p.out.z));
+            glm::vec3 eye(0.0f, 10.0f, 0.0f);
+            if (!w.clearLine(n.position + eye, p.in + eye)) return false;
+            return !w.clearLine(n.position + eye, p.out + eye) || dIn < dOut;
         };
         at = LifePlace();
         if (near(n.life.bed)) inside = n.life.bed;
@@ -62,10 +72,11 @@ public:
             for (const LifePlace& h : n.life.haunts)
                 if (!h.door && glm::length(glm::vec2(n.position.x - h.spot.x, n.position.z - h.spot.z)) < 14.0f) { at = h; break; }
     }
-    void exit(Npc& n, NpcWorld&) override { wake(n); }
+    void exit(Npc& n, NpcWorld&) override { wake(n); n.pathBudget = 0; }
 
     void tick(Npc& n, NpcWorld& w, float dt) override {
         if (!n.life.on) { brain::change(n, w, "idle"); return; }
+        n.pathBudget = 900;          // its legs are short (door to door, road to road): a short search, a partial path past that
         float h = std::fmod(w.hourOfDay() - n.life.lateBy + 48.0f, 24.0f);
         Doing want = doing(n, w, h);
         int haunt = -1;
@@ -115,7 +126,7 @@ public:
             } else if (legTime > GIVE_UP || sinceBetter > 15.0f) {
                 // couldn't get there (a shut door, pushed out of the way):
                 // work out where it is and plan again
-                locate(n);
+                locate(n, w);
                 goal = nullptr;
                 steps.clear();
                 legTime = 0.0f;

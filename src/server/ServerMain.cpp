@@ -130,6 +130,9 @@ bool loadData() {
     gItems.addDecor(*decor::current());
     gStructures.load("data/registry/structures.toml");
     gStructures.addDecorTrees(*decor::current());
+    gBlueprints.load();          // villages at the world's sites (GameSession::tickVillages)
+    gBuildPalettes.load();
+    gVillagers.load();
     return true;
 }
 
@@ -206,6 +209,11 @@ int main(int argc, char** argv) {
         keeper.update(points);
         host.beforeStep();
         session.syncSpawners();
+        {
+            std::vector<glm::vec3> at;
+            for (const auto& p : sim.players()) at.push_back(p->position);
+            session.tickVillages(at);
+        }
         session.updateEdits(2.0f);
         sim.step(DT);
         session.tickWorld(DT);

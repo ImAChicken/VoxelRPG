@@ -312,6 +312,7 @@ inline Plan plan(const ChunkManager& w, const BlueprintLibrary& lib, glm::ivec3 
     }
 
     // Buildings along each road and lane, both sides, fronts to it
+    int churchTries = 0;
     if (!pool.empty())
         for (const Road& r : p.roads) {
             glm::ivec2 d = glm::sign(r.b - r.a);                // along the road
@@ -324,6 +325,11 @@ inline Plan plan(const ChunkManager& w, const BlueprintLibrary& lib, glm::ivec3 
                 int along = 6;
                 int tries = 0;
                 while (along < len - 8 && tries++ < 40) {
+                    // a church that didn't fit by the square tries along the
+                    // first road a few times, then is left out (it used to
+                    // keep the place of every other building: a village of
+                    // one square where the church never fitted)
+                    if (churchBp && ++churchTries > 6) churchBp = nullptr;
                     const Blueprint* bp = churchBp ? churchBp : pick();
                     if (!bp) break;
                     int rot = (faceDir - bp->front) & 3;
@@ -554,6 +560,18 @@ inline Built build(const Plan& p, StructureManager& sm, WorldEditor& editor, Che
             style.palette = pal->spec; style.paletteName = pal->name;
         }
         auto placements = l.bp->plan(l.lo, l.rot, &style);
+        // trees and rocks on the lot (the world's own, natural ones) go
+        // first: a village in a wood clears its lots
+        {
+            std::vector<uint32_t> clear;
+            const int m = 3;
+            sm.forEachInstance([&](const StructureInstance& s) {
+                if (!s.natural) return;
+                if (s.origin.x >= l.lo.x - m && s.origin.x <= l.lo.x + l.size.x + m &&
+                    s.origin.z >= l.lo.z - m && s.origin.z <= l.lo.z + l.size.z + m) clear.push_back(s.id);
+            });
+            for (uint32_t id : clear) sm.remove(id, src);
+        }
         std::string bad = Blueprint::check(sm, placements, true);
         if (!bad.empty()) { out.failed++; if (out.why.empty()) out.why = l.bp->name + ": " + bad; continue; }
         std::string why;

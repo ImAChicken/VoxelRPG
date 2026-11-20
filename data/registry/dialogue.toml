@@ -1,0 +1,61 @@
+# ══════════════════════════════════════════════════════════
+# What villagers and guards say (game/Dialogue.h)
+# ══════════════════════════════════════════════════════════
+# {interact} on a villager or a guard: it greets you, then
+#   1  What do you do here?     [about]  by its job
+#   2  Any news?                [news]   danger near the village, the night, or quiet
+#   3  Who lives here?          [people] its neighbours and where to find them
+#   4  Goodbye.                 [bye]
+# Each list gives one line at random. In a line:
+#   {name}    its name ("Ada")           {title}  its job ("Smith")
+#   {what}    news: the enemies seen ("bandits")
+#   {dir}     news: which way (north, south-east …)
+#   {dist}    news: how far, in feet ("300 ft")
+
+# ── Greetings, by the hour ────────────────────────────────
+[greet]
+morning = ["Morning. Up early, are we?", "Good morning, traveller.", "Ah, a fresh face this morning."]
+day     = ["Hello there!", "Lovely day, isn't it?", "Oh! A traveller! What brings you here?", "Afternoon."]
+evening = ["Evening. Mind the dark, it comes quick.", "Good evening.", "Heading somewhere before nightfall?"]
+night   = ["Mm? It's the middle of the night...", "Who's there? Oh. You.", "Can't it wait till morning?"]
+guard   = ["Halt. State your business.", "Move along, citizen.", "Stay out of trouble."]
+
+# ── What do you do here? (by job: villagers.toml ids; "none" for
+# the ones who keep house; "guard" for guards) ────────────
+[about]
+smith       = ["I work the forge. Blades, hinges, horseshoes - if it's iron, I hammer it.", "Smith, born and bred. My father ran this forge before me."]
+priest      = ["I keep the church and ring the bell. Someone has to pray for this lot.", "I tend the faithful. And the candles. Mostly the candles."]
+storekeeper = ["I keep the stores. Grain, rope, oil - and the tally of who owes what.", "Everything this village owns passes through my storehouse."]
+carpenter   = ["Carpenter. Half these roofs are my work.", "I build things. Doors, beds, the odd coffin."]
+none        = ["Keep the house, mostly. Somebody has to.", "Oh, a bit of everything. Garden, chickens, gossip.", "I mind the home while the others work."]
+guard       = ["I walk the roads and keep the village safe. Bandits think twice when they see a spear.", "Watch duty. Day and night, someone has to."]
+
+# ── Any news? ─────────────────────────────────────────────
+[news]
+danger = ["Careful out there - {what} about, {dist} to the {dir}.", "I heard {what} off to the {dir}. Not far, either.", "Word is there are {what} {dist} {dir} of here. Stay on the road."]
+night  = ["The dead walk after dark. Stay near the lanterns.", "Don't go wandering at night. Things come out of the ground."]
+quiet  = ["All quiet lately. Long may it last.", "Nothing much. The well water's been sweet.", "Quiet as a church mouse. Well - quieter than our church mice."]
+
+# ── Who lives here? ───────────────────────────────────────
+[people]
+intro = ["Let me think...", "Well, there's", "You'll want to meet"]
+alone = ["Just me, I'm afraid. It's a small place."]
+# how each neighbour is told: {name}, {title}, {where} ("the smithy"), {dir}
+smith       = "{name} the Smith, at the smithy to the {dir}"
+priest      = "{name} the Priest, at the church to the {dir}"
+storekeeper = "{name} the Storekeeper, at the storehouse to the {dir}"
+carpenter   = "{name} the Carpenter, at the workshop to the {dir}"
+none        = "{name}, who keeps house to the {dir}"
+guard       = "{name} the Guard, out on the roads"
+
+# ── Goodbye ───────────────────────────────────────────────
+[bye]
+lines = ["Safe travels.", "Mind how you go.", "Come back any time.", "Off you go, then."]
+guard = ["Keep your nose clean.", "On your way."]
+
+# what roaming enemies are called in the news (npcs.toml ids)
+[plural]
+bandit    = "bandits"
+swordsman = "sellswords"
+undead    = "restless dead"
+slime     = "slimes"

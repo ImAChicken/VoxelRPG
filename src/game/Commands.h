@@ -776,6 +776,18 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             if (const Roaming::PlayerState* ps = r.stateFor(me.id)) c.log("last try: " + (ps->why.empty() ? std::string("none yet") : ps->why));
             if (!r.lastGroup.empty()) c.log("last group: " + r.lastGroup);
         });
+    reg.add("villages", "villages", "the world's village sites (built when a player first comes near) and how far each is",
+        [](C& c, const Args&) {
+            if (!c.gen) { c.log("needs a world"); return; }
+            auto sites = c.gen->villageSites();
+            if (sites.empty()) { c.log("this world has no village sites (the village command builds one anywhere)"); return; }
+            for (const auto& s : sites) {
+                float d = glm::length(glm::vec2(s.at.x - c.player.position.x, s.at.y - c.player.position.z));
+                char b[160];
+                std::snprintf(b, sizeof b, "%s at %d %d, %.0f ft away   (tp %d 400 %d)", s.name.c_str(), s.at.x, s.at.y, d / 3.0f, s.at.x, s.at.y);
+                c.log(b);
+            }
+        });
     reg.add("spawners", "spawners", "list spawner types (structures.toml) and the spawners placed in this world",
         [](C& c, const Args&) {
             std::string types;

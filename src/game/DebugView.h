@@ -46,6 +46,10 @@
 //            spawner structures: where they spawn (green: awake,
 //            grey: asleep), how near a player must be (dim), and
 //            a label with their count and next spawn
+//   spawns   roaming spawns (sim/Roaming.h): round each player the
+//            ring they may appear in (min / max distance, dim), and
+//            the spots tried in the last 20 s: green with the group
+//            that came, red with why the spot was turned down
 //   steering context steering in fights (npc/ContextSteering.h):
 //            a ring round each NPC with a spoke in toward it on
 //            each of the 16 ways, as long and thick as that way's
@@ -62,7 +66,7 @@
 struct DebugLayers {
     bool on = false;
     bool bodies = true, ragdoll = true, combat = true, labels = true,
-         props = true, sight = true, world = true, ai = true, steering = true, pad = true;
+         props = true, sight = true, world = true, ai = true, steering = true, pad = true, spawns = true;
 
     bool* find(const std::string& n) {
         if (n == "bodies") return &bodies;
@@ -75,13 +79,14 @@ struct DebugLayers {
         if (n == "ai") return &ai;
         if (n == "steering") return &steering;
         if (n == "pad") return &pad;
+        if (n == "spawns") return &spawns;
         return nullptr;
     }
     std::string list() const {
         auto f = [](const char* n, bool b) { return std::string(n) + (b ? " on" : " off"); };
         return f("bodies", bodies) + ", " + f("ragdoll", ragdoll) + ", " + f("combat", combat) + ", " +
                f("labels", labels) + ", " + f("props", props) + ", " + f("sight", sight) + ", " + f("world", world) + ", " +
-               f("ai", ai) + ", " + f("steering", steering) + ", " + f("pad", pad);
+               f("ai", ai) + ", " + f("steering", steering) + ", " + f("pad", pad) + ", " + f("spawns", spawns);
     }
 };
 inline DebugLayers gDebug;
@@ -256,6 +261,23 @@ inline void build(DebugDraw& dd, Simulation& sim, const Woodcutting* wood, const
             else                                            std::snprintf(b, sizeof(b), "%s  %d/%d  next %.0fs", t->displayName.c_str(), s.alive, t->spawn.maxAlive, std::max(0.0f, s.timer));
             dd.label(s.at + glm::vec3(0, (float)t->size.y + 3.0f, 0), b, s.active ? GREEN : GREY);
         }
+    if (gDebug.spawns) {
+        const Roaming& r = sim.roaming;
+        const RoamSettings& rs = gRoaming.settings;
+        if (r.enabled)
+            for (const auto& p : sim.players())
+                if (p->rules().hasBody) {
+                    dd.circle(p->position + glm::vec3(0, 0.5f, 0), rs.minDistance, GREY, 0.25f, 72);
+                    dd.circle(p->position + glm::vec3(0, 0.5f, 0), rs.maxDistance, GREY, 0.25f, 72);
+                }
+        for (const Roaming::Try& t : r.tries) {
+            bool came = !t.why.empty() && t.why[0] == '+';
+            float fade = 1.0f - t.age / Roaming::TRY_KEEP;
+            glm::vec3 c = (came ? GREEN : RED) * (0.4f + 0.6f * fade);
+            dd.line(t.at, t.at + glm::vec3(0, came ? 30.0f : 12.0f, 0), c, came ? 1.0f : 0.6f);
+            if (gDebug.labels) dd.label(t.at + glm::vec3(0, came ? 32.0f : 14.0f, 0), came ? t.why.substr(1) : t.why, c);
+        }
+    }
     for (const auto& p : sim.players())
         if (p->rules().hasBody) {
             body(dd, *p, true, p.get() == &local ? "you" : "player", blade(*p));

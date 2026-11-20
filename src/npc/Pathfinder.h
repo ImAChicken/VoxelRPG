@@ -49,21 +49,95 @@ public:
     // body's own slowdown uphill (Human::climb x CLIMB_COST), so a
     // longer switchback wins when it's quicker
     float climbCost = Human::CLIMB_COST;
+    // how many spots a search may look at (a partial path toward the
+    // goal when it runs out)
+    int maxNodes = MAX_NODES;
 
     // Highest place to stand in column (x, z) between y-DROP and
     // y+CLIMB; false if none. Standing = solid below the feet and
     // room for the body.
     bool standAt(int x, int z, int y, int& out) const {
         for (int sy = y + CLIMB; sy >= y - DROP; sy--) {
-            if (!phys.solidAt(x, sy - 1, z) || phys.solidAt(x, sy, z)) continue;
+            if (!solid(x, sy - 1, z) || solid(x, sy, z)) continue;
             // room for the body, from a little above the feet: a
             // ledge of a voxel or two inside its radius (a terraced
             // slope) is stepped up, not a wall
             glm::vec3 p((float)x + 0.5f, (float)sy + BUMP, (float)z + 0.5f);
-            if (phys.capsuleIsClear(p, Human::RADIUS + 0.4f, Human::STAND_HEIGHT - BUMP)) { out = sy; return true; }
+            if (clear(p, Human::RADIUS + 0.4f, Human::STAND_HEIGHT - BUMP)) { out = sy; return true; }
             return false;          // the top here has no room: blocked
         }
         return false;
+    }
+
+    // ── What's solid, cached by column ────────────────────
+    // A search asks about the same voxels again and again (a spot's
+    // room is a 4 x 4 x 13 block; neighbours share most of it), and
+    // each ask of the world is a look-up in compressed runs. So each
+    // column it touches is read in 16-voxel pieces, once each, as
+    // bits (COLUMN_SPAN voxels from yBase; anything outside is asked
+    // of the world). The world doesn't change during a search
+    static constexpr int COLUMN_SPAN = 128, PIECE = 16, PIECES = COLUMN_SPAN / PIECE;
+    struct ColumnBits { uint16_t bits[PIECES]; uint8_t read; };
+    // the columns within WINDOW of where a search starts are kept in
+    // a flat array (a search of a few thousand spots stays inside it);
+    // any further out in a map
+    static constexpr int WINDOW = 256;
+    void cacheFrom(int x, int y, int z) const {
+        yBase = y - 64;
+        wx0 = x - WINDOW / 2; wz0 = z - WINDOW / 2;
+        window.assign((size_t)WINDOW * WINDOW, ColumnBits{});
+        columns.clear();
+    }
+    ColumnBits& column(int x, int z) const {
+        int ix = x - wx0, iz = z - wz0;
+        if (!window.empty() && ix >= 0 && iz >= 0 && ix < WINDOW && iz < WINDOW) return window[(size_t)iz * WINDOW + ix];
+        int64_t k = ((int64_t)(uint32_t)x << 32) | (uint32_t)z;
+        auto it = columns.find(k);
+        if (it != columns.end()) return it->second;
+        ColumnBits b{};
+        return columns.emplace(k, b).first->second;
+    }
+    uint16_t piece(ColumnBits& c, int x, int z, int p) const {
+        if (!(c.read & (1u << p))) {
+            uint16_t v = 0;
+            for (int i = 0; i < PIECE; i++) if (phys.solidAt(x, yBase + p * PIECE + i, z)) v |= (uint16_t)(1u << i);
+            c.bits[p] = v;
+            c.read |= (uint8_t)(1u << p);
+        }
+        return c.bits[p];
+    }
+    bool solid(int x, int y, int z) const {
+        int i = y - yBase;
+        if (yBase == INT32_MIN || i < 0 || i >= COLUMN_SPAN) return phys.solidAt(x, y, z);
+        return (piece(column(x, z), x, z, i / PIECE) >> (i % PIECE)) & 1u;
+    }
+    // VoxelPhysics::overlaps (an upright cylinder against the voxels), on the cache
+    bool clear(glm::vec3 pos, float radius, float height) const {
+        const float SKIN = 0.001f;
+        int x0 = (int)std::floor(pos.x - radius), x1 = (int)std::floor(pos.x + radius);
+        int z0 = (int)std::floor(pos.z - radius), z1 = (int)std::floor(pos.z + radius);
+        int y0 = (int)std::floor(pos.y + SKIN), y1 = (int)std::floor(pos.y + height - SKIN);
+        float r2 = (radius - SKIN) * (radius - SKIN);
+        int a = y0 - yBase, b = y1 - yBase;
+        bool cached = yBase != INT32_MIN && a >= 0 && b < COLUMN_SPAN;
+        for (int x = x0; x <= x1; x++)
+            for (int z = z0; z <= z1; z++) {
+                float nx = std::max((float)x, std::min(pos.x, (float)x + 1.0f));
+                float nz = std::max((float)z, std::min(pos.z, (float)z + 1.0f));
+                float dx = pos.x - nx, dz = pos.z - nz;
+                if (dx * dx + dz * dz >= r2) continue;
+                if (!cached) {
+                    for (int y = y0; y <= y1; y++) if (phys.solidAt(x, y, z)) return false;
+                    continue;
+                }
+                ColumnBits& c = column(x, z);
+                for (int p = a / PIECE; p <= b / PIECE; p++) {
+                    int lo = std::max(a, p * PIECE) - p * PIECE, hi = std::min(b, p * PIECE + PIECE - 1) - p * PIECE;
+                    uint32_t mask = ((1u << (hi - lo + 1)) - 1u) << lo;
+                    if (piece(c, x, z, p) & mask) return false;
+                }
+            }
+        return true;
     }
 
     Result find(glm::vec3 from, glm::vec3 to) const {
@@ -71,6 +145,7 @@ public:
         auto cellOf = [](float v) { return (int)std::floor(v / CELL); };
         auto centre = [](int c) { return c * CELL + CELL / 2; };
         Node start{ cellOf(from.x), cellOf(from.z), (int)std::floor(from.y + 0.01f) };
+        cacheFrom((int)std::floor(from.x), start.y, (int)std::floor(from.z));
         int gx = cellOf(to.x), gz = cellOf(to.z), gy = (int)std::floor(to.y + 0.01f);
 
         std::unordered_map<int64_t, Info> seen;
@@ -89,7 +164,7 @@ public:
 
         static const int DX[8] = { 1, -1, 0, 0, 1, 1, -1, -1 };
         static const int DZ[8] = { 0, 0, 1, -1, 1, -1, 1, -1 };
-        while (!open.empty() && r.expanded < MAX_NODES) {
+        while (!open.empty() && r.expanded < maxNodes) {
             Q q = open.top(); open.pop();
             Info& cur = seen[q.k];
             if (cur.closed) continue;
@@ -120,7 +195,12 @@ public:
             for (int i = 0; i < 4; i++) {
                 if (ok[i]) continue;
                 int y = 0;
-                if (standAt(centre(n.x + 2 * DX[i]), centre(n.z + 2 * DZ[i]), n.y, y) && y - n.y > STEP_UP) {
+                int64_t mk = key({ n.x + 2 * DX[i], n.z + 2 * DZ[i], n.y });
+                auto m = memo.find(mk);
+                bool can;
+                if (m != memo.end()) { can = m->second != NONE; y = m->second; }
+                else { can = standAt(centre(n.x + 2 * DX[i]), centre(n.z + 2 * DZ[i]), n.y, y); memo[mk] = can ? y : NONE; }
+                if (can && y - n.y > STEP_UP) {
                     over[i] = { n.x + 2 * DX[i], n.z + 2 * DZ[i], y };
                     hasOver[i] = true;
                 }
@@ -170,6 +250,10 @@ private:
         return ((int64_t)(n.x & 0xFFFFF) << 40) | ((int64_t)(n.z & 0xFFFFF) << 20) | (int64_t)(n.y & 0xFFFFF);
     }
     const IPhysics& phys;
+    mutable int yBase = INT32_MIN;                                  // (the column cache: none until a search)
+    mutable std::unordered_map<int64_t, ColumnBits> columns;
+    mutable std::vector<ColumnBits> window;
+    mutable int wx0 = 0, wz0 = 0;
 };
 
 } // namespace nav

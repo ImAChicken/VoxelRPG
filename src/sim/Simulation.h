@@ -766,20 +766,32 @@ public:
             return goal;
         }
         n.pathAge += PHYS_DT;
+        // a plan that gets there is kept a while longer than one that
+        // doesn't (each search costs: a village of walkers adds up)
         bool replan = n.path.empty() || n.pathAt >= n.path.size() || glm::length(goal - n.pathGoal) > 4.0f ||
-                      n.pathAge > 2.0f || stuck;
+                      n.pathAge > (n.pathReached ? 8.0f : 2.0f) || stuck;
+        // a goal it couldn't find a way to: not again for a while (a
+        // failed search looks at every spot it can: costly), unless
+        // the goal moves
+        // (an empty result too: it then walks straight at the goal)
+        if (!n.pathReached && n.pathTried && n.pathAge < FAILED_PATH_WAIT && glm::length(goal - n.pathGoal) <= 4.0f) replan = false;
         if (replan && replansLeft > 0) {
             replansLeft--;
             nav::Pathfinder pf(*physics);
             pf.climbCost = n.climb * Human::CLIMB_COST;
+            if (n.pathBudget > 0) pf.maxNodes = n.pathBudget;
             nav::Result r = pf.find(n.position, goal);
             n.path = std::move(r.points);
             n.pathAt = 0;
             n.pathGoal = goal;
             n.pathAge = 0.0f;
             n.pathReached = r.reached;
+            n.pathTried = true;
             if (stuck) { n.stuckFor = 0.0f; if (n.grounded) n.intent.jump = true; }
             pathsPlanned++;
+            pathNodes += r.expanded;
+            if (!r.reached) pathsFailed++;
+            if (pathLog) pathLog(n, r, stuck);
         }
         if (n.path.empty()) return goal;
         // skip points already reached, and ones it can see past
@@ -797,6 +809,10 @@ public:
         return next;
     }
     int pathsPlanned = 0;                 // for the debug overlay
+    long pathNodes = 0;                   // … spots looked at by every search (profiling)
+    int pathsFailed = 0;
+    std::function<void(const Npc&, const nav::Result&, bool stuck)> pathLog;   // (profiling)
+    static constexpr float FAILED_PATH_WAIT = 3.0f;   // s before trying again for a goal no path reached
 
     // A player's standing with a faction (their reputation, or
     // the faction's starting standing)
@@ -815,7 +831,7 @@ public:
     void closeMenu(EntityId npc) { if (Npc* n = npcList.find(npc)) npcList.closeMenu(*n); }
 
     static constexpr float PHYS_DT         = 1.0f / 60.0f;
-    static constexpr int   REPLANS_PER_TICK = 2;
+    static constexpr int   REPLANS_PER_TICK = 1;
     static constexpr float REP_HIT_NEUTRAL = 15.0f;   // reputation lost hitting someone not hostile to you
     static constexpr float FIGHT_NOISE     = 45.0f;   // how far the sound of a hit carries
     static constexpr float STEP_EVERY      = 0.5f;    // s between footstep noises

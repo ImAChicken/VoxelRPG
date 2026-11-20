@@ -13,6 +13,11 @@
 # from this list and its job's title: "Ada the Smith".
 
 npc_type = "villager"
+# guards: one for every villagers_per_guard villagers (at least one,
+# at most max_guards), walking the roads out of the square and back
+guard_type = "guard"
+villagers_per_guard = 3
+max_guards = 3
 haunt_tags = ["plaza", "church", "hall"]
 
 names = [

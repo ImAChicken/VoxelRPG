@@ -7,6 +7,7 @@
 #include "TestWorld.h"
 #include "server/GameSession.h"
 #include "server/ChunkKeeper.h"
+#include "game/Palettes.h"
 #include <cstdio>
 #include <filesystem>
 
@@ -142,6 +143,63 @@ int main() {
         s.close();
     }
     fs::remove_all(W, ec);
+
+    std::printf("villages at the island's sites\n");
+    {
+        gBlueprints.load();
+        gBuildPalettes.load(PaletteLibrary::REGISTRY, "/nonexistent");
+        gVillagers.load();
+        const std::string IW = "saves/_server_test_island";
+        fs::remove_all(IW, ec);
+        size_t npcsAfter = 0;
+        glm::vec3 site(0.0f);
+        {
+            Simulation sim;
+            GameSession s(sim);
+            bool ok = s.beginNew("_server_test_island", 12345, GameMode::Survival, WorldType::Island, 72, -1, TerrainStyle::NoErosion,
+                                 WorldGenParams(), FlatOptions(), false);
+            if (ok) { s.buildGenerator(); s.attach(); }
+            check(ok && !s.villageSites().empty(), "the island has village sites: " + std::to_string(s.villageSites().size()) +
+                                                   (s.villageSites().empty() ? "" : " (" + s.villageSites()[0].name + ")"));
+            if (ok && !s.villageSites().empty()) {
+                size_t pick = 0;
+                if (const char* e = std::getenv("SITE")) pick = std::min((size_t)std::atoi(e), s.villageSites().size() - 1);
+                const auto& vs = s.villageSites()[pick];
+                site = glm::vec3(vs.at.x + 0.5f, 200.0f, vs.at.y + 0.5f);
+                ChunkKeeper keeper(*s.world, s.chunkSource());
+                // nobody near: nothing built
+                s.tickVillages({ site + glm::vec3(2000.0f, 0, 0) });
+                check(!s.villageBuilt(0), "not built while nobody is near");
+                keeper.loadNow({ site });
+                s.tickVillages({ site + glm::vec3(300.0f, 0, 0) });
+                for (size_t i = 0; i < s.villageSites().size(); i++) std::printf("    site %zu %s at %d %d: %s\n", i, s.villageSites()[i].name.c_str(),
+                                                                                s.villageSites()[i].at.x, s.villageSites()[i].at.y, s.villageBuilt(i) ? "built" : "-");
+                int houses = 0;
+                s.structs->forEachInstance([&](const StructureInstance& si) { houses += !si.natural; });
+                int folk = 0, guards = 0;
+                for (auto& n : sim.npcs().all()) { folk += n->life.on; guards += n->typeId == "guard"; }
+                check(houses > 50 && folk > 0, "a player near: it's built, with its people (" + std::to_string(houses) +
+                                                                     " pieces, " + std::to_string(folk) + " villagers, " + std::to_string(guards) + " guards)");
+                npcsAfter = sim.npcs().all().size();
+                s.save(true);
+                keeper.stop();
+            }
+            s.close();
+        }
+        {
+            Simulation sim;
+            GameSession s(sim);
+            bool ok = s.begin("_server_test_island", false);
+            if (ok) { s.buildGenerator(); s.attach(); }
+            ChunkKeeper keeper(*s.world, s.chunkSource());
+            keeper.loadNow({ site });
+            s.tickVillages({ site });
+            check(ok && sim.npcs().all().size() == npcsAfter, "reopened: remembered, not built again");
+            keeper.stop();
+            s.close();
+        }
+        fs::remove_all(IW, ec);
+    }
 
     std::printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);
     return failures ? 1 : 0;

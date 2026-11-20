@@ -20,6 +20,8 @@ hair_mesh  = 1   # 0 voxels, 1 shards, 2 soft shards
 [world]
 plants = 1   # 0 plain pictures, 1 natural: off-grid, rounded light, wind
 water  = 1   # 0 plain, 1 moving: rivers run downstream
+glass  = 1   # 0 plain cubes, 1 panes: see-through sheets that tint what's behind
+roofs  = 1   # 0 plain voxels, 1 smooth: sloped, with courses and overhanging eaves
 
 [game]
 autosave = 1   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)

@@ -29,6 +29,9 @@ struct VillagerJob {
 class VillagerRegistry {
 public:
     std::string npcType = "villager";
+    std::string guardType = "guard";       // npcs.toml type of the village's guards
+    int villagersPerGuard = 3;             // a guard for every this many villagers (at least 1, at most maxGuards)
+    int maxGuards = 3;
     std::vector<std::string> names, hauntTags = { "plaza", "church", "hall" };
     std::vector<VillagerJob> jobs;
 
@@ -37,6 +40,9 @@ public:
         try {
             toml::table t = toml::parse_file(path);
             npcType = t["npc_type"].value_or(std::string("villager"));
+            guardType = t["guard_type"].value_or(std::string("guard"));
+            villagersPerGuard = std::max(1, (int)t["villagers_per_guard"].value_or((int64_t)3));
+            maxGuards = std::max(0, (int)t["max_guards"].value_or((int64_t)3));
             if (auto* a = t["names"].as_array()) for (auto& n : *a) if (auto v = n.value<std::string>()) names.push_back(*v);
             if (auto* a = t["haunt_tags"].as_array()) {
                 hauntTags.clear();
@@ -317,9 +323,13 @@ inline std::vector<glm::vec3> wayToSquare(const village::Plan& p, size_t lot, co
     return out;
 }
 
+struct Populated;
+inline void postGuards(const village::Plan& p, const ChunkManager& w, NpcManager& npcs, std::mt19937& rng, int& nameAt, Populated& out);
+
 struct Populated {
     int villagers = 0, jobs = 0, homes = 0;
     std::vector<std::string> who;         // "Name the Title: bed x y z" (for the village command)
+    int guards = 0;
 };
 
 // Spawn the village's people. made: village::Built::made
@@ -427,7 +437,40 @@ inline Populated populate(const village::Plan& p, const village::Built& b, const
             out.who.push_back(line);
         }
     }
+    postGuards(p, w, npcs, rng, nameAt, out);
     return out;
+}
+
+// The village's guards: one for every few villagers, each walking a
+// round from the square out along a road to its end and back, then
+// the next road. Their faction defends villagers (a hurt villager
+// calls the guards near: NpcManager::callForHelp)
+inline void postGuards(const village::Plan& p, const ChunkManager& w, NpcManager& npcs, std::mt19937& rng, int& nameAt, Populated& out) {
+    if (out.villagers <= 0 || gVillagers.maxGuards <= 0 || !gNpcTypes.find(gVillagers.guardType) || p.roads.empty()) return;
+    int count = std::clamp(out.villagers / gVillagers.villagersPerGuard, 1, gVillagers.maxGuards);
+    auto ground = [&](glm::ivec2 c) {
+        int g = terrain::groundLevel(w, c.x, c.y, p.center.y + 96, 192);
+        return glm::vec3(c.x + 0.5f, (float)(g < 0 ? p.center.y : g), c.y + 0.5f);
+    };
+    glm::vec3 square = ground({ p.center.x, p.center.z });
+    int mains = std::max(1, std::min(p.mainRoads, (int)p.roads.size()));
+    for (int k = 0; k < count; k++) {
+        const village::Road& r1 = p.roads[(size_t)(k % mains)];
+        const village::Road& r2 = p.roads[(size_t)((k + 1) % mains)];
+        // out the far side of the square, so they don't start in a crowd
+        glm::vec2 d = glm::vec2(r1.a - glm::ivec2(p.center.x, p.center.z));
+        glm::vec3 at = square + (glm::length(d) > 0.1f ? glm::vec3(d.x, 0, d.y) / glm::length(d) * 6.0f : glm::vec3(0));
+        at = roomToStand(w, at);
+        Npc* n = npcs.spawn(gVillagers.guardType, at, glm::vec3(d.x, 0, d.y), (uint32_t)rng() | 1u);
+        if (!n) return;
+        n->home = square;
+        n->patrol = { ground(r1.a), ground(r1.b), ground(r1.a), square, ground(r2.a), ground(r2.b), ground(r2.a), square };
+        n->patrolAt = 1;
+        const std::string& nm = gVillagers.names[(size_t)(nameAt++ % (int)gVillagers.names.size())];
+        n->name = nm + " the Guard";
+        out.guards++;
+        out.who.push_back(n->name + ": walks the roads");
+    }
 }
 
 } // namespace villagers

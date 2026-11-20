@@ -315,6 +315,7 @@ inline bool readChunkData(wire::Reader& r, int& cx, int& cz, Chunk& out, const I
             last = rle->ends[i];
         }
         if (!r.ok() || last > (uint32_t)VOXEL_COUNT) return false;
+        rle->indexRuns();
         out.section(sct).setRle(rle);
     }
     return true;

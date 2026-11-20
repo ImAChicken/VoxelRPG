@@ -168,11 +168,18 @@ public:
     // what it has done (for `roaming`)
     int groupsMade = 0, npcsMade = 0, npcsGone = 0;
     std::string lastGroup;
+    // the spots it tried lately (the debug overlay's "spawns" layer):
+    // where, why it was turned down ("" = a group came), how long ago
+    struct Try { glm::vec3 at; std::string why; float age = 0.0f; };
+    std::vector<Try> tries;
+    static constexpr float TRY_KEEP = 20.0f;
 
     void tick(float dt, const IPhysics& phys, NpcManager& npcs, const std::vector<Who>& players, float hour) {
         if (!gRoaming.loaded) gRoaming.load();
         const RoamSettings& s = gRoaming.settings;
         despawn(dt, npcs, players);
+        for (Try& t : tries) t.age += dt;
+        tries.erase(std::remove_if(tries.begin(), tries.end(), [](const Try& t) { return t.age > TRY_KEEP; }), tries.end());
         if (!enabled) return;
         // the players' timers
         for (auto it = state.begin(); it != state.end();)
@@ -245,6 +252,11 @@ private:
     static float flat(glm::vec3 v) { return std::sqrt(v.x * v.x + v.z * v.z); }
     float rand01() { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return (rng & 0xFFFFFF) / (float)0x1000000; }
 
+    void note(glm::vec3 at, const std::string& why) {
+        if (tries.size() >= 96) tries.erase(tries.begin());
+        tries.push_back({ at, why, 0.0f });
+    }
+
     PlayerState& stateOf(uint64_t id) {
         for (PlayerState& p : state) if (p.id == id) return p;
         PlayerState p; p.id = id;
@@ -288,16 +300,17 @@ private:
             else ang = rand01() * 6.2831853f;
             float dist = s.minDistance + rand01() * (s.maxDistance - s.minDistance);
             int x = (int)std::floor(w.pos.x + std::cos(ang) * dist), z = (int)std::floor(w.pos.z + std::sin(ang) * dist);
-            glm::vec3 spot;
+            glm::vec3 spot(x + 0.5f, w.pos.y, z + 0.5f);
+            auto turnDown = [&](const std::string& why) { lastWhy = why; note(spot, why); };
             std::string bad = place(phys, pf, x, z, w.pos.y, players, spot);
-            if (!bad.empty()) { lastWhy = bad; continue; }
+            if (!bad.empty()) { turnDown(bad); continue; }
             int biome = biomeAt ? biomeAt(x, z) : -1;
             if (biome >= 0 && biome < island::BIOME_COUNT && RoamingTable::barren(biome)) {
-                lastWhy = "the spot is " + std::string(island::biomeInfo(biome).name);
+                turnDown("the spot is " + std::string(island::biomeInfo(biome).name));
                 continue;
             }
             float fromSpawn = hasWorldSpawn ? flat(spot - worldSpawn) : 1e9f;
-            if (hasWorldSpawn && fromSpawn < s.spawnSafe) { lastWhy = "too near the world spawn"; continue; }
+            if (hasWorldSpawn && fromSpawn < s.spawnSafe) { turnDown("too near the world spawn"); continue; }
             // the groups that fit here and now
             std::vector<const RoamGroupDef*> fit;
             float sum = 0.0f;
@@ -311,21 +324,22 @@ private:
                 sum += std::max(0.0f, g.weight);
             }
             if (fit.empty() || sum <= 0.0f) {
-                lastWhy = "no group for " + (biome >= 0 && biome < island::BIOME_COUNT ? RoamingTable::key(biome) : std::string("this ground")) +
-                          (night ? " at night" : " by day");
+                turnDown("no group for " + (biome >= 0 && biome < island::BIOME_COUNT ? RoamingTable::key(biome) : std::string("this ground")) +
+                         (night ? " at night" : " by day"));
                 continue;
             }
             float r = rand01() * sum;
             const RoamGroupDef* g = fit.back();
             for (const RoamGroupDef* f : fit) { if (r < f->weight) { g = f; break; } r -= std::max(0.0f, f->weight); }
             int made = spawnGroup(*g, phys, pf, npcs, spot, players, w.pos);
-            if (made == 0) { lastWhy = g->id + ": no room for its members"; continue; }
+            if (made == 0) { turnDown(g->id + ": no room for its members"); continue; }
             groupsMade++;
             npcsMade += made;
             char buf[160];
             std::snprintf(buf, sizeof buf, "%s x%d at %.0f %.0f %.0f (%s, %.0f away)", g->id.c_str(), made, spot.x, spot.y, spot.z,
                           biome >= 0 && biome < island::BIOME_COUNT ? RoamingTable::key(biome).c_str() : "-", flat(spot - w.pos));
             lastGroup = buf;
+            note(spot, "+" + g->id + " x" + std::to_string(made));      // (a '+': it came)
             return buf;
         }
         why = lastWhy;

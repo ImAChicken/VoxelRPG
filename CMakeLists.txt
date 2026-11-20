@@ -205,6 +205,10 @@ if(VOXELRPG_TESTS)
     add_executable(blueprint_test tests/blueprint_test.cpp)
     add_executable(villager_test tests/villager_test.cpp)
     add_executable(roaming_test tests/roaming_test.cpp)
+    # village_perf: a profile, not a test (an island village and its people through a day:
+    # ms per tick, path searches per NPC). village_perf [site] [from hour] [to hour]
+    add_executable(village_perf tests/village_perf.cpp)
+    target_link_libraries(village_perf PRIVATE voxelrpg_core)
     add_executable(slope_test tests/slope_test.cpp)
     add_executable(steer_test tests/steer_test.cpp)
     add_executable(controls_test tests/controls_test.cpp)

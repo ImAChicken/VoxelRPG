@@ -21,8 +21,36 @@ struct RleData {
     std::vector<uint32_t> ends;   // exclusive end index of each run
     std::vector<uint16_t> types;  // block ID of each run
 
-    // Random access — binary search over the run ends
+    // Where to start looking for each block of BLOCK voxels: the run
+    // that holds its first voxel (indexRuns; empty: binary search).
+    // Physics and paths ask for single voxels all the time: a few
+    // steps from here beat a search over every run
+    static constexpr uint32_t BLOCK_SHIFT = 10;     // 1024 voxels
+    std::vector<uint32_t> blockRun;
+    void indexRuns() {
+        blockRun.clear();
+        if (ends.size() < 16) return;
+        uint32_t blocks = ((uint32_t)VOXEL_COUNT >> BLOCK_SHIFT);
+        blockRun.resize(blocks);
+        uint32_t r = 0;
+        for (uint32_t b = 0; b < blocks; b++) {
+            uint32_t first = b << BLOCK_SHIFT;
+            while (r + 1 < ends.size() && ends[r] <= first) r++;
+            blockRun[b] = r;
+        }
+    }
+
+    // Random access
     uint16_t at(uint32_t index) const {
+        if (!blockRun.empty() && index < (uint32_t)VOXEL_COUNT) {
+            size_t r = blockRun[index >> BLOCK_SHIFT];
+            const size_t n = ends.size();
+            // a few runs on; a block of many runs: search what's left
+            for (int k = 0; k < 16 && r < n; k++, r++)
+                if (ends[r] > index) return types[r];
+            auto it = std::upper_bound(ends.begin() + (std::ptrdiff_t)std::min(r, n), ends.end(), index);
+            return it == ends.end() ? BLOCK_AIR : types[(size_t)(it - ends.begin())];
+        }
         auto it = std::upper_bound(ends.begin(), ends.end(), index);
         if (it == ends.end()) return BLOCK_AIR;
         return types[(size_t)(it - ends.begin())];
@@ -41,7 +69,7 @@ struct RleData {
 
     size_t bytes() const {
         return ends.size()  * sizeof(uint32_t)
-             + types.size() * sizeof(uint16_t);
+             + types.size() * sizeof(uint16_t) + blockRun.size() * sizeof(uint32_t);
     }
 
     static std::shared_ptr<const RleData> build(const uint16_t* raw) {
@@ -58,7 +86,55 @@ struct RleData {
         rle->types.push_back(cur);
         rle->ends.shrink_to_fit();
         rle->types.shrink_to_fit();
+        rle->indexRuns();
         return rle;
+    }
+
+    // The runs with a few voxels changed, without expanding the
+    // section (a door swinging: a few hundred voxels of two million).
+    // edits: (index, new id), sorted by index, one per index
+    static std::shared_ptr<const RleData> patched(const RleData& old,
+                                                  const std::vector<std::pair<uint32_t, uint16_t>>& edits) {
+        auto out = std::make_shared<RleData>();
+        out->ends.reserve(old.ends.size() + edits.size() * 2);
+        out->types.reserve(old.types.size() + edits.size() * 2);
+        auto push = [&](uint32_t end, uint16_t t) {
+            if (!out->types.empty() && out->types.back() == t) out->ends.back() = end;
+            else { out->ends.push_back(end); out->types.push_back(t); }
+        };
+        size_t e = 0;
+        uint32_t start = 0;
+        for (size_t r = 0; r < old.ends.size(); r++) {
+            uint32_t end = old.ends[r];
+            uint16_t t = old.types[r];
+            uint32_t pos = start;
+            while (e < edits.size() && edits[e].first < end) {
+                uint32_t i = edits[e].first;
+                if (i >= pos) {
+                    if (i > pos) push(i, t);
+                    push(i + 1, edits[e].second);
+                    pos = i + 1;
+                }
+                e++;
+            }
+            if (pos < end) push(end, t);
+            start = end;
+        }
+        if (start < (uint32_t)VOXEL_COUNT) {          // (runs that stop short: the rest is air)
+            uint32_t pos = start;
+            for (; e < edits.size(); e++) {
+                uint32_t i = edits[e].first;
+                if (i < pos) continue;
+                if (i > pos) push(i, BLOCK_AIR);
+                push(i + 1, edits[e].second);
+                pos = i + 1;
+            }
+            push((uint32_t)VOXEL_COUNT, BLOCK_AIR);
+        }
+        out->ends.shrink_to_fit();
+        out->types.shrink_to_fit();
+        out->indexRuns();
+        return out;
     }
 
     static std::shared_ptr<const RleData> allAir() {
@@ -92,6 +168,15 @@ public:
     }
 
     uint16_t* rawData() { ensureRaw(); return raw.get(); }
+
+    // A few voxels changed (sorted by index, one each): written into
+    // the raw array if it's expanded, else spliced into the runs
+    // (RleData::patched) without expanding — far cheaper for a door
+    void patch(const std::vector<std::pair<uint32_t, uint16_t>>& edits) {
+        if (edits.empty()) return;
+        if (raw) { for (auto& [i, id] : edits) raw[i] = id; return; }
+        rle = RleData::patched(rle ? *rle : *allAirShared(), edits);
+    }
 
     void copyTo(uint16_t* out) const {
         if (raw) std::memcpy(out, raw.get(), VOXEL_COUNT * sizeof(uint16_t));
@@ -175,6 +260,24 @@ public:
     }
     void setIndex(uint32_t idx, uint16_t id) {
         sections[idx / VOXEL_COUNT].set(idx % VOXEL_COUNT, id);
+    }
+
+    // Small edits by column index, spliced into each section's runs
+    // (ChunkSection::patch); later edits of the same voxel win
+    void patchIndices(std::vector<std::pair<uint32_t, uint16_t>> edits) {
+        std::stable_sort(edits.begin(), edits.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::vector<std::pair<uint32_t, uint16_t>> one;
+        size_t i = 0;
+        while (i < edits.size()) {
+            int s = (int)(edits[i].first / VOXEL_COUNT);
+            one.clear();
+            for (; i < edits.size() && (int)(edits[i].first / VOXEL_COUNT) == s; i++) {
+                uint32_t local = edits[i].first % VOXEL_COUNT;
+                if (!one.empty() && one.back().first == local) one.back().second = edits[i].second;
+                else one.push_back({ local, edits[i].second });
+            }
+            sections[s].patch(one);
+        }
     }
 
     ChunkSection&       section(int s)       { return sections[s]; }

@@ -383,6 +383,7 @@ private:
     }
 
     // Write one chunk's share of a batch
+    static constexpr size_t SMALL_EDIT = 20000;   // voxels in one chunk: spliced (Chunk::patchIndices)
     void applyChunk(Job& job, EditBatch::ChunkEdits& ce) {
         const EditBatch& b = job.batch;
         Chunk* chunk = world.getChunk(ce.cx, ce.cz);
@@ -396,6 +397,11 @@ private:
         ChunkUndo cu;
         cu.cx = ce.cx;
         cu.cz = ce.cz;
+        // a small edit (a door, a few blocks) is spliced into the
+        // compressed runs at the end, not written into an expanded copy
+        // that's then compressed again (milliseconds per section)
+        const bool small = ce.idx.size() <= SMALL_EDIT;
+        std::vector<std::pair<uint32_t, uint16_t>> spliced;
 
         for (size_t i = 0; i < ce.idx.size(); i++) {
             uint32_t at  = ce.idx[i];
@@ -411,7 +417,8 @@ private:
                 job.result.skippedProtected++;
                 continue;
             }
-            chunk->setIndex(at, id);
+            if (small) spliced.push_back({ at, id });
+            else chunk->setIndex(at, id);
             if (onVoxel) onVoxel(worldPos(ce.cx, ce.cz, at), id);
             sections |= (uint8_t)(1u << (at / VOXEL_COUNT));
             changedHere++;
@@ -426,7 +433,8 @@ private:
                     { worldPos(ce.cx, ce.cz, at), old, id });
         }
 
-        chunk->compress();                  // recompress once
+        if (small) chunk->patchIndices(std::move(spliced));
+        chunk->compress();                  // recompress once (sections expanded by a big edit)
         if (changedHere) world.markDirty(ce.cx, ce.cz, sections);  // save + remesh
         if (!cu.idx.empty()) {
             job.undo.voxels += cu.idx.size();

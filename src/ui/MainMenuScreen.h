@@ -100,6 +100,9 @@ public:
     TerrainStyle getNewWorldTerrain() const { return terrain; }
     const WorldGenParams& getNewWorldParams() const { return genParams; }
     const FlatOptions& getNewWorldFlat() const { return flat; }
+    // Roaming enemy spawns (sim/Roaming.h): the Enemies row; left as
+    // is, on unless the world is flat or a dev world
+    bool        getNewWorldRoaming() const { return roaming >= 0 ? roaming == 1 : !(newDev || worldType == WorldType::Flat); }
 
     // Coming back from a world: always start at the main
     // page, not whichever panel was open before
@@ -133,6 +136,7 @@ private:
     TerrainStyle terrain    = TerrainStyle::GuidedRivers;
     WorldGenParams genParams;                       // the World Settings sliders
     FlatOptions flat;                               // flat worlds
+    int         roaming = -1;                       // Enemies row: 1 roaming, 0 none, -1 the default
     bool        genOpen  = false;                   // World Settings showing
     int         genPage  = 0;                       // 0 Terrain, 1 Features, 2 Biomes
     int         genDrag  = -1;                      // slider being dragged
@@ -480,7 +484,16 @@ private:
             ly += bh + rowGap;
         }
         if (worldType == WorldType::Classic) {
-            fitText(ui, "No options: 32 x 32 chunks of hills and forest.", lx, ly + 6, iw, theme.textDim);
+            fitText(ui, "32 x 32 chunks of hills and forest.", lx, ly + 6, iw, theme.textDim);
+            ly += bh + rowGap;
+        }
+        // ── Enemies: roaming spawns (sim/Roaming.h; console roaming
+        // on|off later). A flat world has it in its Extras row
+        if (worldType != WorldType::Flat) {
+            rowLabel(ui, theme, "Enemies", lx, ly, bh, true);
+            int c = choiceRow(ui, theme, cx, ly, cw, { "Roaming", "None" }, getNewWorldRoaming() ? 0 : 1);
+            if (c >= 0) roaming = c == 0 ? 1 : 0;
+            ly += bh + rowGap;
         }
         if (worldType == WorldType::Flat) {
             rowLabel(ui, theme, "Ground", lx, ly, bh, true);
@@ -521,14 +534,21 @@ private:
                 fitText(ui, "nothing grows", cx + 8, ly + (bh - 16) * 0.5f, cw, theme.textDim);
             }
             ly += bh + rowGap;
-            // a village to test building in, from the blueprints
-            rowLabel(ui, theme, "Village", lx, ly, bh, true);
+            // a village to test building in, from the blueprints; roaming
+            // enemies (sim/Roaming.h): two toggles in a row
+            rowLabel(ui, theme, "Extras", lx, ly, bh, true);
             {
-                bool hov = isHovered(cx, ly, cw, bh), on = flat.village;
-                ui.drawRect(cx, ly, cw, bh, (on || hov) ? theme.buttonBgHover : theme.buttonBg);
-                ui.drawBorder(cx, ly, cw, bh, on ? theme.accent : theme.buttonBorder, on ? 2.0f : 1.0f);
-                ui.drawTextCentered(on ? "Ahead of you" : "None", cx, ly, cw, bh, on ? theme.textHover : theme.textDim, 2);
-                if (hov && justClicked()) flat.village = !flat.village;
+                const char* names[2] = { "Village", "Enemies" };
+                float g = 6.0f, w2 = (cw - g) / 2.0f;
+                for (int k = 0; k < 2; k++) {
+                    float bx = cx + k * (w2 + g);
+                    bool on = k == 0 ? flat.village : getNewWorldRoaming();
+                    bool hov = isHovered(bx, ly, w2, bh);
+                    ui.drawRect(bx, ly, w2, bh, (on || hov) ? theme.buttonBgHover : theme.buttonBg);
+                    ui.drawBorder(bx, ly, w2, bh, on ? theme.accent : theme.buttonBorder, on ? 2.0f : 1.0f);
+                    ui.drawTextCentered(names[k], bx, ly, w2, bh, on ? theme.textHover : theme.textDim, 2);
+                    if (hov && justClicked()) { if (k == 0) flat.village = !flat.village; else roaming = on ? 0 : 1; }
+                }
             }
             ly += bh + rowGap;
         }

@@ -20,7 +20,23 @@ For a new Claude session picking this project up. Read this first, then ROADMAP.
 7. **The font has no `( ) ' +`:** reword UI text; draw a plus with rects.
 4. **Style:** keep answers direct and practical.
 
-## Current state (2026-11-19, latest): roaming spawns. Read this, then ROADMAP.md "Recently done"
+## Current state (2026-11-19, latest): island villages, talking, guards. Read this, then ROADMAP.md "Recently done"
+
+Still not pushed since 912284b; delivered as zips. ROADMAP "Villages on the island, talking villagers …":
+- `TerrainGenerator::villageSites()` (IslandGenerator: chart markers of kind "village");
+  IslandGenerator levels round each site (`villageGround`, VILLAGE_FLAT / VILLAGE_EASE)
+- `GameSession::tickVillages(players, say)`: builds a site's village once (villages.dat in the save);
+  main.cpp calls it every frame (not on a client), ServerMain every tick (it now loads blueprints,
+  palettes, villagers)
+- `villagers::postGuards` (in `populate`), `NpcManager::callForHelp`
+- `game/Dialogue.h` + data/registry/dialogue.toml; main.cpp's talk handling (keys 1-4 while
+  `talkingTo`), `HudScreen::talkLine / talkOptions`
+- `Simulation::steerToward`: FAILED_PATH_WAIT (the village frame drops)
+- `Routine::locate(n, w)` uses `clearLine`
+- Roaming: `Roaming::tries` → DebugView "spawns" layer; New World `getNewWorldRoaming`
+Next: Eddie to try it; open questions in ROADMAP "Villages, known".
+
+## Earlier state (2026-11-19): roaming spawns
 
 Still not pushed since 912284b; delivered as zips. Roaming enemy spawns (ROADMAP "Roaming enemy spawns"):
 - `sim/Roaming.h`: `gRoaming` (data/registry/roaming.toml: settings, groups), `Roaming` (in

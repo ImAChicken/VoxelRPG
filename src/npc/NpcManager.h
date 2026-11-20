@@ -134,6 +134,7 @@ public:
                 NpcEvent e; e.kind = NpcEvent::Kind::Damaged; e.who = n.lastHitBy;
                 if (Human* h = world.find(n.lastHitBy)) e.at = h->position;
                 n.post(e);
+                if (n.life.on) callForHelp(n, world);       // a villager: the guards come
                 if (n.dead()) died(n, world);
             }
             n.healthSeen = n.health;
@@ -151,7 +152,12 @@ public:
             brain::think(n, world, dt);
             if (before == "unavailable" && n.stateName != "unavailable") closedMenus.push_back(n.uuid);
             if (n.lying) { n.velocity = glm::vec3(0.0f); n.grounded = true; }   // in bed: held where it lies
-            else physics.moveHuman(n, n.intent, dt);
+            else if (restingStill(n) && ((++n.restTicks + (uint32_t)n.uuid) % 30u) != 0u) {
+                // standing still on firm ground with nothing to do: the
+                // body's physics is left out (it's the most of an idle
+                // NPC's cost), but for a look every half second
+            }
+            else { n.restTicks = 0; physics.moveHuman(n, n.intent, dt); }
             physics.stepRagdoll(n, dt);
             n.intent.clearOneShots();
         }
@@ -159,6 +165,14 @@ public:
             if (list[i]->deadFor > (list[i]->pack.mayHoldItems() ? KEEP_LOOT_BODY : REMOVE_DEAD_AFTER) ||
                 list[i]->fellOutOfWorld) list.erase(list.begin() + i);   // what it held (if unsearched: never rolled) goes with it
             else i++;
+    }
+
+    // Nothing to move it: on the ground, not trying to go anywhere,
+    // not moving, not hit, not swinging, not ragdolled
+    static bool restingStill(const Npc& n) {
+        return n.grounded && !n.dead() && n.intent.move == glm::vec2(0.0f) && !n.intent.jump && !n.intent.dodge &&
+               glm::dot(n.velocity, n.velocity) < 1e-4f && n.hits.empty() && !n.attack.active() && !n.ragdoll.simulating() &&
+               !n.flying && n.freeze == Human::Freeze::None;
     }
 
     // A player starts / ends talking to an NPC. Returns false if
@@ -265,6 +279,24 @@ private:
     std::vector<std::unique_ptr<Npc>> list;
     std::vector<EntityId> closedMenus;
 
+    // A villager is hurt: every friendly NPC near that can fight (the
+    // village's guards) goes for whoever did it — a player too (a
+    // grudge: hostile to them whatever the factions say)
+    static constexpr float HELP_RANGE = 160.0f;
+    void callForHelp(Npc& hurt, NpcWorld& world) {
+        Human* attacker = world.find(hurt.lastHitBy);
+        if (!attacker || attacker == &hurt) return;
+        for (auto& o : list) {
+            if (o.get() == &hurt || o->dead() || !o->hasState("combat") || o->uuid == attacker->uuid) continue;
+            if (glm::length(o->position - hurt.position) > HELP_RANGE) continue;
+            if (!world.friendly(*o, hurt)) continue;
+            if (!world.hostile(*o, *attacker) &&
+                std::find(o->grudges.begin(), o->grudges.end(), attacker->uuid) == o->grudges.end())
+                o->grudges.push_back(attacker->uuid);
+            NpcEvent e; e.kind = NpcEvent::Kind::SawEnemy; e.who = attacker->uuid; e.at = attacker->position;
+            o->post(e);
+        }
+    }
     void died(Npc& dead, NpcWorld& world) {
         for (auto& o : list) {
             if (o.get() == &dead || o->dead()) continue;
