@@ -84,11 +84,16 @@ int main() {
         CharacterModel model = CharacterModel::build(Appearance{});
         for (const auto& [id, st] : gAnimMap.strikes) {
             const AttackDef* a = gMovesets.attack(id);
-            if (!a || !a->effect.empty()) continue;      // a spell: no blade to sweep
+            if (!a || !a->blade) continue;              // a spell or a bow: no blade to sweep
             uint16_t item = 0;
-            for (const char* w : { "iron_sword", "iron_axe", "wooden_club", "spear", "quarterstaff" }) {
+            for (const char* w : { "iron_sword", "iron_axe", "wooden_club", "spear", "quarterstaff", "bone_dagger", "crypt_greatsword" }) {
                 uint16_t i = gItems.find(w);
-                if (i && gMovesets.find(gItems.get(i).moveset) && id.rfind(gItems.get(i).moveset + "_", 0) == 0) item = i;
+                const Moveset* ms = i ? gMovesets.find(gItems.get(i).moveset) : nullptr;
+                if (!ms) continue;
+                bool has = ms->heavy == a || ms->airLight == a || ms->airHeavy == a;
+                for (auto* x : ms->light) has = has || x == a;
+                for (auto* x : ms->specials) has = has || x == a;
+                if (has || id.rfind(gItems.get(i).moveset + "_", 0) == 0) item = i;
             }
             const HeldModelDef* hm = item ? gHeldModels.find(gItems.get(item).heldModel) : nullptr;
             if (!hm) { check(false, id + ": a weapon model to swing"); continue; }

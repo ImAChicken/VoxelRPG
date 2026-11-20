@@ -214,6 +214,9 @@ int main(int argc, char** argv) {
             std::vector<glm::vec3> at;
             for (const auto& p : sim.players()) at.push_back(p->position);
             session.tickVillages(at);
+            std::vector<Human*> ps;
+            for (const auto& p : sim.players()) ps.push_back(p.get());
+            session.tickDungeon(ps, DT);              // a Dungeon world's markers
         }
         session.updateEdits(2.0f);
         sim.step(DT);

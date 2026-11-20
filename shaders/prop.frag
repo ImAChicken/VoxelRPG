@@ -30,6 +30,12 @@ vec3 fogColor(vec3 viewDir) {
     return mix(uFogHorizon, uFogSunGlow, s * 0.5 * (1.0 - uNight));
 }
 
+// How bright block light is by its baked level (0..1). Settings >
+// Graphics > Light fade: 0 classic (squared: bright close, gone well
+// before the light's reach), 1 gentle (carries out to its full reach)
+uniform int uLightCurve;
+vec3 blockCurve(vec3 l) { return uLightCurve == 0 ? l * l * 1.5 : pow(l, vec3(1.1)) * 1.25; }
+
 void main() {
     vec2 inTile = fract(vFacePos / uVoxelsPerTile);
     vec4 color = texture(uAtlas, (vTile + inTile) * uTileUV);
@@ -39,7 +45,7 @@ void main() {
     float faceShade = 0.8 + 0.2 * n.y;               // top 1.0, sides 0.8, bottom 0.6, as chunks
     float sky = vLight.a * vLight.a;
     vec3 skyTint = mix(vec3(1.0), vec3(0.30, 0.50, 0.24), clamp(vShade, 0.0, 1.0));
-    vec3 block = vLight.rgb * vLight.rgb * 1.5;
+    vec3 block = blockCurve(vLight.rgb);
     float facing = 0.62 + 0.38 * max(dot(n, uLightDir), 0.0);
     facing *= mix(1.0, faceShade, 0.35);
     vec3 lit = uSkyLight * skyTint * sky * facing + block * mix(1.0, faceShade, 0.5) + uAmbient;

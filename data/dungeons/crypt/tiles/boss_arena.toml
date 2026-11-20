@@ -4,61 +4,61 @@
 name = "boss_arena"
 display = "boss_arena"
 tags = ["dungeon", "crypt", "boss"]
-size = [96, 48, 96]
+size = [128, 64, 128]
 voxels = "boss_arena.vxvol"
 
 [tile]   # a dungeon tile (dungeon/Tile.h)
 theme = "crypt"
 kind = "boss"
-cells = [6, 3, 6]   # half cells of 16 voxels
+cells = [8, 4, 8]   # half cells of 16 voxels
 weight = 1
 min = 1
 max = 1
 sockets = [
-  { cell = [2, 0, 5], face = "s", type = "door" },
+  { cell = [3, 0, 7], face = "s", type = "door" },
 ]
 
 [[tile.marker]]
-at = [12, 2, 20]
+at = [12, 2, 24]
+kind = "coffin"
+rule = "phase"
+spawn = "undead"
+
+[[tile.marker]]
+at = [12, 2, 64]
 kind = "coffin"
 rule = "boss"
 spawn = "undead"
 
 [[tile.marker]]
-at = [12, 2, 48]
+at = [12, 2, 104]
+kind = "coffin"
+rule = "phase"
+spawn = "undead"
+
+[[tile.marker]]
+at = [114, 2, 24]
+kind = "coffin"
+rule = "phase"
+spawn = "undead"
+
+[[tile.marker]]
+at = [114, 2, 64]
 kind = "coffin"
 rule = "boss"
 spawn = "undead"
 
 [[tile.marker]]
-at = [12, 2, 76]
+at = [114, 2, 104]
 kind = "coffin"
-rule = "boss"
+rule = "phase"
 spawn = "undead"
 
 [[tile.marker]]
-at = [84, 2, 20]
-kind = "coffin"
-rule = "boss"
-spawn = "undead"
-
-[[tile.marker]]
-at = [84, 2, 48]
-kind = "coffin"
-rule = "boss"
-spawn = "undead"
-
-[[tile.marker]]
-at = [84, 2, 76]
-kind = "coffin"
-rule = "boss"
-spawn = "undead"
-
-[[tile.marker]]
-at = [48, 2, 40]
+at = [64, 2, 52]
 kind = "boss"
 spawn = "crypt_lord"
 
 [[tile.marker]]
-at = [48, 2, 14]
+at = [64, 2, 16]
 kind = "exit"

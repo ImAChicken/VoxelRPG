@@ -39,6 +39,12 @@ public:
     // each frame (screen pixels, origin top-left)
     struct EnemyBar { float x, y, fill, alpha; bool hurt; };
     std::vector<EnemyBar> enemyBars;
+    // A boss's health, across the top of the screen while you fight
+    // it (npcs.toml boss = true); 'phase' marks where its second
+    // phase starts, 'lag' the health it had a moment ago (the bit just
+    // lost shows pale)
+    struct BossBar { bool on = false; std::string name; float fill = 1, lag = 1, phase = 0; };
+    BossBar boss;
     // The locked-on target (game/LockOn.h): where to put the marker
     struct LockMarker { bool on = false; float x = 0, y = 0; };
     LockMarker lockMarker;
@@ -209,6 +215,20 @@ public:
             ui.drawRect(6, y - 4, w + 12, debugText.size() * 12.0f + 8, bg);
             float col[4] = {230, 230, 230, 255};
             for (const auto& t : debugText) { ui.drawText(t, 12, y, col, 1); y += 12.0f; }
+        }
+
+        // ── A boss's health, across the top ───────────────
+        if (boss.on) {
+            const float w = std::min(sw * 0.6f, 900.0f), h = 14.0f, x = (sw - w) * 0.5f, y = 64.0f;
+            float edge[4] = {0, 0, 0, 200}, back[4] = {40, 16, 14, 220}, lag[4] = {235, 205, 170, 230}, red[4] = {196, 44, 36, 255};
+            float mark[4] = {255, 240, 210, 200}, name[4] = {236, 222, 200, 255}, sh[4] = {0, 0, 0, 200};
+            ui.drawRect(x - 2, y - 2, w + 4, h + 4, edge);
+            ui.drawRect(x, y, w, h, back);
+            ui.drawRect(x, y, w * std::clamp(boss.lag, 0.0f, 1.0f), h, lag);
+            ui.drawRect(x, y, w * std::clamp(boss.fill, 0.0f, 1.0f), h, red);
+            if (boss.phase > 0.0f && boss.phase < 1.0f) ui.drawRect(x + w * boss.phase - 1, y - 3, 2, h + 6, mark);
+            ui.drawText(boss.name, x + 1, y - 25, sh, 2);
+            ui.drawText(boss.name, x, y - 26, name, 2);
         }
 
         // ── Enemies' health, over their heads ─────────────

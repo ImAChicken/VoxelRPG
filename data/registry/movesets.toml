@@ -79,6 +79,7 @@
 #                 and shoves further
 #   combo_from    s: a queued light press starts the next swing
 #                 from here (left out: doesn't chain)
+#   track         deg/s it turns while winding up (default 720)
 #   cancel_from   s: a dodge can cancel it from here (a light: also any
 #                 time outside its hit window; a heavy is committed)
 #   armor_from    s: from here to the end of the hit window the
@@ -443,6 +444,227 @@ step = 8               # root motion: voxels over lunge_time (was lunge = speed)
 charge = [0.40, 1.0]       # held: the wind-up waits here, up to that many s
 cancel_from = 0.82
 armor_from = 0.30
+
+# ── Bow: arrows (effect = "arrow", sim/Simulation.h shoot) ─
+# The arrow leaves as the hit window opens: a player shoots along
+# where the crosshair is, an NPC at its target, leading it. damage ×
+# the bow's damage, poise and react as a swing's; the heavy's charge
+# is the draw: speed (from 55% to full effect_speed), reach
+# (effect_range from 60%), damage and poise all grow with it, and a
+# full draw makes the flinch a stumble. A dodge cancels the draw
+# (cancel_from = 0). A rolling body the arrow passes through; a
+# guard facing it stops it; the world keeps it stuck a while.
+[[moveset]]
+id = "bow"
+ref_weight = 1.0
+light = ["bow_quick"]
+heavy = "bow_draw"
+air_light = "bow_quick"
+
+[[attack]]
+id = "bow_quick"           # a quick shot from the hip: weak, fast, a flinch
+pose = "sword_light1"
+duration = 0.55
+active = [0.22, 0.26]
+damage = 0.7
+poise = 6
+stamina = 8
+reach = 0
+track = 1440
+effect = "arrow"
+effect_range = 140
+effect_speed = 150
+effect_gravity = 40
+knock = 8
+combo_from = 0.34
+cancel_from = 0.0
+
+[[attack]]
+id = "bow_draw"            # held: drawn back; let go to loose. Fully drawn it stumbles them
+pose = "sword_heavy"
+duration = 0.90
+active = [0.40, 0.44]
+damage = 1.5
+poise = 14
+stamina = 14
+reach = 0
+track = 1440
+effect = "arrow"
+effect_range = 220
+effect_speed = 230
+effect_gravity = 40
+knock = 14
+charge = [0.36, 1.1]
+charge_damage = 1.8
+charge_poise = 2.0
+cancel_from = 0.0
+
+# ── Dagger: quick, short, the archer's sidearm ────────────
+[[moveset]]
+id = "dagger"
+ref_weight = 0.5
+light = ["dagger_light1", "dagger_light2"]
+heavy = "dagger_heavy"
+
+[[attack]]
+id = "dagger_light1"
+pose = "sword_light1"
+duration = 0.44
+active = [0.14, 0.22]
+damage = 1.0
+poise = 6
+stamina = 10
+reach = 8
+arc = [-50, 40]
+band = [4, 16]
+knock = 10
+lift = 0.1
+step = 5
+lunge_time = [0.04, 0.22]
+combo_from = 0.28
+cancel_from = 0.26
+
+[[attack]]
+id = "dagger_light2"
+pose = "sword_light2"
+duration = 0.44
+active = [0.12, 0.20]
+damage = 1.0
+poise = 6
+stamina = 10
+reach = 8
+arc = [40, -50]
+band = [4, 16]
+knock = 10
+lift = 0.1
+step = 5
+lunge_time = [0.02, 0.20]
+combo_from = 0.28
+cancel_from = 0.26
+
+[[attack]]
+id = "dagger_heavy"
+pose = "sword_heavy"
+duration = 0.80
+active = [0.40, 0.50]
+react = "stumble"
+damage = 1.8
+poise = 20
+stamina = 20
+reach = 9
+arc = [-15, 15]
+band = [4, 16]
+knock = 18
+lift = 0.1
+step = 10
+lunge_time = [0.30, 0.50]
+cancel_from = 0.62
+
+# ── Greatsword: the Crypt Lord's (docs/dungeons.md step 5) ─
+# Slow and wide, swung by a giant (its body's scale lengthens the
+# steps and the blade's reach with it). specials: attacks with no
+# button, started by name (an NPC's HumanIntent::special): the charge.
+# The slam's blade hits AND it sends a shockwave along the ground
+# (blade = true with an effect; effect = "shockwave": effect_range,
+# effect_arc, effect_speed, effect_damage, effect_poise,
+# effect_react). Jump the wave, roll through it or guard it.
+[[moveset]]
+id = "greatsword"
+ref_weight = 6.0
+light = ["gs_sweep", "gs_backsweep"]
+heavy = "gs_slam"
+specials = ["gs_charge"]
+
+[[attack]]
+id = "gs_sweep"            # a wide cut, right to left
+pose = "sword_light1"
+duration = 1.15
+active = [0.55, 0.75]
+react = "stumble"
+damage = 1.0
+poise = 26
+stamina = 0
+reach = 11
+arc = [-110, 100]
+band = [0, 18]
+knock = 20
+lift = 0.1
+step = 6
+lunge_time = [0.45, 0.75]
+combo_from = 0.85
+cancel_from = 1.15
+armor_from = 0.3
+track = 300
+
+[[attack]]
+id = "gs_backsweep"        # and back again
+pose = "sword_light2"
+duration = 1.10
+active = [0.45, 0.65]
+react = "stumble"
+damage = 1.0
+poise = 26
+stamina = 0
+reach = 11
+arc = [100, -110]
+band = [0, 18]
+knock = 20
+lift = 0.1
+step = 6
+lunge_time = [0.35, 0.65]
+cancel_from = 1.10
+armor_from = 0.2
+track = 260
+
+[[attack]]
+id = "gs_slam"             # overhead, down: the blade, then a shockwave along the ground
+pose = "sword_heavy"
+duration = 1.70
+active = [0.92, 1.04]
+react = "knockdown"
+damage = 1.6
+poise = 60
+stamina = 0
+reach = 10
+arc = [-20, 20]
+band = [0, 18]
+knock = 30
+lift = 0.2
+step = 4
+lunge_time = [0.80, 1.00]
+cancel_from = 1.70
+armor_from = 0.2
+track = 200
+blade = true
+effect = "shockwave"
+effect_range = 56
+effect_arc = 32
+effect_speed = 75
+effect_damage = 18
+effect_poise = 30
+effect_knock = 22
+effect_react = "stumble"
+
+[[attack]]
+id = "gs_charge"           # shoulders down and runs you over: a long step, a knockdown
+pose = "sword_light2"
+duration = 1.40
+active = [0.60, 0.95]
+react = "knockdown"
+damage = 1.2
+poise = 50
+stamina = 0
+reach = 10
+arc = [-60, 60]
+band = [0, 18]
+knock = 34
+lift = 0.25
+step = 30
+step_curve = 0.6
+lunge_time = [0.55, 0.95]
+cancel_from = 1.40
+armor_from = 0.0
+track = 140
 
 # ── Spells: an item's own attack (items.toml: cast = "...") ─
 # effect   what happens as the active window opens, instead of a

@@ -21,9 +21,9 @@ inline glm::vec3 flatFacing(const Human& h) {
     return glm::vec3(f.x, 0.0f, f.y);
 }
 
-inline bool beginAttack(Human& h, AttackKind k, int chain = 0) {
+inline bool beginAttack(Human& h, AttackKind k, int chain = 0, const AttackDef* use = nullptr) {
     if (!h.moveset) return false;
-    const AttackDef* d = h.moveset->get(k, chain);
+    const AttackDef* d = use ? use : h.moveset->get(k, chain);
     if (!d) return false;
     WeightScales w = weightScales(*h.moveset, h.weaponWeight);
     if (!h.spend(d->stamina * w.stamina)) return false;
@@ -36,7 +36,7 @@ inline bool beginAttack(Human& h, AttackKind k, int chain = 0) {
     h.attack.kind = k;
     h.attack.chain = chain;
     h.attack.d = d;
-    h.attack.speed = w.speed;
+    h.attack.speed = w.speed * h.attackSpeed;
     h.attack.poiseScale = w.poise;
     h.attack.dir = flatFacing(h);
     h.move = Human::Move::None;                      // an air dodge burst ends
@@ -70,6 +70,11 @@ inline void startAttack(Human& h, const HumanIntent& in) {
     if (in.useItem) {
         const ItemDef& item = gItems.get(in.useItem);
         if (item.valid() && !item.cast.empty()) beginCast(h, gMovesets.attack(item.cast), in.useItem);
+        return;
+    }
+    if (in.special && !h.attack.active() && h.moveset && h.weaponDamage > 0.0f && !h.dead() && h.grounded && h.exposed <= 0.0f &&
+        h.move != Human::Move::Roll && h.move != Human::Move::Backstep && !h.flying) {
+        beginAttack(h, AttackKind::Heavy, 0, in.special);              // a special: as a heavy, by name
         return;
     }
     if (!(in.attackLight || in.attackHeavy) || !h.moveset || h.weaponDamage <= 0.0f || h.dead()) return;

@@ -460,13 +460,20 @@ private:
         // The face sits on the far side of the voxel for +n
         int plane = slice + (sign > 0 ? 1 : 0);
 
+        // pad1: which way this corner sits on the quad's edges, per
+        // world axis (bit 2a: on an edge along axis a, bit 2a+1: the
+        // high side). The shader nudges every corner a hair outward,
+        // so merged quads that meet at a T-junction leave no pinhole
+        // gaps (the sky showing through a wall in specks)
         auto corner = [&](int cu, int cv) {
             uint8_t p[3];
             p[n] = (uint8_t)plane;
             p[u] = (uint8_t)cu;
             p[v] = (uint8_t)cv;
+            uint8_t out = (uint8_t)((1u << (2 * u)) | ((cu > i ? 1u : 0u) << (2 * u + 1)) |
+                                    (1u << (2 * v)) | ((cv > j ? 1u : 0u) << (2 * v + 1)));
             return ChunkVertex{ p[0], p[1], p[2], face,
-                                tileX, tileY, glow, 0 };
+                                tileX, tileY, glow, out };
         };
 
         ChunkVertex c0 = corner(i,     j);

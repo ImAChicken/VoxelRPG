@@ -36,7 +36,10 @@ namespace light {
 
 constexpr int CELL    = 2;                       // voxels per cell side
 constexpr int SC      = VOXEL_DIM / CELL;        // 64 cells across a section
-constexpr int MARGIN  = 16;                      // cells taken from neighbours
+#ifndef LIGHT_MARGIN
+#define LIGHT_MARGIN 16
+#endif
+constexpr int MARGIN  = LIGHT_MARGIN;                      // cells taken from neighbours
 constexpr int RX      = SC + 2 * MARGIN;         // 96
 constexpr int RY      = WORLD_HEIGHT / CELL;     // 512
 constexpr int TEX     = SC + 2;                  // 66: a section's cells plus one either side

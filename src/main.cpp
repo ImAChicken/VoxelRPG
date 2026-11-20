@@ -181,6 +181,16 @@ void keyCallback(GLFWwindow* window, int key,
     }
 }
 
+// Where the player aims a bow: degrees up from its chest to what
+// the crosshair is on (a point well down the camera's line), so a
+// third-person camera above and behind still shoots where it looks
+static float aimPitchOf(const Human& p, const Camera& cam) {
+    glm::vec3 chest = p.position + glm::vec3(0.0f, p.height * 0.78f, 0.0f);
+    glm::vec3 to = cam.position + cam.front * 90.0f - chest;
+    float flat = glm::length(glm::vec2(to.x, to.z));
+    return glm::degrees(std::atan2(to.y, std::max(flat, 1.0f)));
+}
+
 void framebufferCallback(GLFWwindow* window,
                          int w, int h) {
     (void)window;
@@ -514,6 +524,7 @@ int main() {
                 made->type = gNpcTypes.find(body.info.type);
                 made->name = body.info.name;
                 made->appearance = body.look;
+                if (made->appearance.scale != 1.0f) made->setScale(made->appearance.scale);   // a giant
                 if (made->type) { made->faction = gFactions.find(made->type->faction); NpcManager::applyBody(*made, *made->type); }
                 n = made.get();
                 list.push_back(std::move(made));
@@ -562,7 +573,8 @@ int main() {
     // simulation predicts it, the fallen bodies' ragdolls move
     auto remoteTick = [&](const HumanIntent& in) {
         if (!remote->groundReady()) return;      // wait with the server until the ground is here
-        remote->sendInput(in, player.facing, camera.pitch);
+        player.aimPitch = aimPitchOf(player, camera);
+        remote->sendInput(in, player.facing, player.aimPitch);
         sim.setIntent(player.uuid, in);
         sim.step(PHYSICS_STEP);
         remote->afterPrediction();
@@ -1163,7 +1175,8 @@ int main() {
             glm::vec3 leafTint = glm::mix(glm::vec3(1.0f), glm::vec3(0.30f, 0.50f, 0.24f), shade);
             charRenderer.skyTint   = ss.skyLight * leafTint * (sky * sky) + ss.ambient * 4.0f;
             glm::vec3 b(light::rOf(L) / 15.0f, light::gOf(L) / 15.0f, light::bOf(L) / 15.0f);
-            charRenderer.blockTint = b * b * 1.3f;
+            // the same fade as the world's (Settings > Graphics > Light fade)
+            charRenderer.blockTint = gSettings.lightCurve == 0 ? b * b * 1.3f : glm::pow(b, glm::vec3(1.1f)) * 1.1f;
         };
 
         // A body with no skeleton (npcs.toml body: a slime): three
@@ -1328,6 +1341,7 @@ int main() {
         // Enemies
         hud.enemyBars.clear();
         hud.lockMarker.on = false;
+        bool bossShown = false;
         if (!npcs.all().empty()) {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
@@ -1347,11 +1361,22 @@ int main() {
                                       OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
                     placed.push_back({ it->second.get(), at, gOutlineFx.glowFor(*np) });
                 }
-                const float top = blob ? np->height : Human::STAND_HEIGHT;     // for the bar and the marker
+                const float top = blob ? np->height : np->standHeight;          // for the bar and the marker
                 const glm::vec3 head = blob ? glm::vec3(0.0f) : np->ragdoll.headOffset(alpha);
-                // a health bar over the head, once hurt (or always, close)
+                // a health bar over the head, once hurt (or always, close);
+                // a boss's across the top of the screen while it fights
                 float dist = glm::length(at - camera.position);
-                if (!np->dead() && (np->sinceHurt < 8.0f || dist < 40.0f) && dist < 120.0f) {
+                const bool isBoss = np->type && np->type->boss;
+                if (isBoss && !np->dead() && dist < 200.0f && (np->stateName == "combat" || np->sinceHurt < 10.0f)) {
+                    float f = np->health / std::max(np->maxHealth, 1.0f);
+                    if (!hud.boss.on || hud.boss.name != np->name) hud.boss.lag = f;
+                    hud.boss.on = bossShown = true;
+                    hud.boss.name = np->name;
+                    hud.boss.fill = f;
+                    hud.boss.lag = std::max(f, hud.boss.lag - frameDt * 0.25f);
+                    hud.boss.phase = np->phaseTwo ? 0.0f : np->type->phase;
+                }
+                if (!isBoss && !np->dead() && (np->sinceHurt < 8.0f || dist < 40.0f) && dist < 120.0f) {
                     glm::vec4 c = proj * view * glm::vec4(at + head + glm::vec3(0.0f, top + 2.5f, 0.0f), 1.0f);
                     if (c.w > 0.1f) {
                         float sx = (c.x / c.w * 0.5f + 0.5f) * gRenderer->getScreenWidth();
@@ -1371,9 +1396,36 @@ int main() {
             if (!placed.empty())
                 charRenderer.drawEdges(placed, view, proj, 0, 0, fw, fh, fw, fh, edgeStyle());
         }
+        if (!bossShown) hud.boss.on = false;
 
         // Spells in flight (Simulation::projectiles): an ice spike is
         // a pale shard along its way, a thinner point ahead
+        // Arrows: a thin shaft drawn as a few beads along its way (so
+        // it tilts with its flight), a pale fletching at the back; the
+        // ones stuck in walls the same, still
+        auto drawArrow = [&](const glm::mat4& vp, glm::vec3 tip, glm::vec3 dir) {
+            dir = glm::length(dir) > 1e-3f ? glm::normalize(dir) : glm::vec3(1, 0, 0);
+            float yaw = glm::degrees(std::atan2(dir.z, dir.x));
+            const glm::vec3 SHAFT(0.45f, 0.33f, 0.22f), HEAD(0.55f, 0.55f, 0.58f), FLETCH(0.85f, 0.82f, 0.74f);
+            for (int k = 0; k < 6; k++)
+                blobs.draw(vp, tip - dir * (0.4f + k * 0.9f) - glm::vec3(0.0f, 0.15f, 0.0f), { 1.0f, 0.3f, 0.3f }, yaw, k == 0 ? HEAD : k == 5 ? FLETCH : SHAFT);
+        };
+        // Shockwaves: dust thrown up along the front as it runs
+        if (gState == GameState::Playing)
+            for (const Simulation::Wave& w : sim.waves()) {
+                float base = std::atan2(w.dir.z, w.dir.x), half = std::acos(std::clamp(w.cosArc, -1.0f, 1.0f));
+                int n = std::max(3, (int)(w.radius * half * 0.25f));
+                for (int k = 0; k < n; k++) {
+                    float a = base - half + 2.0f * half * (k + 0.5f) / n;
+                    glm::vec3 at = w.origin + glm::vec3(std::cos(a), 0.0f, std::sin(a)) * w.radius + glm::vec3(0, 0.5f, 0);
+                    gParticles.burst("quake_dust", at, glm::vec3(0, 1, 0), 1.0f, 0.5f, 1.0f);
+                }
+            }
+        if (!sim.stuckArrows().empty()) {
+            glm::mat4 vp = glm::perspective(glm::radians(Camera::FOV_DEG), aspect, Camera::NEAR_PLANE, Camera::FAR_PLANE) * glr->getViewMatrix();
+            for (const Simulation::StuckArrow& a : sim.stuckArrows())
+                if (glm::length(a.pos - camera.position) < 160.0f) drawArrow(vp, a.pos + a.dir * 0.8f, a.dir);
+        }
         if (!sim.projectiles().empty()) {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
@@ -1381,6 +1433,7 @@ int main() {
             float alpha = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
             for (const Simulation::Projectile& p : sim.projectiles()) {
                 glm::vec3 at = p.pos + p.vel * (alpha * PHYSICS_STEP);
+                if (p.arrow) { drawArrow(vp, at, p.vel); continue; }
                 glm::vec3 f(p.vel.x, 0.0f, p.vel.z);
                 f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(1, 0, 0);
                 float yaw = glm::degrees(std::atan2(f.z, f.x));
@@ -2079,10 +2132,16 @@ int main() {
                 if (!remote) session.syncSpawners();
                 // the world's village sites, built when a player first comes near
                 if (!remote) session.tickVillages({ player.position }, [&](const std::string& s) { say("a village: " + s); });
+                if (!remote)
+                    for (const auto& fx : session.tickDungeon({ &player }, dt)) {      // a Dungeon world's markers coming alive
+                        if (!fx.particle.empty()) gParticles.burst(fx.particle, fx.at, glm::vec3(0, 1, 0), 1.0f, fx.size, fx.size);
+                        if (!fx.line.empty()) say(fx.line);
+                    }
                 while (physicsTime >= PHYSICS_STEP) {
                     controller.beforeTick(player);
                     if (remote) remoteTick(controller.intent);
                     else {
+                        player.aimPitch = aimPitchOf(player, camera);
                         sim.setIntent(player.uuid, controller.intent);
                         sim.step(PHYSICS_STEP);
                     }
@@ -2168,6 +2227,7 @@ int main() {
                         gCamShake.add(k + 0.15f * e.charge);
                     }
                     if (e.kind == SimEvent::Kind::WallHit && glm::length(e.at - player.position) < 60.0f) gCamShake.add(0.25f);
+                    if (e.kind == SimEvent::Kind::Quake && glm::length(e.at - player.position) < 90.0f) gCamShake.add(0.45f);
                     if (e.kind == SimEvent::Kind::PerfectDodge && e.b == player.uuid) {
                         gOutlineFx.start(player.uuid, "perfect");
                         rumble::gRumble.kick(0.1f, 0.5f, 0.15f);

@@ -77,6 +77,12 @@ float fogAmount(float d) {
     return max(f, seamFog(vWorld));
 }
 
+// How bright block light is by its baked level (0..1). Settings >
+// Graphics > Light fade: 0 classic (squared: bright close, gone well
+// before the light's reach), 1 gentle (carries out to its full reach)
+uniform int uLightCurve;
+vec3 blockCurve(vec3 l) { return uLightCurve == 0 ? l * l * 1.5 : pow(l, vec3(1.1)) * 1.25; }
+
 void main() {
     vec2 facePos = vFacePos;
     float waterGlint = 0.0;
@@ -132,7 +138,7 @@ void main() {
         skyTint = mix(vec3(1.0), vec3(0.30, 0.50, 0.24), shade);
     }
     skyTint *= texture(uTint, tc / 66.0).rgb;       // through coloured glass
-    vec3 block = L.rgb * L.rgb * 1.5;
+    vec3 block = blockCurve(L.rgb);
     // sun / moon side brighter, the rest lit by the sky dome
     vec3 nrm = vNormal;
     if (vSprite > 0.5 && uPlantStyle == 1) nrm = normalize(vSpriteNormal);    // a rounded clump

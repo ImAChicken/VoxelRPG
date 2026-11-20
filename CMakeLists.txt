@@ -167,7 +167,7 @@ endif()
 # ── Tests ─────────────────────────────────────────────────
 # Headless test programs (no window, no OpenGL). Off by default:
 #   cmake -B build -DVOXELRPG_TESTS=ON
-#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test piece_test glass_test parts_test blueprint_test villager_test roaming_test slope_test steer_test controls_test slime_test spell_test server_test net_test sound_test tile_test dungeon_test
+#   cmake --build build --config Release --target ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test piece_test glass_test parts_test blueprint_test villager_test roaming_test slope_test steer_test controls_test slime_test spell_test bow_test boss_test server_test net_test sound_test tile_test dungeon_test
 #   build/bin/Release/ragdoll_test      (build/bin/ragdoll_test elsewhere)
 #   build/bin/Release/woodcut_test      (from the repo root: it reads data/)
 #   build/bin/Release/combat_test
@@ -211,11 +211,17 @@ if(VOXELRPG_TESTS)
     # ms per tick, path searches per NPC). village_perf [site] [from hour] [to hour]
     add_executable(village_perf tests/village_perf.cpp)
     target_link_libraries(village_perf PRIVATE voxelrpg_core)
+    # light_bench: a profile, not a test (ms to bake a column's light, in a dungeon and on an
+    # island). Rebuild with -DLIGHT_MARGIN=32 (CXXFLAGS) to see what a longer light reach costs
+    add_executable(light_bench tests/light_bench.cpp)
+    target_link_libraries(light_bench PRIVATE voxelrpg_core)
     add_executable(slope_test tests/slope_test.cpp)
     add_executable(steer_test tests/steer_test.cpp)
     add_executable(controls_test tests/controls_test.cpp)
     add_executable(slime_test tests/slime_test.cpp)
     add_executable(spell_test tests/spell_test.cpp)
+    add_executable(bow_test tests/bow_test.cpp)
+    add_executable(boss_test tests/boss_test.cpp)
     add_executable(server_test tests/server_test.cpp)
     add_executable(net_test tests/net_test.cpp)
     add_executable(net_bot tests/net_bot.cpp)      # a screenless player for trying a server (not a test)
@@ -225,7 +231,7 @@ if(VOXELRPG_TESTS)
     if(UNIX AND NOT APPLE)
         target_link_libraries(sound_test PRIVATE ${CMAKE_DL_LIBS} m)
     endif()
-    foreach(t tile_test dungeon_test ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test piece_test glass_test parts_test blueprint_test villager_test roaming_test slope_test steer_test controls_test slime_test spell_test server_test net_test net_bot sound_test)
+    foreach(t tile_test dungeon_test ragdoll_test woodcut_test combat_test sim_test npc_test anim_test inventory_test hit_test flat_test spawner_test chest_test icon_test build_test piece_test glass_test parts_test blueprint_test villager_test roaming_test slope_test steer_test controls_test slime_test spell_test bow_test boss_test server_test net_test net_bot sound_test)
         target_link_libraries(${t} PRIVATE voxelrpg_core)
         if(MSVC)
             target_compile_options(${t} PRIVATE /utf-8)

@@ -44,6 +44,30 @@ look_bottomc = "52 50 48"
 texture_set = "undead"
 
 [[preset]]
+# bones in place of a body (Appearance skeleton): the crypt's archers
+id = "skeleton"
+random = true
+look_skin = "222 214 190"
+look_eyes = "255 120 40"
+look_face = "14 0"
+look_bones = "1"
+look_hair = "18 0"
+
+[[preset]]
+# the Crypt Lord: a giant (look_scale 1.6) of the restless dead
+id = "crypt_lord"
+random = true
+look_body = "2 18 1.000 0.000 0.300 0.700 -0.300 0"
+look_skin = "128 136 120"
+look_eyes = "120 220 255"
+look_face = "14 0"
+look_hair = "18 0"
+look_outfit = "3 2 1"
+look_topc = "48 46 52"
+look_bottomc = "38 36 40"
+look_scale = "1.6"
+
+[[preset]]
 id = "dummy"
 random = false
 look_skin = "176 140 96"

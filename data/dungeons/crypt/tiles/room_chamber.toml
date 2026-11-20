@@ -1,0 +1,25 @@
+# A dungeon tile (dungeon/Tile.h, docs/dungeons.md): a blueprint whose
+# voxels are in the .vxvol beside it. Edit it in game: tile edit room_chamber
+
+name = "room_chamber"
+display = "room_chamber"
+tags = ["dungeon", "crypt", "room"]
+size = [64, 32, 64]
+voxels = "room_chamber.vxvol"
+
+[tile]   # a dungeon tile (dungeon/Tile.h)
+theme = "crypt"
+kind = "room"
+cells = [4, 2, 4]   # half cells of 16 voxels
+weight = 1.5
+sockets = [
+  { cell = [1, 0, 0], face = "n", type = "door" },
+  { cell = [2, 0, 3], face = "s", type = "door" },
+]
+
+[[tile.marker]]
+at = [32, 2, 32]
+kind = "spawner"
+count = "2 4"
+rule = "enter"
+spawn = "undead"

@@ -51,7 +51,7 @@
 // Angles: degrees around the attacker's facing, positive to its
 // left. Heights: voxels above its feet. Knock: vox/s given to the
 // target's ragdoll.
-enum class AttackKind : uint8_t { None, Light, Heavy, AirLight, AirHeavy, Cast };   // Cast: an item's (a spell's) own attack
+enum class AttackKind : uint8_t { None, Light, Heavy, AirLight, AirHeavy, Cast, Shot };   // Cast: an item's (a spell's) own attack; Shot: an arrow's hit
 
 // What a hit does to the body it lands on (DMC / Rising style: a
 // regular enemy reacts to every hit). Ordered by strength: a body
@@ -85,6 +85,11 @@ struct AttackDef {
     float effectDamage = 0.0f, effectPoise = 0.0f, effectKnock = 0.0f;
     float effectSpeed = 60.0f, effectGravity = 20.0f;   // vox/s, vox/s²
     std::string effectPlace;
+    // blade: the swing hits too (an effect usually replaces it; a
+    // boss's slam does both); effect_react: what the effect does to
+    // a body it hits (a shockwave)
+    bool  blade = true;
+    React effectReact = React::None;
     float duration = 0.5f;               // s, wind-up + active + recovery
     float activeStart = 0.2f, activeEnd = 0.3f;   // s: the hit window (all of them, when there are several)
     // several hits in one swing (a spin, a double thrust): each window
@@ -138,6 +143,13 @@ struct Moveset {
     const AttackDef* heavy = nullptr;
     const AttackDef* airLight = nullptr;
     const AttackDef* airHeavy = nullptr;
+    // attacks with no button: an NPC picks one by name
+    // (HumanIntent::special: a boss's charge)
+    std::vector<const AttackDef*> specials;
+    const AttackDef* special(const std::string& id) const {
+        for (const AttackDef* a : specials) if (a->id == id) return a;
+        return nullptr;
+    }
 
     const AttackDef* get(AttackKind k, int chain = 0) const {
         switch (k) {
@@ -161,6 +173,7 @@ constexpr float BACKSTEP_STAMINA= 10.0f;
 constexpr float AIRDODGE_STAMINA= 14.0f;
 constexpr float GUARD_SPEED     = 0.5f;    // walking speed while guarding
 constexpr float GUARD_KEEP      = 0.1f;    // damage that gets through a guard
+constexpr float BOW_MOVE        = 0.4f;    // × walking speed while a bow is drawn or loosing (VoxelPhysics)
 constexpr float GUARD_COST      = 2.5f;    // stamina per point of damage blocked
 constexpr float HITSTOP         = 0.06f;   // s the attacker's swing pauses on a hit (old default)
 // hit-stop: both bodies freeze this long on a hit (an attack's
@@ -254,6 +267,7 @@ inline const char* kindName(AttackKind k) {
     case AttackKind::AirLight: return "air light";
     case AttackKind::AirHeavy: return "plunge";
     case AttackKind::Cast:     return "cast";
+    case AttackKind::Shot:     return "shot";
     default:                   return "none";
     }
 }
@@ -322,6 +336,8 @@ public:
                     d->effectSpeed = (float)v["effect_speed"].value_or(60.0);
                     d->effectGravity = (float)v["effect_gravity"].value_or(20.0);
                     d->effectPlace = v["effect_place"].value_or(std::string());
+                    d->blade = v["blade"].value_or(d->effect.empty());
+                    d->effectReact = reactFromName(v["effect_react"].value_or(std::string()));
                     if (d->id.empty()) { std::cerr << path << ": an attack without an id\n"; continue; }
                     atk[d->id] = std::move(d);
                 }
@@ -343,6 +359,8 @@ public:
                     m->heavy = ref(m->id, v["heavy"].value_or(std::string()));
                     m->airLight = ref(m->id, v["air_light"].value_or(std::string()));
                     m->airHeavy = ref(m->id, v["air_heavy"].value_or(std::string()));
+                    if (auto l = v["specials"].as_array())
+                        for (auto& x : *l) if (const AttackDef* a = ref(m->id, x.value_or(std::string()))) m->specials.push_back(a);
                     sets[m->id] = std::move(m);
                 }
         } catch (const toml::parse_error& e) {

@@ -68,6 +68,7 @@ public:
         f1("uVoxelsPerTile", atlas.voxelsPerTile());
         const FrameLight& fl = gFrameLight;
         v3("uSkyLight", fl.sky.skyLight); v3("uLightDir", fl.sky.lightDir()); v3("uAmbient", fl.sky.ambient);
+        glUniform1i(glGetUniformLocation(shader.id, "uLightCurve"), gSettings.lightCurve);   // block light's fade (Settings)
         v3("uFogHorizon", fl.sky.horizon); v3("uFogSunGlow", fl.sky.sunGlow); v3("uSunDir", fl.sky.sunDir);
         f1("uFogDensity", fl.fogDensity); f1("uNight", fl.sky.night);
         atlas.bind(0);

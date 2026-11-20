@@ -218,6 +218,45 @@ damage = 7.0
 damage_type = "blunt"
 color = [0.60, 0.45, 0.30]
 
+[[item]]
+id = 1105
+name = "short_bow"
+display = "Short Bow"
+held_model = "bow"
+weight = 1.0              # kg
+categories = ["weapon"]
+weapon_class = "bow"
+moveset = "bow"           # light: a quick shot; heavy held: draw, let go to loose
+damage = 10.0
+damage_type = "pierce"
+color = [0.55, 0.38, 0.22]
+
+[[item]]
+id = 1106
+name = "bone_dagger"
+display = "Bone Dagger"
+held_model = "dagger"
+weight = 0.5              # kg
+categories = ["weapon"]
+weapon_class = "dagger"
+moveset = "dagger"
+damage = 7.0
+damage_type = "pierce"
+color = [0.85, 0.82, 0.72]
+
+[[item]]
+id = 1107
+name = "crypt_greatsword"
+display = "Crypt Greatsword"
+held_model = "greatsword"
+weight = 6.0              # kg
+categories = ["weapon"]
+weapon_class = "greatsword"
+moveset = "greatsword"    # the Crypt Lord's; slow, wide, a slam that shakes the ground
+damage = 20.0
+damage_type = "slash"
+color = [0.45, 0.47, 0.52]
+
 # ── Dev tools (Test Play only) ────────────────────────────
 [[item]]
 id = 1200

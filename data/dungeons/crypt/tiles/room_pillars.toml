@@ -4,22 +4,29 @@
 name = "room_pillars"
 display = "room_pillars"
 tags = ["dungeon", "crypt", "room"]
-size = [64, 48, 64]
+size = [96, 48, 96]
 voxels = "room_pillars.vxvol"
 
 [tile]   # a dungeon tile (dungeon/Tile.h)
 theme = "crypt"
 kind = "room"
-cells = [4, 3, 4]   # half cells of 16 voxels
+cells = [6, 3, 6]   # half cells of 16 voxels
 weight = 0.8
 sockets = [
-  { cell = [1, 0, 0], face = "n", type = "door" },
-  { cell = [2, 0, 3], face = "s", type = "door" },
+  { cell = [2, 0, 0], face = "n", type = "door" },
+  { cell = [3, 0, 5], face = "s", type = "door" },
 ]
 
 [[tile.marker]]
-at = [32, 2, 32]
+at = [48, 2, 48]
 kind = "spawner"
-count = "4 6"
+count = "3 5"
 rule = "enter"
 spawn = "undead"
+
+[[tile.marker]]
+at = [80, 2, 80]
+kind = "spawner"
+count = "1 2"
+rule = "enter"
+spawn = "skeleton_archer"

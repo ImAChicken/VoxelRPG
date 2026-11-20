@@ -50,6 +50,33 @@ int main(int argc, char** argv) {
 
     std::printf("the crypt's starter tiles\n");
     std::vector<Tile> ts = starterCrypt();
+    // the copies the game loads (data/dungeons/crypt/tiles) must be
+    // the starter set as built now: "tile_test write" after changing it
+    {
+        TileSet disk;
+        std::string why;
+        disk.loadDir("data/dungeons/crypt/tiles", "crypt", &why);
+        int stale = 0;
+        std::string which;
+        for (const Tile& t : ts) {
+            const Tile* d = nullptr;
+            for (const auto& x : disk.all()) if (x->name == t.name) d = x.get();
+            auto key = [](const Tile& k) {
+                std::vector<std::string> ms;
+                for (const Marker& m : k.info.markers) {
+                    std::string one = m.kind + std::to_string(m.at.x) + "," + std::to_string(m.at.y) + "," + std::to_string(m.at.z);
+                    for (auto& [a, v] : m.props) one += a + v;
+                    ms.push_back(one);
+                }
+                std::sort(ms.begin(), ms.end());
+                std::string out = std::to_string(k.info.cells.x) + std::to_string(k.info.cells.y) + std::to_string(k.info.cells.z);
+                for (auto& m : ms) out += m + ";";
+                return out;
+            };
+            if (!d || key(*d) != key(t) || d->vol.size != t.vol.size) { stale++; which += " " + t.name; }
+        }
+        check(stale == 0, "data/dungeons/crypt/tiles matches the starter set" + (stale ? " (stale:" + which + "; run tile_test write)" : std::string()));
+    }
     check(ts.size() >= 15, std::to_string(ts.size()) + " tiles");
     auto count = [&](const std::string& kind) { int n = 0; for (auto& t : ts) n += t.info.kind == kind; return n; };
     check(count("portal_room") == 1 && count("boss") == 1 && count("stair") >= 1 && count("corridor") >= 5 &&

@@ -262,12 +262,16 @@ public:
                 else vh *= std::exp(-dt * (h.grounded ? 12.0f : 3.0f));                             // then it slows
             } else if (h.attack.kind == AttackKind::AirHeavy) {
                 vh = glm::vec2(0.0f);                                                   // straight down
+            } else if (h.grounded && d.effect == "arrow") {
+                // a bow drawn or loosed: it can still walk, slowly
+                glm::vec2 target = wish * Human::WALK_SPEED * combat::BOW_MOVE * std::clamp(in.speedScale, 0.0f, 1.0f);
+                vh += (target - vh) * std::min(1.0f, dt * 12.0f);
             } else if (h.grounded) {
                 // root motion: the step, fast at first and stopping sharp
                 // (its length: the attack's own, or to the target: aimAttacks)
                 AttackState& a = h.attack;
                 float span = d.lungeTo - d.lungeFrom;
-                float S = a.stepLen >= 0.0f ? a.stepLen : d.stepDistance();
+                float S = a.stepLen >= 0.0f ? a.stepLen : d.stepDistance() * h.scale;   // (a giant's steps are longer)
                 float v = 0.0f;
                 if (span > 1e-3f && a.t >= d.lungeFrom && a.t <= d.lungeTo && !a.charging()) {
                     float u = (a.t - d.lungeFrom) / span, p = std::max(0.0f, d.stepCurve);
@@ -464,7 +468,7 @@ public:
     void setLooseSolids(std::function<bool(int, int, int)> fn) override { loose = std::move(fn); }
 
     bool isGrounded(const Human& h) const override {
-        return world && supported(h.position, h.height);
+        return world && supported(h.position, h.height, h.radius());
     }
 
     bool isOnWall(const Human& h) const override {
@@ -703,18 +707,18 @@ private:
     }
 
     bool overlaps(const Human& h, glm::vec3 pos) const {
-        return overlaps(pos, Human::RADIUS, h.height);
+        return overlaps(pos, h.radius(), h.height);
     }
 
     // Is there solid ground directly under the feet?
-    bool supported(glm::vec3 pos, float height) const {
+    bool supported(glm::vec3 pos, float height, float radius = Human::RADIUS) const {
         return overlaps(pos - glm::vec3(0, GROUND_PROBE, 0),
-                        Human::RADIUS, height);
+                        radius, height);
     }
 
     // Are the chunks under and around the body loaded?
     bool groundLoaded(const Human& h) const {
-        float m  = Human::RADIUS + 2.0f;
+        float m  = h.radius() + 2.0f;
         int   x0 = (int)std::floor(h.position.x - m);
         int   x1 = (int)std::floor(h.position.x + m);
         int   z0 = (int)std::floor(h.position.z - m);
@@ -770,10 +774,10 @@ private:
             h.height    = Human::CROUCH_HEIGHT;
         } else if (h.crouching) {
             // Only stand up if there is headroom
-            if (!overlaps(h.position, Human::RADIUS,
-                          Human::STAND_HEIGHT)) {
+            if (!overlaps(h.position, h.radius(),
+                          h.standHeight)) {
                 h.crouching = false;
-                h.height    = Human::STAND_HEIGHT;
+                h.height    = h.standHeight;
             }
         }
         easeEye(h, dt);
@@ -781,8 +785,8 @@ private:
 
     // The eye glides between standing and crouching height
     static void easeEye(Human& h, float dt) {
-        float target = h.crouching ? Human::eyeCrouch()
-                                   : Human::eyeStand;
+        float target = (h.crouching ? Human::eyeCrouch()
+                                    : Human::eyeStand) * h.scale;
         float step = 40.0f * dt;
         float diff = target - h.eyeHeight;
         h.eyeHeight = (std::fabs(diff) <= step)
@@ -920,14 +924,14 @@ private:
     // makes walking down terraced hills smooth. Otherwise the
     // body is airborne.
     void followGround(Human& h) {
-        if (supported(h.position, h.height)) return;
+        if (supported(h.position, h.height, h.radius())) return;
 
         for (float drop = 1.0f; drop <= Human::STEP_DOWN;
              drop += 1.0f) {
             glm::vec3 lower = h.position;
             lower.y -= drop;
             if (overlaps(h, lower)) break;
-            if (supported(lower, h.height)) {
+            if (supported(lower, h.height, h.radius())) {
                 h.position  = lower;
                 h.stepJolt -= drop;
                 return;

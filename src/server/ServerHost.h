@@ -155,6 +155,7 @@ public:
                 glm::vec3 f = it->second.facing;
                 f.y = 0.0f;
                 if (glm::length(f) > 1e-3f) c.player->facing = glm::normalize(f);
+                c.player->aimPitch = std::clamp(it->second.pitch, -89.0f, 89.0f);   // where a bow aims
                 c.lastUsed = it->first;
                 // lag compensation: its swings meet bodies where it saw them
                 if (it->second.viewTick)

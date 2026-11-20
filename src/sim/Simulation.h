@@ -56,6 +56,8 @@ struct SimEvent {
         EncounterEnded,     // encounter: its id (Simulation::encounters() has the review)
         WallHit,            // b: knocked into a wall (or driven into the ground) and pinned; at
         PerfectDodge,       // a: the attacker (now slowed), b: who dodged at the last moment
+        Shot,               // a: who loosed an arrow; at (where from), dir (its way), charge (the draw)
+        Quake,              // a: who slammed; at (where the shockwave starts), dir (its way), amount (its range)
     };
     uint32_t   encounter = 0;
     Kind       kind = Kind::Hit;
@@ -225,7 +227,8 @@ public:
         for (auto& r : sight) r.age += dt;
         sight.erase(std::remove_if(sight.begin(), sight.end(), [](const SightRay& r) { return r.age > 2.0f; }), sight.end());
         castEffects(all);
-        flyProjectiles(dt, all);
+        flyProjectiles(dt, all, hits);
+        runWaves(dt, all, hits);
         combat::resolveHits(all, [&](glm::vec3 a, glm::vec3 b) {
             bool c = clearLine(a, b);
             if (sight.size() < 64) sight.push_back({ a, b, c, 0.0f });   // for the debug overlay
@@ -510,6 +513,8 @@ public:
             if (d.effect.empty() || !(c->attack.prevT < d.activeStart && c->attack.t >= d.activeStart)) continue;
             if (d.effect == "windburst") windburst(*c, d, all);
             else if (d.effect == "ice_spike") launch(*c, d, all);
+            else if (d.effect == "arrow") shoot(*c, d, all);
+            else if (d.effect == "shockwave") quake(*c, d);
         }
     }
 
@@ -533,7 +538,21 @@ public:
         float       damage = 0.0f, poise = 0.0f, knock = 0.0f;
         std::string place;              // structure left where it lands
         std::string kind;               // the effect ("ice_spike"), for drawing
+        // an arrow: what it does to a body (combat::shotHit) and how
+        // drawn the bow was; the bodies it passed through (rolling)
+        bool        arrow = false;
+        React       react = React::Flinch;
+        float       charge = 0.0f;
+        std::vector<EntityId> passed;
     };
+    // An arrow that hit the world: it stays stuck there a while (drawn)
+    struct StuckArrow {
+        glm::vec3 pos{ 0.0f }, dir{ 0.0f, 0.0f, 1.0f };
+        float     age = 0.0f;
+    };
+    static constexpr float STUCK_LIFE = 30.0f;          // s an arrow stays in a wall
+    static constexpr size_t STUCK_MAX = 96;
+    const std::vector<StuckArrow>& stuckArrows() const { return stuck; }
     struct Landing {
         EntityId    owner = 0;
         std::string place;              // structure type
@@ -577,10 +596,163 @@ public:
         p.kind = d.effect;
         shots.push_back(p);
     }
+    // ── Arrows (effect = "arrow": a bow's shots) ──────────
+    // An arrow leaves the archer's chest along where it aims: a
+    // player along its facing and its aim pitch (the camera's), with
+    // a little help toward an enemy close to that line; an NPC at its
+    // target, leading it (where it will be when the arrow gets
+    // there) and lifted for the drop. How far the bow was drawn
+    // (the heavy's charge) gives it speed, damage and poise; a full
+    // draw makes a flinch a stumble. A rolling body it passes
+    // through; a guard facing it stops it.
+    static constexpr float ARROW_ASSIST_DEG = 6.0f;
+    static constexpr float ARROW_MIN_SPEED = 0.55f;    // × effect_speed at no draw at all
+    void shoot(Human& c, const AttackDef& d, const std::vector<Human*>& all) {
+        const float charge = c.attack.charge();
+        glm::vec3 f = c.attack.dir; f.y = 0.0f;
+        f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(0, 0, 1);
+        Projectile p;
+        p.id = ++nextShot;
+        p.owner = c.uuid;
+        p.arrow = true;
+        p.kind = "arrow";
+        p.charge = charge;
+        p.pos = c.position + glm::vec3(0.0f, c.height * 0.78f, 0.0f) + f * (Human::RADIUS + 0.8f);
+        const float speed = d.effectSpeed * (ARROW_MIN_SPEED + (1.0f - ARROW_MIN_SPEED) * charge);
+        const float g = d.effectGravity;
+        auto lifted = [&](glm::vec3 to) {
+            float t = glm::length(to) / std::max(speed, 1.0f);
+            return glm::normalize(to + glm::vec3(0.0f, 0.5f * g * t * t, 0.0f));
+        };
+        glm::vec3 aim;
+        Human* tgt = nullptr;
+        if (!c.isPlayer()) {
+            const Npc& n = static_cast<const Npc&>(c);
+            tgt = find(n.target);
+            if (tgt && tgt->dead()) tgt = nullptr;
+        }
+        if (tgt) {
+            // lead: where it'll be when the arrow gets there (twice
+            // over, the second with the better flight time)
+            glm::vec3 mid = tgt->position + glm::vec3(0.0f, tgt->height * 0.55f, 0.0f);
+            glm::vec3 v(tgt->velocity.x, 0.0f, tgt->velocity.z);
+            glm::vec3 at = mid;
+            for (int k = 0; k < 2; k++) at = mid + v * (glm::length(at - p.pos) / std::max(speed, 1.0f)) * LEAD;
+            aim = lifted(at - p.pos);
+            // it can't turn behind itself
+            glm::vec3 fl(aim.x, 0.0f, aim.z);
+            if (glm::length(fl) < 1e-3f || glm::dot(glm::normalize(fl), f) < 0.5f) aim = f;
+        } else {
+            float pr = glm::radians(std::clamp(c.aimPitch, -80.0f, 80.0f));
+            aim = glm::normalize(f * std::cos(pr) + glm::vec3(0.0f, std::sin(pr), 0.0f));
+            // a little help: toward an enemy close to that line
+            float best = std::cos(glm::radians(ARROW_ASSIST_DEG));
+            for (Human* b : all) {
+                if (b == &c || b->dead() || !mayHit(c, *b)) continue;
+                glm::vec3 to = b->position + glm::vec3(0.0f, b->height * 0.55f, 0.0f) - p.pos;
+                float dist = glm::length(to);
+                if (dist < 1e-3f || dist > d.effectRange) continue;
+                glm::vec3 cand = lifted(to);
+                float c2 = glm::dot(cand, aim);
+                if (c2 < best || !clearLine(p.pos, p.pos + to)) continue;
+                best = c2;
+                aim = cand;
+            }
+        }
+        p.vel = aim * speed;
+        p.range = d.effectRange * (0.6f + 0.4f * charge);
+        p.gravity = g;
+        p.damage = std::max(c.weaponDamage, 1.0f) * d.damage * (1.0f + (d.chargeDamage - 1.0f) * charge);
+        p.poise = d.poise * (1.0f + (d.chargePoise - 1.0f) * charge);
+        p.knock = d.knock;
+        React r = d.react != React::None ? d.react : React::Flinch;
+        if (charge >= 0.99f && (r == React::Flinch || r == React::Stumble)) r = (React)((int)r + 1);
+        p.react = r;
+        shots.push_back(p);
+        SimEvent e; e.kind = SimEvent::Kind::Shot; e.a = c.uuid; e.at = p.pos; e.dir = aim; e.charge = charge;
+        events.push_back(e);
+    }
+    // ── Shockwaves (effect = "shockwave": a boss's slam) ──
+    // A ring that runs out along the ground from where the blade
+    // came down, effect_arc either side of the swing, at
+    // effect_speed out to effect_range. Anyone standing on the ground
+    // near its height as the front passes is hit (effect_damage,
+    // effect_poise, effect_react; combat::shotHit, so a guard facing
+    // it takes it and a roll lets it pass). Jump it: a body in the air
+    // isn't touched.
+    struct Wave {
+        uint32_t  id = 0;
+        EntityId  owner = 0;
+        glm::vec3 origin{ 0.0f }, dir{ 0.0f, 0.0f, 1.0f };
+        float     cosArc = 0.0f, radius = 0.0f, range = 40.0f, speed = 60.0f;
+        float     damage = 0.0f, poise = 0.0f, knock = 0.0f;
+        React     react = React::Stumble;
+        std::vector<EntityId> hit;
+    };
+    static constexpr float WAVE_WIDTH = 3.0f;          // vox: how deep its front is
+    static constexpr float WAVE_HEIGHT = 4.0f;         // vox above or below the origin it still meets feet
+    const std::vector<Wave>& waves() const { return quakes; }
+    void quake(Human& c, const AttackDef& d) {
+        glm::vec3 f = c.attack.dir; f.y = 0.0f;
+        f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(0, 0, 1);
+        Wave w;
+        w.id = ++nextShot;
+        w.owner = c.uuid;
+        w.origin = c.position + f * (c.radius() + 4.0f * c.scale);
+        w.dir = f;
+        w.cosArc = std::cos(glm::radians(std::clamp(d.effectArc, 0.0f, 180.0f)));
+        w.range = d.effectRange; w.speed = std::max(d.effectSpeed, 1.0f);
+        w.damage = d.effectDamage; w.poise = d.effectPoise; w.knock = d.effectKnock;
+        w.react = d.effectReact != React::None ? d.effectReact : React::Stumble;
+        quakes.push_back(w);
+        SimEvent e; e.kind = SimEvent::Kind::Quake; e.a = c.uuid; e.at = w.origin; e.dir = f; e.amount = w.range;
+        events.push_back(e);
+    }
+    void runWaves(float dt, const std::vector<Human*>& all, std::vector<combat::HitEvent>& hits) {
+        for (size_t i = 0; i < quakes.size();) {
+            Wave& w = quakes[i];
+            float r0 = w.radius;
+            w.radius += w.speed * dt;
+            Human* owner = find(w.owner);
+            for (Human* b : all) {
+                if (b->uuid == w.owner || b->dead() || !b->grounded) continue;
+                if (owner && !mayHit(*owner, *b)) continue;
+                if (!owner && !b->isPlayer()) continue;
+                if (std::find(w.hit.begin(), w.hit.end(), b->uuid) != w.hit.end()) continue;
+                if (std::fabs(b->position.y - w.origin.y) > WAVE_HEIGHT) continue;
+                glm::vec2 off(b->position.x - w.origin.x, b->position.z - w.origin.z);
+                float d = glm::length(off);
+                float reach = b->radius();
+                if (d + reach < r0 - WAVE_WIDTH || d - reach > w.radius) continue;
+                if (d > 1e-3f && glm::dot(off / d, glm::vec2(w.dir.x, w.dir.z)) < w.cosArc && d > reach + 1.0f) continue;
+                if (!clearLine(w.origin + glm::vec3(0, 1.5f, 0), b->position + glm::vec3(0, 1.5f, 0))) continue;
+                glm::vec3 out = d > 1e-3f ? glm::vec3(off.x / d, 0.0f, off.y / d) : w.dir;
+                combat::HitEvent ev;
+                if (!combat::shotHit(*b, w.owner, w.damage, w.poise, w.knock, w.react, 0.0f, b->bodyPoint(0.15f), out, ev)) {
+                    w.hit.push_back(b->uuid);
+                    continue;
+                }
+                ev.kind = AttackKind::Heavy;
+                w.hit.push_back(b->uuid);
+                hits.push_back(ev);
+            }
+            if (w.radius > w.range) quakes.erase(quakes.begin() + i);
+            else i++;
+        }
+    }
+    static constexpr float LEAD = 1.0f;                // share of the target's movement led (1: all)
+    // Where an arrow hits the world: stuck there a while
+    void stickArrow(glm::vec3 at, glm::vec3 vel) {
+        if (stuck.size() >= STUCK_MAX) stuck.erase(stuck.begin());
+        StuckArrow a; a.pos = at; a.dir = glm::length(vel) > 1e-3f ? glm::normalize(vel) : glm::vec3(0, 0, 1);
+        stuck.push_back(a);
+    }
     bool mayHit(const Human& a, const Human& b) const {
         return a.isPlayer() || hostile(static_cast<const Npc&>(a), b);
     }
-    void flyProjectiles(float dt, const std::vector<Human*>& all) {
+    void flyProjectiles(float dt, const std::vector<Human*>& all, std::vector<combat::HitEvent>& hits) {
+        for (StuckArrow& a : stuck) a.age += dt;
+        stuck.erase(std::remove_if(stuck.begin(), stuck.end(), [](const StuckArrow& a) { return a.age > STUCK_LIFE; }), stuck.end());
         for (size_t i = 0; i < shots.size();) {
             Projectile& p = shots[i];
             glm::vec3 from = p.pos;
@@ -596,11 +768,29 @@ public:
                 for (Human* b : all) {
                     if (b->uuid == p.owner || b->dead()) continue;
                     if (owner && !mayHit(*owner, *b)) continue;
+                    if (p.arrow && std::find(p.passed.begin(), p.passed.end(), b->uuid) != p.passed.end()) continue;
                     if (!owner && !b->isPlayer()) continue;     // its caster is gone: players only
                     glm::vec2 off(q.x - b->position.x, q.z - b->position.z);
                     float hh = b->hitHeight > 0.0f ? std::max(b->height, b->hitHeight) : b->height;
                     if (glm::length(off) > b->hitRadius + 0.6f || q.y < b->position.y - 0.3f || q.y > b->position.y + hh + 0.3f) continue;
                     glm::vec3 dir = glm::length(p.vel) > 1e-3f ? glm::normalize(p.vel) : glm::vec3(0, 0, 1);
+                    if (p.arrow) {
+                        combat::HitEvent ev;
+                        if (!combat::shotHit(*b, p.owner, p.damage, p.poise, p.knock, p.react, p.charge, q, dir, ev)) {
+                            p.passed.push_back(b->uuid);           // rolled under it: flies on
+                            if (combat::perfectDodge(*b)) {
+                                combat::HitEvent pd; pd.attacker = p.owner; pd.target = b->uuid; pd.kind = AttackKind::Shot;
+                                pd.perfectDodge = true; pd.point = q;
+                                hits.push_back(pd);
+                            }
+                            continue;
+                        }
+                        projectileHits++;
+                        ev.point = q;
+                        hits.push_back(ev);
+                        done = true;
+                        break;
+                    }
                     projectileHits++;
                     toolHit(p.owner, b->uuid, p.damage, p.poise, q, dir, false, AttackKind::Cast);
                     if (p.knock > 0.0f && !b->dead()) b->hit(q, glm::normalize(glm::vec3(dir.x, 0.25f, dir.z)) * p.knock * b->mass);
@@ -611,6 +801,7 @@ public:
                 // the world
                 glm::ivec3 v((int)std::floor(q.x), (int)std::floor(q.y), (int)std::floor(q.z));
                 if (physics->solidAt(v.x, v.y, v.z) || q.y < 0.0f) {
+                    if (p.arrow) stickArrow(from + (to - from) * ((float)(s - 1) / steps), p.vel);
                     if (!p.place.empty()) {
                         Landing l;
                         l.owner = p.owner; l.place = p.place; l.voxel = v;
@@ -880,7 +1071,7 @@ public:
             const AttackDef& d = a.def();
             if (a.t >= d.activeStart) continue;               // locked
             if (a.kind != AttackKind::Light && a.kind != AttackKind::Heavy) continue;
-            const float own = d.stepDistance();
+            const float own = d.stepDistance() * h->scale;
             Human* target = nullptr, *stopBy = nullptr;
             if (!h->isPlayer()) {
                 const Npc& n = *static_cast<const Npc*>(h);
@@ -924,7 +1115,7 @@ public:
                     // (an NPC stops at the edge of its reach and never
                     // stretches: in a crowd round you, they'd all pile in)
                     const bool npc = !h->isPlayer();
-                    float stopAt = std::max(Human::RADIUS * 2.0f + 1.0f, d.reach * (npc ? combat::NPC_STOP : 0.55f));   // inside its reach
+                    float stopAt = std::max(h->radius() + target->radius() + 1.0f, d.reach * h->scale * (npc ? combat::NPC_STOP : 0.55f));   // inside its reach
                     a.stepLen = std::clamp(dist - stopAt, 0.0f, own * (foe && !npc ? combat::STEP_STRETCH : 1.0f));
                 }
                 // nor does it step into anyone else on the way (a friend
@@ -1075,7 +1266,9 @@ private:
     std::unordered_map<EntityId, HumanIntent> intents;
     std::unordered_map<EntityId, std::vector<HumanIntent>> queued;   // setInputs
     std::vector<SimEvent> events;
-    std::vector<Projectile> shots;      // spells in flight
+    std::vector<Projectile> shots;      // spells and arrows in flight
+    std::vector<StuckArrow> stuck;      // arrows in walls
+    std::vector<Wave> quakes;           // shockwaves running along the ground
     std::vector<Landing> landings;      // where they hit the world, for GameSession::tickWorld
     uint32_t nextShot = 0;
     std::vector<SightRay> sight;

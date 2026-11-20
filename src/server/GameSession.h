@@ -7,6 +7,7 @@
 #include "../world/Chests.h"
 #include "../world/DayClock.h"
 #include "../world/StructureManager.h"
+#include "../dungeon/Run.h"
 #include "../world/Woodcutting.h"
 #include "../world/WorldEditor.h"
 #include "../world/WorldSaveManager.h"
@@ -168,6 +169,12 @@ public:
                 for (size_t i = 0; i < sites.size(); i++)
                     if (sites[i].at == glm::ivec2(x, z)) sitesBuilt[i] = true;
         }
+        // a Dungeon world: its markers come alive as players get to them
+        dungeonRun.reset();
+        if (auto* dg = dynamic_cast<const DungeonGenerator*>(gen.get()); dg && dg->generated()) {
+            dungeonRun = std::make_unique<dungeon::Run>(*dg);
+            dungeonRun->load(path);
+        }
         std::ifstream tf(path + "/time.txt");
         float t; gClock.time = (tf >> t) ? std::fmod(std::fabs(t), 1.0f) : 0.35f;
     }
@@ -320,6 +327,14 @@ public:
             if (say) say(line);
         }
     }
+    // A Dungeon world's markers (dungeon/Run.h): spawners, coffins, the
+    // boss, chests, secret walls. Every tick; not on a client. What it
+    // returns is for the game to show (particles, a line)
+    std::vector<dungeon::Run::Effect> tickDungeon(const std::vector<Human*>& players, float dt = 1.0f / 60.0f) {
+        if (!dungeonRun || !world || !structs || !editor) return {};
+        return dungeonRun->tick(players, sim, *world, *structs, chests, *editor, dt);
+    }
+    const dungeon::Run* dungeon() const { return dungeonRun.get(); }
     const std::vector<TerrainGenerator::VillageSite>& villageSites() const { return sites; }
     bool villageBuilt(size_t i) const { return i < sitesBuilt.size() && sitesBuilt[i]; }
 
@@ -353,6 +368,7 @@ public:
             std::ofstream vf(stage + "/villages.dat");
             for (size_t i = 0; i < sites.size(); i++) if (sitesBuilt[i]) vf << sites[i].at.x << " " << sites[i].at.y << "\n";
         }
+        if (dungeonRun) ok = dungeonRun->save(stage) && ok;
         if (extra) extra(stage);
         if (chunks) std::cout << "Saved " << chunks << " chunks" << (commit ? "" : " (checkpoint)") << "\n";
         if (commit) ok = savestage::commit(path) && ok;
@@ -363,6 +379,7 @@ public:
     void close() {
         if (world || physics) sim.detachWorld();
         wood.reset();
+        dungeonRun.reset();
         structs.reset();
         chests.clear();
         editor.reset();
@@ -378,4 +395,5 @@ private:
     std::vector<glm::vec3> built;              // every piece anyone built (syncSpawners), for roaming spawns
     std::vector<TerrainGenerator::VillageSite> sites;   // the generator's village sites
     std::vector<bool> sitesBuilt;                        // … built yet (villages.dat)
+    std::unique_ptr<dungeon::Run> dungeonRun;            // a Dungeon world's markers (dungeon.dat)
 };

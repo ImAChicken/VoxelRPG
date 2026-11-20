@@ -34,7 +34,7 @@ public:
         t.vol.resize(cells * HALF);
         t.vol.anchor = { 0, 0, 0 };
         wall = id("stone_bricks"); wall2 = id("moss_stone"); wall3 = id("cracked_stone");
-        floorB = id("cobblestone"); ceil = id("stone"); torchB = id("torch");
+        floorB = id("cobblestone"); ceil = id("stone"); torchB = id("torch"); rod = id("cobblestone");
         // solid all through, then carve
         glm::ivec3 s = t.vol.size;
         for (int y = 0; y < s.y; y++) for (int z = 0; z < s.z; z++) for (int x = 0; x < s.x; x++) set(x, y, z, wallAt(x, y, z));
@@ -102,6 +102,23 @@ public:
         for (int z = WALL + every / 2; z < s.z - WALL; z += every) { torchIfWall(WALL, FLOOR + h, z, -1, 0); torchIfWall(s.x - WALL - 1, FLOOR + h, z, 1, 0); }
         return *this;
     }
+    // Light for the middle of a big room, out of the torches' reach:
+    // a cluster of lanterns hanging from the ceiling on a stone rod
+    TileBuilder& chandelier(int x, int z, int drop = 7) {
+        int top = t.vol.size.y - WALL;                 // the ceiling's underside
+        int y = top - drop;
+        for (int k = y + 1; k < top; k++) set(x, k, z, rod);
+        uint16_t l = id("lantern");
+        set(x, y, z, l); set(x + 1, y, z, l); set(x - 1, y, z, l); set(x, y, z + 1, l); set(x, y, z - 1, l);
+        return *this;
+    }
+    // A fire in a stone bowl on the floor
+    TileBuilder& brazier(int x, int z) {
+        fill({ x - 1, FLOOR, z - 1 }, { x + 2, FLOOR + 3, z + 2 }, wall);
+        uint16_t f = id("fire");
+        set(x, FLOOR + 3, z, f ? f : torchB);
+        return *this;
+    }
     TileBuilder& pillar(int x, int z, int w) {
         return fill({ x, FLOOR, z }, { x + w, t.vol.size.y - WALL, z + w }, wall);
     }
@@ -123,7 +140,7 @@ public:
     uint16_t at(int x, int y, int z) const { return t.vol.at(x, y, z); }
 
 private:
-    uint16_t wall = 0, wall2 = 0, wall3 = 0, floorB = 0, ceil = 0, torchB = 0;
+    uint16_t wall = 0, wall2 = 0, wall3 = 0, floorB = 0, ceil = 0, torchB = 0, rod = 0;
     static uint16_t id(const char* n) { uint16_t i = gRegistry.getIDByName(n); return i ? i : BLOCK_STONE; }
     // the wall's stones: mostly bricks, some mossy or cracked (the same
     // pattern wherever the tile goes: by position in the tile)
@@ -163,42 +180,50 @@ inline std::vector<Tile> starterCrypt() {
       b.hollow().door({ 0, 0, 1 }, South).marker("coffin", { 8, FLOOR, WALL }, { { "spawn", "undead" }, { "rule", "enter" } }).weight(0.4f); keep(b); }
 
     // ── rooms on the main path ───────────────────────────
-    { TileBuilder b("room_small", th, "room", { 2, 2, 2 });
-      b.hollow().door({ 0, 0, 0 }, North).door({ 1, 0, 1 }, South).torchesAround(14)
-       .spawner(mid(b), "undead", 2, 3).weight(1.5f); keep(b); }
-    { TileBuilder b("room_hall", th, "room", { 4, 2, 4 });
-      b.hollow().door({ 1, 0, 0 }, North).door({ 2, 0, 3 }, South).door({ 3, 0, 1 }, East).door({ 0, 0, 2 }, West)
-       .pillar(18, 18, 4).pillar(42, 18, 4).pillar(18, 42, 4).pillar(42, 42, 4).torchesAround(16)
-       .spawner(mid(b), "undead", 3, 5).weight(1.0f); keep(b); }
-    { TileBuilder b("room_pillars", th, "room", { 4, 3, 4 });
-      b.hollow().door({ 1, 0, 0 }, North).door({ 2, 0, 3 }, South);
-      for (int x = 12; x < 56; x += 14) for (int z = 12; z < 56; z += 14) b.pillar(x, z, 3);
-      b.torchesAround(14, 18).spawner(mid(b), "undead", 4, 6).weight(0.8f); keep(b); }
-    { TileBuilder b("room_gallery", th, "room", { 2, 2, 6 });
+    // (sizes in half cells; a body is about 17 voxels tall, and a fight
+    // with steps and rolls wants room: the main rooms are 64-96 across)
+    { TileBuilder b("room_chamber", th, "room", { 4, 2, 4 });
+      b.hollow().door({ 1, 0, 0 }, North).door({ 2, 0, 3 }, South).torchesAround(14).chandelier(32, 32)
+       .spawner(mid(b), "undead", 2, 4).weight(1.5f); keep(b); }
+    { TileBuilder b("room_hall", th, "room", { 6, 3, 6 });
+      b.hollow().door({ 2, 0, 0 }, North).door({ 3, 0, 5 }, South).door({ 5, 0, 2 }, East).door({ 0, 0, 3 }, West)
+       .pillar(28, 28, 6).pillar(62, 28, 6).pillar(28, 62, 6).pillar(62, 62, 6).torchesAround(16, 18).chandelier(48, 48, 10)
+       .spawner(mid(b), "undead", 3, 5).spawner({ 78, FLOOR, 78 }, "skeleton_archer", 1, 2).weight(1.0f); keep(b); }
+    { TileBuilder b("room_pillars", th, "room", { 6, 3, 6 });
+      b.hollow().door({ 2, 0, 0 }, North).door({ 3, 0, 5 }, South);
+      for (int x = 16; x < 82; x += 22) for (int z = 16; z < 82; z += 22) b.pillar(x, z, 4);
+      b.torchesAround(14, 18).chandelier(38, 38, 10).chandelier(60, 60, 10).spawner(mid(b), "undead", 3, 5)
+       .spawner({ 80, FLOOR, 80 }, "skeleton_archer", 1, 2).weight(0.8f); keep(b); }
+    { TileBuilder b("room_gallery", th, "room", { 3, 2, 8 });
       // a long burial gallery: coffins in niches down both walls
-      b.hollow().door({ 0, 0, 0 }, North).door({ 1, 0, 5 }, South);
-      for (int z = 14; z < 84; z += 16) {
-          b.carve({ 0, FLOOR, z }, { WALL, FLOOR + 8, z + 6 }).carve({ 32 - WALL, FLOOR, z }, { 32, FLOOR + 8, z + 6 });
-          b.fill({ 0, FLOOR, z }, { 1, FLOOR + 8, z + 6 }).fill({ 31, FLOOR, z }, { 32, FLOOR + 8, z + 6 });
+      b.hollow().door({ 1, 0, 0 }, North).door({ 1, 0, 7 }, South);
+      const int W = 48;
+      for (int z = 16; z < 112; z += 16) {
+          b.carve({ 0, FLOOR, z }, { WALL, FLOOR + 8, z + 6 }).carve({ W - WALL, FLOOR, z }, { W, FLOOR + 8, z + 6 });
+          b.fill({ 0, FLOOR, z }, { 1, FLOOR + 8, z + 6 }).fill({ W - 1, FLOOR, z }, { W, FLOOR + 8, z + 6 });
           b.marker("coffin", { 1, FLOOR, z + 3 }, { { "spawn", "undead" }, { "rule", "enter" } });
-          b.marker("coffin", { 30, FLOOR, z + 3 }, { { "spawn", "undead" }, { "rule", "enter" } });
+          b.marker("coffin", { W - 2, FLOOR, z + 3 }, { { "spawn", "undead" }, { "rule", "enter" } });
       }
-      b.torchesAround(20).weight(0.8f); keep(b); }
-    { TileBuilder b("room_junction", th, "room", { 2, 2, 2 });
-      b.hollow().door({ 0, 0, 0 }, North).door({ 1, 0, 0 }, East).door({ 1, 0, 1 }, South).door({ 0, 0, 1 }, West)
-       .torchesAround(14).spawner(mid(b), "undead", 1, 3).weight(1.0f); keep(b); }
+      b.torchesAround(24).chandelier(24, 28).chandelier(24, 64).chandelier(24, 100).weight(0.8f); keep(b); }
+    { TileBuilder b("room_junction", th, "room", { 4, 2, 4 });
+      b.hollow().door({ 1, 0, 0 }, North).door({ 3, 0, 2 }, East).door({ 2, 0, 3 }, South).door({ 0, 0, 1 }, West)
+       .pillar(30, 30, 4).torchesAround(14).chandelier(20, 20).chandelier(44, 44).spawner({ 20, FLOOR, 44 }, "undead", 2, 3).weight(1.0f); keep(b); }
 
     // ── side rooms: one way in ────────────────────────────
-    { TileBuilder b("side_treasure", th, "side", { 3, 2, 3 });
-      b.hollow().door({ 1, 0, 2 }, South).torchesAround(14)
-       .marker("chest", { 24, FLOOR, WALL + 2 }).spawner({ 24, FLOOR, 28 }, "undead", 3, 5).weight(1.0f); keep(b); }
-    { TileBuilder b("side_ossuary", th, "side", { 2, 2, 3 });
-      b.hollow().door({ 0, 0, 2 }, South).torchesAround(16);
-      for (int z = 8; z < 40; z += 10) b.marker("coffin", { WALL, FLOOR, z }, { { "spawn", "undead" }, { "rule", "enter" } });
+    { TileBuilder b("side_treasure", th, "side", { 4, 2, 4 });
+      b.hollow().door({ 2, 0, 3 }, South).torchesAround(14).chandelier(32, 28)
+       .marker("chest", { 32, FLOOR, WALL + 2 }).spawner({ 32, FLOOR, 36 }, "undead", 3, 5).weight(1.0f); keep(b); }
+    { TileBuilder b("side_ossuary", th, "side", { 3, 2, 5 });
+      b.hollow().door({ 1, 0, 4 }, South).torchesAround(16).chandelier(24, 40);
+      for (int z = 10; z < 64; z += 12) {
+          b.marker("coffin", { WALL, FLOOR, z }, { { "spawn", "undead" }, { "rule", "enter" } });
+          b.marker("coffin", { 48 - WALL - 1, FLOOR, z + 6 }, { { "spawn", "undead" }, { "rule", "enter" } });
+      }
       b.weight(0.8f); keep(b); }
-    { TileBuilder b("side_secret", th, "side", { 2, 2, 2 });
+    { TileBuilder b("side_secret", th, "side", { 3, 2, 3 });
       // behind a wall that breaks: a chest, nobody home
-      b.hollow().secretDoor({ 0, 0, 1 }, South).torch(WALL, FLOOR + 14, 16).marker("chest", { 16, FLOOR, WALL + 2 }).weight(0.5f).counts(0, 2); keep(b); }
+      b.hollow().secretDoor({ 1, 0, 2 }, South).torch(WALL, FLOOR + 14, 24).chandelier(24, 24, 6)
+       .marker("chest", { 24, FLOOR, WALL + 2 }).weight(0.5f).counts(0, 2); keep(b); }
 
     // ── the stair down: in at the bottom (south), out at the top (north) ──
     { TileBuilder b("stair_down", th, "stair", { 1, 4, 4 });
@@ -213,22 +238,25 @@ inline std::vector<Tile> starterCrypt() {
       b.door({ 0, 0, 3 }, South).door({ 0, 2, 0 }, North).torch(WALL, FLOOR + 30, 32).counts(0, 3).weight(1.0f); keep(b); }
 
     // ── the portal room: you arrive here, and leave ──────
-    { TileBuilder b("portal_room", th, "portal_room", { 4, 2, 4 });
-      b.hollow().door({ 1, 0, 3 }, South).pillar(10, 10, 4).pillar(50, 10, 4).pillar(10, 50, 4).pillar(50, 50, 4)
-       .torchesAround(12).marker("portal", { 32, FLOOR, 24 }).counts(1, 1).weight(1.0f); keep(b); }
+    { TileBuilder b("portal_room", th, "portal_room", { 6, 2, 6 });
+      b.hollow().door({ 2, 0, 5 }, South).pillar(14, 14, 6).pillar(76, 14, 6).pillar(14, 76, 6).pillar(76, 76, 6)
+       .torchesAround(14).chandelier(48, 56).brazier(34, 34).brazier(62, 34)
+       .marker("portal", { 48, FLOOR, 30 }).counts(1, 1).weight(1.0f); keep(b); }
 
     // ── the boss's arena ──────────────────────────────────
-    { TileBuilder b("boss_arena", th, "boss", { 6, 3, 6 });
-      b.hollow().door({ 2, 0, 5 }, South);
+    { TileBuilder b("boss_arena", th, "boss", { 8, 4, 8 });
+      b.hollow().door({ 3, 0, 7 }, South);
       for (int i = 0; i < 8; i++) {
           float a = i * 0.785398f;
-          int x = 48 + (int)std::round(std::cos(a) * 30.0f) - 2, z = 48 + (int)std::round(std::sin(a) * 30.0f) - 2;
-          b.pillar(x, z, 4);
+          int x = 64 + (int)std::round(std::cos(a) * 42.0f) - 3, z = 64 + (int)std::round(std::sin(a) * 42.0f) - 3;
+          b.pillar(x, z, 6);
       }
-      for (int x : { 12, 84 }) for (int z : { 20, 48, 76 })
-          b.marker("coffin", { x, FLOOR, z }, { { "spawn", "undead" }, { "rule", "boss" } });
-      b.torchesAround(12, 20).marker("boss", { 48, FLOOR, 40 }, { { "spawn", "crypt_lord" } })
-       .marker("exit", { 48, FLOOR, 14 }).counts(1, 1).weight(1.0f); keep(b); }
+      // two coffins open with the boss, four more in its second phase
+      for (int x : { 12, 114 }) for (int z : { 24, 64, 104 })
+          b.marker("coffin", { x, FLOOR, z }, { { "spawn", "undead" }, { "rule", z == 64 ? "boss" : "phase" } });
+      b.torchesAround(12, 24).chandelier(64, 64, 14).brazier(40, 40).brazier(88, 40).brazier(40, 88).brazier(88, 88)
+       .marker("boss", { 64, FLOOR, 52 }, { { "spawn", "crypt_lord" } })
+       .marker("exit", { 64, FLOOR, 16 }).counts(1, 1).weight(1.0f); keep(b); }
     return out;
 }
 

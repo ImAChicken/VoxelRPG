@@ -40,6 +40,8 @@
 #   wall_dust             a body knocked into a wall and pinned (or
 #                         driven into the ground by a slam)
 #   perfect_dodge         a perfect dodge, round the dodger
+#   quake_dust            a shockwave's front running along the ground
+#                         (a boss's slam), a few puffs a frame
 
 [[emitter]]
 id = "hit_spark"
@@ -256,6 +258,20 @@ size = [1.2, 2.6]
 jitter = 1.5
 color = [0.7, 0.66, 0.6, 0.6]
 color_end = [0.68, 0.64, 0.6, 0.0]
+color_vary = [0.04, 0.04, 0.04]
+
+[[emitter]]
+id = "quake_dust"
+count = [2, 3]
+speed = [10, 22]
+spread = 35
+gravity = 18
+drag = 2.5
+life = [0.35, 0.6]
+size = [1.6, 3.0]
+jitter = 0.8
+color = [0.62, 0.56, 0.48, 0.75]
+color_end = [0.5, 0.46, 0.42, 0.0]
 color_vary = [0.04, 0.04, 0.04]
 
 [[emitter]]

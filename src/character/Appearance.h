@@ -117,6 +117,12 @@ struct Appearance {
 
     // ── Outfit ────────────────────────────────────────────
     int top = 0, bottom = 2, shoes = 0;
+    // A skeleton: bones instead of a body (thin limbs, ribs with gaps,
+    // a skull), in the skin colour; no clothes (look_bones=1)
+    bool skeleton = false;
+    // How big against an ordinary person (a giant: 1.6; look_scale).
+    // The whole body, drawn and hit, grows by it; NPCs only
+    float scale = 1.0f;
 
     // ── Colours ───────────────────────────────────────────
     glm::u8vec3 skin       = look::hex("#e3c2a8");
@@ -142,6 +148,7 @@ struct Appearance {
         hips      = std::clamp(hips,      -1.0f, 1.0f);
         limbs     = std::clamp(limbs,     -1.0f, 1.0f);
         head      = std::clamp(head,      -1.0f, 1.0f);
+        scale     = std::clamp(std::round(scale * 1000.0f) / 1000.0f, 0.5f, 3.0f);
         face       = std::clamp(face,       0, look::count(look::FACES) - 1);
         eyeStyle   = std::clamp(eyeStyle,   0, look::count(look::EYES) - 1);
         expression = std::clamp(expression, 0, look::count(look::EXPRESSIONS) - 1);
@@ -209,6 +216,8 @@ struct Appearance {
         col("skin", skin); col("eyes", eyes); col("hairc", hair);
         col("topc", topColor); col("bottomc", bottomColor);
         out << "look_voice=" << voice.text() << "\n";
+        if (skeleton) out << "look_bones=1\n";
+        if (scale != 1.0f) { std::snprintf(b, sizeof(b), "look_scale=%.3f\n", scale); out << b; }
     }
 
     bool read(const std::string& key, const std::string& value) {
@@ -232,6 +241,8 @@ struct Appearance {
             else if (n >= 1) { hairStyle = a; extra = n >= 2 ? b : 0; }
         } else if (k == "outfit") { std::sscanf(v, "%d %d %d", &top, &bottom, &shoes);
         } else if (k == "voice")  { voice.parse(value);
+        } else if (k == "bones")  { skeleton = std::atoi(v) != 0;
+        } else if (k == "scale")  { scale = (float)std::atof(v);
         } else if (k == "hairstyle") {                 // old voxel-body styles
             static const int MAP[5] = { 12, 2, 4, 12, 18 };  // short, long, ponytail, buzz, bald
             int o = std::atoi(v);

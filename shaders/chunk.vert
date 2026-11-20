@@ -156,5 +156,13 @@ void main() {
     vec3 world = local + uChunkOrigin;
     vWorld = world;
     vDist = length(world - uCamPos);
+    // A hair outward along the quad's edges (Mesher.h emitQuad: which
+    // way in aTile.w), more with distance: seals the pinholes where
+    // merged quads meet, which otherwise show the sky through walls
+    uint e = aTile.w;
+    vec3 grow = vec3(float(e & 1u) * (float((e >> 1) & 1u) * 2.0 - 1.0),
+                     float((e >> 2) & 1u) * (float((e >> 3) & 1u) * 2.0 - 1.0),
+                     float((e >> 4) & 1u) * (float((e >> 5) & 1u) * 2.0 - 1.0));
+    world += grow * (0.002 + vDist * 0.0007);
     gl_Position = uProjection * uView * vec4(world, 1.0);
 }

@@ -180,6 +180,7 @@ public:
                     if ((st == "alert" || st == "combat") && calm && clock - b.lastSpot > 20.0f) { bark(*npc, "spot", 0.85f); b.lastSpot = clock; }
                     b.state = st;
                 }
+                if (npc->phaseTwo && !b.phased) { bark(*npc, "phase", 1.0f); b.phased = true; }
                 if ((st == "idle" || st == "patrol") && clock >= b.nextIdle) {
                     if (b.nextIdle > 0.0f && dist < 140.0f) bark(*npc, "idle", 0.5f);
                     b.nextIdle = clock + 14.0f + unit() * 30.0f;
@@ -248,6 +249,7 @@ private:
         float stride = 0.0f;
         float attackT = -1.0f;
         float lastBark = -100.0f, lastSpot = -100.0f, nextIdle = 0.0f;
+        bool  phased = false;                 // a boss's second phase: its roar, once
         float seen = 0.0f;
         std::string state;
     };

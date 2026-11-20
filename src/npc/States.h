@@ -161,7 +161,11 @@ public:
         sub = Sub::Approach; subTime = 0; comboLeft = 0; side = n.rand01() < 0.5f ? 1.0f : -1.0f;
         if (n.target) w.joinFight(n, n.target);
     }
-    void exit(Npc& n, NpcWorld& w) override { w.releaseAttack(n); }
+    void exit(Npc& n, NpcWorld& w) override {
+        w.releaseAttack(n);
+        if (onSidearm) { wield(n, n.mainWeapon); onSidearm = false; }   // the bow again, out of the fight
+        drawFor = 0.0f;
+    }
     void tick(Npc& n, NpcWorld& w, float dt) override {
         Human* t = w.find(n.target);
         if (!t || t->dead() || !w.hostile(n, *t)) { n.target = 0; brain::change(n, w, "return"); return; }
@@ -181,9 +185,14 @@ public:
         if (e.kind == K::SawEnemy || e.kind == K::HeardNoise || e.kind == K::AllyDied) return true;   // busy
         return false;
     }
-    std::string debug(const Npc&) const override {
+    std::string debug(const Npc& n) const override {
         static const char* S[] = { "approach", "circle", "attack", "guard", "recover" };
-        return std::string("combat: ") + S[(int)sub];
+        if (n.type && n.type->style == "boss")
+            return std::string("combat: boss") + (n.phaseTwo ? " phase 2" : " phase 1") + (sub == Sub::Recover && subTime > 0.0f ? " (waiting)" : "") +
+                   (chargeWait > 0.0f ? " charge in " + std::to_string((int)std::ceil(chargeWait)) + "s" : " charge ready");
+        if (n.type && n.type->style == "ranged" && !onSidearm)
+            return std::string("combat: ranged ") + (drawFor > 0.0f ? "drawing" : backing > 0.0f ? "backing off" : "shooting");
+        return std::string("combat: ") + S[(int)sub] + (onSidearm ? " (sidearm)" : "");
     }
 
 private:
@@ -194,6 +203,164 @@ private:
     // the target's swing it last sized up (once per swing, not every tick)
     const AttackDef* readDef = nullptr;
     float readT = 0.0f;
+    // ranged: the draw it holds (s left), the wait for the next shot,
+    // how long it's been backing off without getting anywhere, on
+    // its sidearm
+    float drawFor = 0.0f, shotWait = 0.6f, backing = 0.0f, stuckFor = 0.0f;
+    bool  onSidearm = false;
+
+    // ── A ranged fighter (style "ranged": the skeleton archer) ─
+    // Keeps between range_min and range_max of its target, with a
+    // clear line to it: closes in when too far or out of sight,
+    // backs off when too close, drifts sideways between shots. A
+    // shot is the bow's heavy held for 'draw' s (the outline's
+    // charge glow is the telegraph: a full draw stumbles), now and
+    // then a quick light. Too close and nowhere to back off to (or
+    // caught very close): out comes the sidearm, and it fights like
+    // anyone (false: the melee code takes this tick) until it has
+    // room again.
+    // ── A boss (style "boss": the Crypt Lord) ──────────────
+    // Never guards or rolls; picks its move by how far the target is:
+    //   close (its reach)   a sweep (sometimes back again), or the slam
+    //   middling            the slam: its shockwave runs out to you
+    //   far (CHARGE_FROM+)  the charge (every CHARGE_EVERY s at most)
+    // and walks at you in between, slowly. Below its type's 'phase' of
+    // health: a roar (it stands, poise full), then faster (phase_speed)
+    // with shorter pauses and more combos.
+    static constexpr float CHARGE_FROM = 36.0f, CHARGE_EVERY = 6.0f, SLAM_UPTO = 46.0f, ROAR = 1.4f;
+    float chargeWait = 0.5f;
+    void bossFight(Npc& n, NpcWorld& w, const Human& t, float dist, glm::vec2 dir, float dt) {
+        HumanIntent& in = n.intent;
+        const NpcType& ty = *n.type;
+        in.guard = false; in.dodge = false; in.sprint = false;
+        chargeWait -= dt;
+        if (!n.phaseTwo && n.health < n.maxHealth * ty.phase) {
+            n.phaseTwo = true;
+            n.attackSpeed = ty.phaseSpeed;
+            n.poise = n.maxPoise;
+            n.attack = AttackState();
+            to(Sub::Recover, ROAR);
+            in.move = glm::vec2(0.0f);
+            return;
+        }
+        // mid-swing: maybe the combo's second cut
+        if (n.attack.active()) {
+            const AttackDef& d = n.attack.def();
+            if (comboLeft > 0 && d.comboFrom >= 0.0f && n.attack.t >= d.activeEnd && !n.attack.queuedLight) { in.attackLight = true; comboLeft--; }
+            in.move = glm::vec2(0.0f);
+            return;
+        }
+        if (n.move != Human::Move::None || n.hitstun > 0.0f) return;
+        const float reach = FIGHT_RANGE * n.scale;
+        const bool targetDown = t.ragdoll.controlsLocked() || t.getUpGrace > 0.0f;
+        glm::vec3 tp = n.seesTarget ? t.position : n.lastKnown;
+        // between moves: a slow walk at it
+        if (sub == Sub::Recover && subTime > 0.0f) {
+            if (dist > reach * 0.8f && subTime < ROAR - 0.2f) { n.walkTo(w, tp, 0.45f, false, reach * 0.7f); }
+            else in.move = glm::vec2(0.0f);
+            return;
+        }
+        const glm::vec3 eye = n.position + glm::vec3(0.0f, n.height * 0.6f, 0.0f);
+        const bool line = n.seesTarget && w.clearLine(eye, t.position + glm::vec3(0.0f, t.height * 0.5f, 0.0f));
+        const bool p2 = n.phaseTwo;
+        const float r = n.rand01();
+        bool went = false;
+        if (!targetDown && line) {
+            if (dist <= reach) {
+                if (r < 0.62f) { in.attackLight = true; comboLeft = (p2 || n.rand01() < 0.45f) ? 1 : 0; }
+                else in.attackHeavy = true;
+                went = true;
+            } else if (dist >= CHARGE_FROM && chargeWait <= 0.0f && n.moveset && n.moveset->special("gs_charge")) {
+                in.special = n.moveset->special("gs_charge");
+                chargeWait = CHARGE_EVERY * (p2 ? 0.7f : 1.0f);
+                went = true;
+            } else if (dist <= SLAM_UPTO && r < (p2 ? 0.035f : 0.02f)) {        // now and then from out there
+                in.attackHeavy = true;
+                went = true;
+            }
+        }
+        if (went) {
+            in.move = glm::vec2(0.0f);
+            n.facing = glm::vec3(dir.x, 0.0f, dir.y);
+            to(Sub::Recover, p2 ? n.randRange(0.25f, 0.7f) : n.randRange(0.6f, 1.3f));
+            return;
+        }
+        // closing in
+        if (dist > reach * 0.85f) n.walkTo(w, tp, 0.55f, false, reach * 0.7f);
+        else in.move = glm::vec2(0.0f);
+    }
+
+    static constexpr float CORNERED = 7.0f;     // vox: this close, sidearm at once
+    static constexpr float STUCK_AFTER = 0.6f;  // s backing off without moving: cornered
+    bool rangedFight(Npc& n, NpcWorld& w, const Human& t, float dist, glm::vec2 dir, glm::vec2 left, float dt) {
+        HumanIntent& in = n.intent;
+        const NpcType& ty = *n.type;
+        const bool busy = n.attack.active() || n.move != Human::Move::None;
+        const bool hasSide = !ty.sidearm.empty();
+        // sidearm out, or back to the bow
+        if (!busy && hasSide) {
+            if (!onSidearm && (dist < CORNERED || stuckFor > STUCK_AFTER)) {
+                wield(n, ty.sidearm); onSidearm = true; stuckFor = 0.0f; drawFor = 0.0f;
+                to(Sub::Attack, 2.0f);
+            } else if (onSidearm && dist > ty.rangeMin * 0.8f) {
+                wield(n, n.mainWeapon); onSidearm = false; shotWait = n.randRange(0.2f, 0.6f);
+            }
+        }
+        if (onSidearm) return false;
+        in.guard = false;
+        in.heavyHeld = false;
+        // drawing: hold it, then let go
+        if (n.attack.active()) {
+            if (n.attack.d && n.attack.d->chargeAt >= 0.0f && drawFor > 0.0f) {
+                drawFor -= dt;
+                in.heavyHeld = drawFor > 0.0f;
+            }
+            in.move = glm::vec2(0.0f);
+            return true;
+        }
+        drawFor = 0.0f;
+        if (busy) return true;
+        const glm::vec3 eye = n.position + glm::vec3(0.0f, n.height * 0.78f, 0.0f);
+        const glm::vec3 aimAt = t.position + glm::vec3(0.0f, t.height * 0.55f, 0.0f);
+        const bool line = n.seesTarget && w.clearLine(eye, aimAt);
+        const bool targetDown = t.ragdoll.controlsLocked() || t.getUpGrace > 0.0f;
+        shotWait -= dt;
+        // too far, or no shot from here: closer
+        if (!line || dist > ty.rangeMax) {
+            glm::vec3 tp = n.seesTarget ? t.position : n.lastKnown;
+            n.walkTo(w, tp, 1.0f, dist > ty.rangeMax * 1.5f && n.stamina > 40.0f, std::min(ty.rangeMin, dist * 0.7f));
+            backing = stuckFor = 0.0f;
+            return true;
+        }
+        if (dist < ty.rangeMin) {
+            // too close: back off (sideways a little), and notice a wall behind
+            in.move = -dir * 0.9f + left * side * 0.3f;
+            in.speedScale = 1.0f;
+            in.sprint = false;
+            backing += dt;
+            float moving = glm::length(glm::vec2(n.velocity.x, n.velocity.z));
+            stuckFor = moving < 3.0f && backing > 0.2f ? stuckFor + dt : std::max(0.0f, stuckFor - dt);
+            // close enough to shoot anyway when it's had a moment
+            if (dist > CORNERED * 1.6f && shotWait <= 0.0f && !targetDown && n.rand01() < 0.02f) {
+                in.attackLight = true;
+                shotWait = n.randRange(ty.shotGapMin, ty.shotGapMax);
+            }
+            return true;
+        }
+        backing = stuckFor = 0.0f;
+        // in range: drift sideways, now and then the other way
+        in.move = left * side * 0.45f;
+        in.speedScale = 0.5f;
+        in.sprint = false;
+        if (subTime <= 0.0f) { if (n.rand01() < 0.4f) side = -side; subTime = n.randRange(0.8f, 2.0f); }
+        if (shotWait <= 0.0f && !targetDown) {
+            if (n.rand01() < 0.2f) in.attackLight = true;                    // a quick one
+            else { in.attackHeavy = true; in.heavyHeld = true; drawFor = n.randRange(ty.drawMin, ty.drawMax); }
+            in.move = glm::vec2(0.0f);
+            shotWait = n.randRange(ty.shotGapMin, ty.shotGapMax);
+        }
+        return true;
+    }
 
     void to(Sub s, float time) { sub = s; subTime = time; }
 
@@ -217,12 +384,14 @@ private:
             n.facing = glm::vec3(std::cos(now), 0.0f, std::sin(now));
         }
         subTime -= dt;
+        if (n.type && n.type->style == "ranged" && rangedFight(n, w, t, dist, dir, left, dt)) return;
+        if (n.type && n.type->style == "boss") { bossFight(n, w, t, dist, dir, dt); return; }
         // a hopper (a slime): no weapon, no guard, no rolls. Its
         // attack is a lunge, a long hop at the target; it hurts by
         // touching (Simulation::contactDamage). The lunge decides
         // its fighting range
         const bool hopper = n.hop.on;
-        const float reach = hopper && n.type ? std::max(6.0f, n.type->lungeRange * 0.85f) : FIGHT_RANGE;
+        const float reach = hopper && n.type ? std::max(6.0f, n.type->lungeRange * 0.85f) : FIGHT_RANGE * n.scale;
         if (hopper) in.sprint = false;                 // (sprint is its lunge: only the attack asks)
         bool busy = n.attack.active() || n.move != Human::Move::None || n.hop.lunging;
         float aggression = n.type ? n.type->aggression : 0.7f;
@@ -342,7 +511,7 @@ private:
                 in.sprint = true;
                 break;
             }
-            if (dist > FIGHT_RANGE - 2.0f) { n.walkTo(w, tp, 1.0f, false, FIGHT_RANGE - 3.0f); n.facing = glm::vec3(dir.x, 0, dir.y); break; }
+            if (dist > reach - 2.0f) { n.walkTo(w, tp, 1.0f, false, reach - 3.0f); n.facing = glm::vec3(dir.x, 0, dir.y); break; }
             if (n.rand01() < 0.25f) in.attackHeavy = true;
             else { in.attackLight = true; comboLeft = n.rand01() < 0.5f ? 1 : 0; }
             wasAttacking = true;

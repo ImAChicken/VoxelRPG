@@ -47,6 +47,7 @@ public:
         addChoice("Roofs", &gSettings.roofStyle, { "Plain", "Smooth" });
         addChoice("Glass", &gSettings.glassStyle, { "Plain", "Panes" });
         addChoice("Particles", &gSettings.particles, { "Off", "Fewer", "All" });
+        addChoice("Light fade", &gSettings.lightCurve, { "Classic", "Gentle" });
         // ── Sound ─────────────────────────────────────────
         page("Sound");
         addSlider("Volume",   &gSettings.masterVolume,   0.0f, 1.0f, [](float v) { return outOf100(v); });

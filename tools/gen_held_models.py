@@ -13,11 +13,11 @@ j = 3.5, k = 1.5.
 import math, os
 
 OUT = "data/models/held"
-WOOD, DARKWOOD, IRON, BRIGHT, LEATHER, STONE, BRASS = 1, 2, 3, 4, 5, 6, 7
+WOOD, DARKWOOD, IRON, BRIGHT, LEATHER, STONE, BRASS, BONE, DARKIRON = 1, 2, 3, 4, 5, 6, 7, 8, 10
 PALETTE = {
     WOOD: (138, 92, 56), DARKWOOD: (78, 54, 40), IRON: (118, 122, 130),
     BRIGHT: (214, 220, 226), LEATHER: (95, 70, 54), STONE: (128, 124, 118),
-    BRASS: (191, 164, 102),
+    BRASS: (191, 164, 102), BONE: (222, 214, 190),
 }
 CJ, CK = 3.5, 1.5          # the haft's centre line
 
@@ -178,6 +178,68 @@ def staff():
     m.write("staff", "Quarterstaff")
 
 
+def bow():
+    """A short bow, 40 inches tip to tip, held at its middle: the limbs run
+    along i both ways from the fist and bend back toward -j at the tips,
+    the string straight between them behind."""
+    m = Model("Short bow: two curved limbs and a string", grip_back=20)
+    L = 80                                        # voxels tip to tip
+    mid = L / 2
+    tip_j = None
+    for i in range(0, L + 1):
+        t = abs(i - mid) / mid                    # 0 at the grip, 1 at a tip
+        bend = 6.0 * t * t                        # bends back toward the string
+        r = 1.15 - 0.55 * t
+        R = int(math.ceil(r)) + 1
+        jc = CJ - bend
+        for j in range(int(jc) - R, int(jc) + R + 2):
+            for k in range(int(CK) - R, int(CK) + R + 2):
+                if (j - jc) ** 2 + (k - CK) ** 2 <= r * r + 0.01:
+                    m.put(i, j, k, LEATHER if t < 0.12 else WOOD)
+        if t > 0.98:
+            tip_j = jc
+    sj = int(round(tip_j)) - 1                    # the string: a voxel line between the tips
+    for i in range(1, L):
+        m.put(i, sj, int(CK), BRIGHT)
+    m.palette[BRIGHT] = (226, 220, 200)
+    m.write("bow", "Bow")
+
+
+def dagger():
+    m = Model("Bone dagger: a short grip and a narrow blade", grip_back=4)
+    m.rod(0, 9, 0.9, LEATHER)                     # 4.5-inch grip
+    for j in range(int(CJ) - 3, int(CJ) + 4):     # the guard
+        for k in range(0, 4):
+            m.put(10, j, k, STONE)
+            m.put(11, j, k, STONE)
+    def blade(i):
+        t = (i - 12) / 18.0                       # 9-inch blade to a point
+        w = 1.8 * (1 - t) ** 0.7
+        return (CJ - w, CJ + w) if t <= 1 else None
+    m.plate(12, 30, blade, 1, 2, BONE)
+    m.palette[BONE] = (222, 214, 190)
+    m.write("dagger", "Dagger")
+
+
+def greatsword():
+    """The Crypt Lord's: a 44-inch blade, a long two-hand grip, a heavy guard."""
+    m = Model("Crypt greatsword: a 44-inch black-iron blade on a long grip", grip_back=7)
+    m.rod(0, 3, 1.6, IRON)                        # pommel
+    m.rod(3, 23, 1.0, LEATHER)                    # 10-inch grip
+    for j in range(int(CJ) - 9, int(CJ) + 10):    # the guard
+        for i in range(23, 27):
+            for k in range(0, 4):
+                m.put(i, j, k, IRON)
+    def blade(i):
+        t = (i - 27) / 88.0
+        w = 3.2 if t < 0.85 else 3.2 * (1 - t) / 0.15
+        return (CJ - w, CJ + w) if t <= 1 else None
+    m.plate(27, 115, blade, 1, 2, DARKIRON)
+    m.plate(27, 108, lambda i: (CJ - 0.4, CJ + 0.4), 1, 2, IRON)   # the fuller
+    m.palette[DARKIRON] = (70, 74, 84)
+    m.write("greatsword", "Greatsword")
+
+
 def dev_wand(name, gem, title):
     m = Model(title)
     m.palette[9] = gem
@@ -260,6 +322,9 @@ if __name__ == "__main__":
     club()
     spear()
     staff()
+    bow()
+    dagger()
+    greatsword()
     for name, gem in [("dev_wand", (90, 200, 255)), ("dev_fill", (90, 220, 120)), ("dev_replace", (240, 200, 70)),
                       ("dev_brush", (230, 120, 220)), ("dev_copy", (120, 150, 255)), ("dev_paste", (150, 120, 255)),
                       ("dev_explode", (255, 110, 60)), ("dev_breaker", (220, 70, 70)), ("dev_cube", (240, 240, 240))]:

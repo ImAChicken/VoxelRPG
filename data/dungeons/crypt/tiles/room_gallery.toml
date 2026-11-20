@@ -4,75 +4,87 @@
 name = "room_gallery"
 display = "room_gallery"
 tags = ["dungeon", "crypt", "room"]
-size = [32, 32, 96]
+size = [48, 32, 128]
 voxels = "room_gallery.vxvol"
 
 [tile]   # a dungeon tile (dungeon/Tile.h)
 theme = "crypt"
 kind = "room"
-cells = [2, 2, 6]   # half cells of 16 voxels
+cells = [3, 2, 8]   # half cells of 16 voxels
 weight = 0.8
 sockets = [
-  { cell = [0, 0, 0], face = "n", type = "door" },
-  { cell = [1, 0, 5], face = "s", type = "door" },
+  { cell = [1, 0, 0], face = "n", type = "door" },
+  { cell = [1, 0, 7], face = "s", type = "door" },
 ]
 
 [[tile.marker]]
-at = [1, 2, 17]
+at = [1, 2, 19]
 kind = "coffin"
 rule = "enter"
 spawn = "undead"
 
 [[tile.marker]]
-at = [30, 2, 17]
+at = [46, 2, 19]
 kind = "coffin"
 rule = "enter"
 spawn = "undead"
 
 [[tile.marker]]
-at = [1, 2, 33]
+at = [1, 2, 35]
 kind = "coffin"
 rule = "enter"
 spawn = "undead"
 
 [[tile.marker]]
-at = [30, 2, 33]
+at = [46, 2, 35]
 kind = "coffin"
 rule = "enter"
 spawn = "undead"
 
 [[tile.marker]]
-at = [1, 2, 49]
+at = [1, 2, 51]
 kind = "coffin"
 rule = "enter"
 spawn = "undead"
 
 [[tile.marker]]
-at = [30, 2, 49]
+at = [46, 2, 51]
 kind = "coffin"
 rule = "enter"
 spawn = "undead"
 
 [[tile.marker]]
-at = [1, 2, 65]
+at = [1, 2, 67]
 kind = "coffin"
 rule = "enter"
 spawn = "undead"
 
 [[tile.marker]]
-at = [30, 2, 65]
+at = [46, 2, 67]
 kind = "coffin"
 rule = "enter"
 spawn = "undead"
 
 [[tile.marker]]
-at = [1, 2, 81]
+at = [1, 2, 83]
 kind = "coffin"
 rule = "enter"
 spawn = "undead"
 
 [[tile.marker]]
-at = [30, 2, 81]
+at = [46, 2, 83]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [1, 2, 99]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [46, 2, 99]
 kind = "coffin"
 rule = "enter"
 spawn = "undead"

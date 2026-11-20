@@ -61,6 +61,7 @@ struct CharacterModel {
     std::array<std::vector<PartVertex>, BONE_COUNT> parts;   // one mesh per bone
 
     float heightIn   = 68.0f;   // standing height (inches)
+    float worldScale = 0.25f;   // inches → world voxels (× Appearance::scale: a giant)
     float rootHeight = 34.0f;   // root joint above the soles when standing straight
     float footHeight = 2.5f;    // ankle joint above the sole
     float thighLen   = 15.0f, shinLen = 15.5f;
@@ -91,6 +92,7 @@ struct CharacterModel {
     static CharacterModel build(const Appearance& c, HairMesh hairMode = HairMesh::Shards,
                                 const std::vector<GearLook>* gear = nullptr) {
         CharacterModel m;
+        m.worldScale = 0.25f * c.scale;
         using V3 = glm::vec3;
         const float H = c.heightVoxels * 4.0f;
         const float s = H / 67.4f;      // the chain below adds up to 67.4 in at s = 1
@@ -163,6 +165,57 @@ struct CharacterModel {
         auto& root = m.parts[B_ROOT];
         auto& spine = m.parts[B_SPINE];
         auto& head = m.parts[B_HEAD];
+
+        // ── A skeleton (look_bones): bones in the skin's colour ──
+        // The same skeleton and proportions, so it moves, swings and
+        // is hit like anyone; only what's drawn differs
+        if (c.skeleton) {
+            const V3 bone = skin, dark = shade(skin, 0.62f), gap = shade(skin, 0.3f);
+            // pelvis: a wide flat bowl
+            loft(root, {{pelvH * 0.1f, hipW * 0.36f, pelvD * 0.32f}, {pelvH * 0.75f, waistW * 0.46f, torsoD * 0.3f}}, 8, bone);
+            // spine: a thin column up the back, ribs round it with gaps between
+            loft(spine, {{-pelvH * 0.3f, 0.9f * s, 0.9f * s, 0, -torsoD * 0.25f}, {torsoH + neckH, 0.8f * s, 0.8f * s, 0, -torsoD * 0.15f}}, 6, dark);
+            for (int i = 0; i < 5; i++) {
+                float y = torsoH * (0.34f + i * 0.13f), w = waistW * 0.48f + (shoulderW * 0.42f - waistW * 0.48f) * (i / 4.0f);
+                loft(spine, {{y, w, torsoD * 0.45f}, {y + 0.55f * s, w, torsoD * 0.45f}}, 10, bone);
+            }
+            loft(spine, {{torsoH * 0.3f, 1.0f * s, 0.6f * s, 0, torsoD * 0.42f}, {torsoH * 0.92f, 1.0f * s, 0.6f * s, 0, torsoD * 0.42f}}, 4, bone);   // breastbone
+            for (int sx : { -1, 1 })   // collarbones
+                box(spine, {shoulderW * 0.42f, 0.7f * s, 0.8f * s}, {sx * shoulderW * 0.22f, torsoH * 0.95f, torsoD * 0.2f}, bone);
+            // skull: the head's shape, a little narrower, with a jaw
+            loft(head, {{hh * 0.06f, hw * 0.24f, hd * 0.3f, 0, hd * 0.1f}, {hh * 0.28f, hw * 0.38f, hd * 0.42f, 0, hd * 0.05f},
+                        {hh * 0.5f, hw * 0.5f, hd * 0.5f}, {hh * 0.78f, hw * 0.54f, hd * 0.52f}, {hh * 0.94f, hw * 0.42f, hd * 0.42f},
+                        {hh * 1.0f, hw * 0.2f, hd * 0.2f}}, 10, bone);
+            box(head, {hw * 0.5f, hh * 0.08f, hd * 0.1f}, {0, hh * 0.24f, hd * 0.44f}, gap);        // the line of the teeth
+            for (int sx : { -1, 1 })                                                                  // eye sockets (the face card's eyes glow in them)
+                box(head, {hw * 0.22f, hh * 0.15f, hd * 0.06f}, {sx * hw * 0.18f, m.faceCenter.y + hh * 0.06f, hd * 0.47f}, gap);
+            box(head, {hw * 0.08f, hh * 0.08f, hd * 0.06f}, {0, hh * 0.34f, hd * 0.46f}, gap);       // the nose hole
+            for (int sx : { -1, 1 }) {
+                bool L = sx > 0;
+                auto& sh = m.parts[L ? B_SHOULDER_L : B_SHOULDER_R];
+                auto& el = m.parts[L ? B_ELBOW_L : B_ELBOW_R];
+                auto& wr = m.parts[L ? B_WRIST_L : B_WRIST_R];
+                auto& hp = m.parts[L ? B_HIP_L : B_HIP_R];
+                auto& kn = m.parts[L ? B_KNEE_L : B_KNEE_R];
+                auto& an = m.parts[L ? B_ANKLE_L : B_ANKLE_R];
+                // long bones: thin shafts with knobby ends
+                auto longBone = [&](std::vector<PartVertex>& p, float len, float r) {
+                    loft(p, {{0.4f * s, r * 1.7f, r * 1.7f}, {-len * 0.12f, r, r}, {-len * 0.88f, r, r}, {-len - 0.2f * s, r * 1.6f, r * 1.6f}}, 6, bone);
+                };
+                longBone(sh, uArmL, 0.55f * s);
+                longBone(el, fArmL, 0.45f * s);
+                loft(wr, {{0, 0.9f * s, 0.5f * s}, {-handL * 0.8f, 1.0f * s, 0.4f * s}}, 5, dark);       // the hand's bones
+                longBone(hp, thighL, 0.75f * s);
+                longBone(kn, shinL, 0.6f * s);
+                float fl = 8.0f * s, fw = 3.0f * s;
+                box(an, {fw, footH * 0.4f, fl}, {0, -footH + footH * 0.2f, fl * 0.3f}, bone);
+            }
+            if (gear && !gear->empty()) {
+                auto g = gearParts(m.fit, *gear);
+                for (int b = 0; b < BONE_COUNT; b++) m.parts[b].insert(m.parts[b].end(), g[b].begin(), g[b].end());
+            }
+            return m;
+        }
 
         // pelvis
         loft(root, {{0, hipW * 0.46f, pelvD * 0.5f}, {pelvH, waistW * 0.5f, torsoD * 0.46f}}, 8, B == 0 ? skin : bot);

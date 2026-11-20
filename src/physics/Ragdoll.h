@@ -125,7 +125,7 @@ public:
             0.9f, 0.7f, 0.5f, 0.45f,
             0.9f, 0.7f, 0.5f, 0.45f,
         };
-        for (int i = 0; i < RP_COUNT; i++) radius[i] = R[i] * s;
+        for (int i = 0; i < RP_COUNT; i++) radius[i] = R[i] * s * (m.worldScale / 0.25f);
         haveModel = true;
     }
 

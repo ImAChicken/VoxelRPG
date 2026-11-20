@@ -5,6 +5,7 @@
 #include "ContextSteering.h"
 #include "VillageLife.h"
 #include "../game/Container.h"
+#include "../game/ItemRegistry.h"
 #include <glm/glm.hpp>
 #include <cmath>
 #include <cstdint>
@@ -123,6 +124,8 @@ public:
     std::string textureSet;            // look preset's own sheets (not drawn yet)
     int         faction = -1;          // FactionRegistry index
     std::string weaponItem;
+    std::string mainWeapon;
+    bool        phaseTwo = false;      // a boss past its 'phase' of health (npc/States.h bossFight)            // its type's weapon (weaponItem may be its sidearm for now)
     std::string offhandItem;           // its type's offhand (a shield: it guards with it)
     std::string offModel;              // puppets: the left hand's model, as the server says
     HumanIntent intent;
@@ -213,3 +216,18 @@ public:
         return left;
     }
 };
+
+// Put a weapon (an item name) in its right hand: its damage, its
+// moveset, its weight (for the swing's speed). false (empty-handed)
+// if there's no such item. An archer swaps its bow for its sidearm
+// and back this way (npc/States.h Combat).
+inline bool wield(Npc& n, const std::string& item) {
+    uint16_t wid = item.empty() ? 0 : gItems.find(item);
+    n.weaponItem = wid ? item : std::string();
+    if (!wid) { n.weaponDamage = 0.0f; n.moveset = nullptr; return false; }
+    const ItemDef& w = gItems.get(wid);
+    n.weaponDamage = w.damage;
+    n.moveset = gMovesets.find(w.moveset);
+    n.weaponWeight = w.weight;
+    return true;
+}

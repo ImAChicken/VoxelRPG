@@ -68,5 +68,14 @@ staff_light1    = { clip = "Sword_Regular_A", strike = [0.45, 0.65] }
 staff_light2    = { clip = "Sword_Regular_B", strike = [0.36, 0.57] }
 staff_light3    = { clip = "Sword_Regular_C", strike = [0.30, 0.38] }
 staff_sweep     = { clip = "Sword_Regular_A", strike = [0.45, 0.65] }   # low and wide (band 0-8)
+bow_quick       = { clip = "Spell_Simple_Shoot", strike = [0.35, 0.55] }   # stand-in: no bow clip in the packs yet
+bow_draw        = { clip = "Spell_Simple_Shoot", strike = [0.35, 0.55] }
+dagger_light1   = { clip = "Sword_Regular_A", strike = [0.45, 0.65] }
+dagger_light2   = { clip = "Sword_Regular_B", strike = [0.36, 0.57] }
+dagger_heavy    = { clip = "Punch_Cross",     strike = [0.17, 0.30] }
+gs_sweep        = { clip = "Sword_Regular_A", strike = [0.45, 0.65] }
+gs_backsweep    = { clip = "Sword_Regular_B", strike = [0.36, 0.57] }
+gs_slam         = { clip = "Sword_Regular_C", strike = [0.30, 0.38] }
+gs_charge       = { clip = "Sword_Dash",      strike = [0.16, 0.26] }
 windburst_cast  = { clip = "Spell_Simple_Shoot", strike = [0.35, 0.55] }   # both hands thrust out: the wind goes
 ice_spike_cast  = { clip = "Spell_Simple_Shoot", strike = [0.35, 0.55] }   # the spike leaves the hands

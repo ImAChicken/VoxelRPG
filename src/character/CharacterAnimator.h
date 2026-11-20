@@ -67,7 +67,7 @@ struct Pose {
 inline glm::mat4 characterRoot(const CharacterModel& model, const Pose& p, glm::vec3 feet) {
     glm::mat4 m = glm::translate(glm::mat4(1.0f), feet);
     m = glm::rotate(m, glm::radians(90.0f - p.bodyYaw), glm::vec3(0, 1, 0));   // model +Z forward; yaw 0 faces +X
-    m = glm::scale(m, glm::vec3(0.25f));                                       // inches → world voxels
+    m = glm::scale(m, glm::vec3(model.worldScale));                            // inches → world voxels (a giant: more)
     if (p.spinPitch != 0.0f) {
         float mid = model.heightIn * 0.35f;
         m = glm::translate(m, glm::vec3(0, mid, 0));

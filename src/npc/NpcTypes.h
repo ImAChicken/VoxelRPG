@@ -45,6 +45,9 @@ struct NpcType {
     std::string look;
     std::string weapon;
     std::string offhand;               // left hand: a shield (items.toml shield = …) it guards with
+    // A second weapon it switches to when an enemy is on top of it
+    // (an archer's dagger: style "ranged")
+    std::string sidearm;
     // How it sounds (audio/Voice.h): npcs.toml voice = { … }. Each NPC
     // of the type a little different (voice_vary). None given: a person
     // uses their look's voice. barks: short lines it says on its own —
@@ -83,7 +86,22 @@ struct NpcType {
     //            rest stand back watching (bandits, guards)
     //   pack     two at a time, quick turns (wolves)
     //   horde    many at once, no turns, pressing in close (undead)
+    //   ranged   keeps its distance and shoots (a bow); backs off from
+    //            anyone too close, and with its back to a wall (or
+    //            caught very close) fights with its sidearm
     std::string style = "duelist";
+    // ranged: the distance it shoots from (vox), how long it holds
+    // the draw (s: the telegraph; a full draw is about 1.5) and the
+    // pause between shots
+    float rangeMin = 22.0f, rangeMax = 70.0f;
+    // A boss (boss = true: a health bar while you fight it; style
+    // "boss" picks its moves by distance): below 'phase' of its health
+    // its second phase (phase_speed × its attack speed; the arena's
+    // phase-two coffins open: dungeon/Run.h)
+    bool  boss = false;
+    float phase = 0.5f, phaseSpeed = 1.25f;
+    float drawMin = 0.8f, drawMax = 1.5f;
+    float shotGapMin = 0.8f, shotGapMax = 1.8f;
     int   attackers = 1;                     // how many of its style attack one target at once
     float gapMin = 0.8f, gapMax = 1.5f;      // s after an attack ends before the next may start
     float engageDist = 9.0f, holdDist = 24.0f;   // vox from the target: attacking, waiting a turn
@@ -232,7 +250,17 @@ public:
                     d->style = t["style"].value_or(std::string("duelist"));
                     if (d->style == "pack")       { d->attackers = 2; d->gapMin = 0.3f; d->gapMax = 0.7f; d->engageDist = 9.0f; d->holdDist = 18.0f; }
                     else if (d->style == "horde") { d->attackers = 5; d->gapMin = 0.0f; d->gapMax = 0.0f; d->engageDist = 7.0f; d->holdDist = 10.0f; }
+                    else if (d->style == "boss") {}
+                    else if (d->style == "ranged") { d->attackers = 3; d->gapMin = 0.0f; d->gapMax = 0.0f; d->holdDist = 40.0f; }
                     else d->style = "duelist";
+                    pair(t["range"], d->rangeMin, d->rangeMax);
+                    pair(t["draw"], d->drawMin, d->drawMax);
+                    pair(t["shot_gap"], d->shotGapMin, d->shotGapMax);
+                    d->sidearm = t["sidearm"].value_or(std::string());
+                    d->boss = t["boss"].value_or(false);
+                    d->phase = (float)t["phase"].value_or(0.5);
+                    d->phaseSpeed = (float)t["phase_speed"].value_or(1.25);
+                    if (d->style == "boss") { d->attackers = 1; d->gapMin = 0.0f; d->gapMax = 0.0f; }
                     d->attackers = std::max(1, (int)t["attackers"].value_or((int64_t)d->attackers));
                     pair(t["attack_gap"], d->gapMin, d->gapMax);
                     d->engageDist = (float)t["engage_dist"].value_or((double)d->engageDist);

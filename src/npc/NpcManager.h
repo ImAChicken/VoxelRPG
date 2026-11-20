@@ -50,15 +50,14 @@ public:
         else n->appearance = Appearance::random(n->lookSeed);
         n->name = t->name;
         n->faction = gFactions.find(t->faction);
+        // a giant (look_scale): bigger every way, and heavier by the cube
+        const float sc = n->appearance.scale;
         n->setBodyMass(BodyMass::bodyKgFor(n->appearance.build, n->appearance.heightVoxels, n->appearance.shoulders,
-                                           n->appearance.chest, n->appearance.hips, n->appearance.limbs));
-        n->weaponItem = t->weapon;
-        if (uint16_t wid = t->weapon.empty() ? 0 : gItems.find(t->weapon)) {
-            const ItemDef& w = gItems.get(wid);
-            n->weaponDamage = w.damage;
-            n->moveset = gMovesets.find(w.moveset);
-            n->weaponWeight = w.weight;
-            n->body.addGear(SEG_HAND_R, w.weight);
+                                           n->appearance.chest, n->appearance.hips, n->appearance.limbs) * sc * sc * sc);
+        if (sc != 1.0f) n->setScale(sc);
+        n->mainWeapon = t->weapon;
+        if (wield(*n, t->weapon)) {
+            n->body.addGear(SEG_HAND_R, n->weaponWeight);
             n->mass = n->body.total();
         }
         n->maxHealth = n->health = t->health;
@@ -171,7 +170,10 @@ public:
     // Nothing to move it: on the ground, not trying to go anywhere,
     // not moving, not hit, not swinging, not ragdolled
     static bool restingStill(const Npc& n) {
+        // (an attack asked for from a standstill must reach physics: the
+        // archer's draw, a boss's swing, anything that attacks standing)
         return n.grounded && !n.dead() && n.intent.move == glm::vec2(0.0f) && !n.intent.jump && !n.intent.dodge &&
+               !n.intent.attackLight && !n.intent.attackHeavy && !n.intent.special && !n.intent.useItem && !n.intent.guard &&
                glm::dot(n.velocity, n.velocity) < 1e-4f && n.hits.empty() && !n.attack.active() && !n.ragdoll.simulating() &&
                !n.flying && n.freeze == Human::Freeze::None;
     }

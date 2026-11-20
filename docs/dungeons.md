@@ -288,9 +288,8 @@ they're the core of the gameplay loop. Drops and loot come later.
 
 - **The undead** (exist, horde style): the crypt's crowd.
 - **decided: a skeleton archer.** The same human body as everyone,
-  with new skeleton textures (bones, empty eye sockets). NPC texture
-  sets, drawn by the renderer, are needed for that, and the undead
-  can use them too.
+  built as bones (`Appearance::skeleton`: thin limbs, ribs, a skull
+  with eye sockets) instead of with textures.
   - Keeps its distance: a ring at range around its target. It backs
     off when you close in, and swings a dagger if cornered.
   - Draws with a clear wind-up (the telegraph), aims where you're
@@ -379,10 +378,86 @@ they're the core of the gameplay loop. Drops and loot come later.
        the NPC pathfinder.
 3. **Contents:** spawner markers with their rules, secret walls,
    lights, chests (empty).
+   - **Done (2026-11-20):** `dungeon/Run.h`, run by the game or the
+     server in a Dungeon world:
+     - Spawners fire once, by their rule (`enter`: a player steps into
+       their tile; `sight`: within 56 voxels on their level; `boss`:
+       with the boss; `wave`: as enter for now).
+     - Coffins burst as you pass within 22 voxels.
+     - The boss marker raises the boss when its arena is entered (a
+       stand-in `crypt_lord` in npcs.toml until step 5).
+     - Chests are put down, empty, facing into the room.
+     - Secret walls break after 4 light hits (a heavy counts double),
+       knocking chunks out as they go.
+     - What happened is kept in `dungeon.dat`.
+     - Lights: chandeliers and braziers in the big starter rooms, and
+       a gentler light fade (Settings > Graphics > Light fade:
+       Classic / Gentle).
+   - Not yet: `wave` as its own rule (after the room's last group
+     falls); the portal and exit markers (steps 5 and 6).
 4. **Ranged combat:** arrows as projectiles, the player's bow, the
    skeleton archer.
+   - **Done (2026-11-20):**
+     - Arrows (`Simulation::shoot`, attacks with `effect = "arrow"`):
+       real projectiles that fall, hit through `combat::shotHit` (a
+       reaction like a swing's: flinch, a full draw stumbles; a guard
+       facing it stops it; a roll passes through, a perfect dodge
+       counts), and stick in walls for 30 s. The player aims along
+       the crosshair (`Human::aimPitch`, sent up with each input), with
+       a 6° pull toward an enemy near the line; an NPC leads its target.
+       The draw sets speed, reach, damage and poise.
+     - The bow (`short_bow`, moveset `bow`): light a quick shot, heavy
+       held to draw (charge), a dodge cancels it, you walk at 40%
+       while drawing. The `bone_dagger` (moveset `dagger`). Held
+       models from `tools/gen_held_models.py`. Get them with
+       `give short_bow`.
+     - The skeleton archer (`skeleton_archer`, style `ranged`,
+       `npc/States.h` `Combat::rangedFight`): keeps 24-75 voxels off
+       with a clear line, backs off when you close in, holds its
+       draw 0.9-1.5 s (the outline's charge glow is the telegraph),
+       and pulls its dagger when caught close or backed into a wall.
+       Spawners in `room_hall` and `room_pillars`.
+     - Its look: `Appearance::skeleton` (`look_bones`) builds bones on
+       the same frame instead of a body, so no texture sets were
+       needed; preset `skeleton`.
+     - `bow_test`.
+   - **Not yet:** a real bow animation (the spell-cast clip stands in),
+     arrows as items, sounds for the bow, lock-on lead for the
+     player. In multiplayer only the host's own simulation draws
+     arrows; clients don't see them in flight yet.
 5. **The boss:** the Crypt Lord, its arena tile, the boss health bar,
    the completion trigger.
+   - **Done (2026-11-20):**
+     - Giants: `look_scale` (`Appearance::scale`) sets
+       `CharacterModel::worldScale`, so the drawn body, its posed hit
+       boxes, its weapon and its ragdoll all grow; `Human::scale` /
+       `setScale` / `radius()` grow its collision, eyes and steps. Mass
+       goes by the cube.
+     - The Crypt Lord (`crypt_lord`, look `crypt_lord`: 1.6x, 900
+       health, armour 2, `boss = true`) with the `crypt_greatsword`
+       (moveset `greatsword`): two wide sweeps, an overhead slam whose
+       blade hits and then sends a shockwave along the ground
+       (`effect = "shockwave"`, `Simulation::quake`: jump it, roll it or
+       guard it), and a charge from afar (`specials`, started by name
+       through `HumanIntent::special`).
+     - Its brain (`style = "boss"`, `Combat::bossFight`): moves picked by
+       distance, slow walking in between, never guards or rolls. Below
+       half health (`phase`): a roar, faster attacks (`phase_speed`,
+       `Human::attackSpeed`), shorter pauses, more combos.
+     - The arena (`dungeon/Run.h`): iron bars drop across its doorway
+       while the boss lives and someone is inside (they lift if
+       everyone's out for 2 s, so a death never locks you out); two
+       coffins open with the boss and four more in its second phase
+       (marker rule `phase`); when it dies the dungeon is cleared
+       (saved), the bars lift for good and the exit glows.
+     - The boss health bar across the top of the screen (with its
+       phase mark and the health just lost).
+     - `boss_test`, and the arena in `dungeon_test`. `tile_test` now
+       fails if `data/dungeons/crypt/tiles` is older than the starter
+       set (`tile_test write` updates it).
+   - **Not yet:** its own animations (the sword clips stand in); a
+     grab; the exit portal itself and the instance's last 5 minutes
+     (step 6).
 6. **Worlds:** realm saves, `WorldInstance`, the portal at spawn (with
    the world generation option), travel with a fade, instances
    (create, timer, close, delete, respawn at the entrance).

@@ -35,7 +35,7 @@
 namespace dungeon {
 
 struct LayoutParams {
-    glm::ivec3 grid{ 64, 16, 64 };      // half cells (1024 x 256 x 1024 voxels)
+    glm::ivec3 grid{ 112, 20, 112 };    // half cells (1792 x 320 x 1792 voxels)
     int  topFloor  = 9;                 // grid y of the first level's floor
     int  levelStep = 2;                 // half cells down per level (a stair's drop)
     int  levels    = 2;

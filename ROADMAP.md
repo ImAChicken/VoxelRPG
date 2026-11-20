@@ -4,6 +4,29 @@ Living list of planned work. Sections marked **Tabled** are agreed
 ideas parked for later; add to them as new ideas come up.
 
 ## Recently done
+- The first boss, step 5 of `docs/dungeons.md` (2026-11-20):
+  - Giant bodies: `look_scale` makes a person bigger in every way (drawn, hit, collision, ragdoll, weapon, steps, mass).
+  - The Crypt Lord: 1.6x, a greatsword with wide sweeps, a slam whose shockwave runs along the ground (jump it), a charge from afar; a faster second phase below half health.
+  - The arena bars its doorway during the fight, opens more coffins in phase two, and clears the dungeon when the boss dies (saved; the exit glows).
+  - A boss health bar across the top of the screen.
+  - Fixed: an NPC standing still dropped an attack it asked for (its physics was skipped while resting).
+  - `boss_test`; `tile_test` catches stale tile data.
+- Ranged combat, step 4 of `docs/dungeons.md` (2026-11-20):
+  - Arrows: real projectiles with gravity, reactions like swings (a full draw stumbles), blocked by a guard, dodged by a roll, stuck in walls.
+  - The short bow: light a quick shot, heavy held to draw; aims where the crosshair is; a dodge cancels the draw; slow walking while drawn. A bone dagger.
+  - The skeleton archer: bones on the human frame (`look_bones`), keeps its distance and shoots with a telegraphed draw, leads you, backs off, pulls a dagger when cornered. In the hall and pillar rooms.
+  - `bow_test`.
+- Known (2026-11-20): sky specks still show through dungeon walls at night (stars behind pinholes; Eddie's screenshot), and from inside the rock above the dungeon you see through it. Options: no sky in enclosed worlds (per-world sky, black); a screen-space pinhole fill (a sky pixel walled in by near depth on both sides takes its neighbour's colour); T-junction-free meshing; keeping the camera out of solid voxels (and a dark screen when the eye is inside one).
+- Bigger dungeon rooms (2026-11-20): the starter rooms are 64-128 voxels across (the arena 128), the layout grid 112 x 20 x 112.
+- Dungeon contents, step 3 of `docs/dungeons.md` (2026-11-20): `dungeon/Run.h` brings a Dungeon world's markers alive.
+  - Spawners by rule (enter / sight / boss), coffins bursting as you pass, the boss (a stand-in `crypt_lord`) when its arena is entered, empty chests put down.
+  - Secret walls that crumble after 4 light hits (a heavy counts double).
+  - Kept in `dungeon.dat`; run by the game or the server, never a client.
+- Light (2026-11-20):
+  - Settings > Graphics > Light fade: Gentle (the new default) carries torch light out to its full baked reach instead of fading out at two-thirds; Classic is the old squared curve.
+  - Chandeliers and braziers in the big starter rooms.
+  - `light_bench` profiles the bake: a longer baked reach costs about 2x at 2x reach, 3-6x at 4x, plus 25-95 MB per worker thread. Real-time lights are the plan for long reach.
+- Pinholes (2026-11-20): specks of sky showed through walls where merged faces meet (T-junctions). Each corner of a merged face now carries which way its edges run (`ChunkVertex::pad1`), and `chunk.vert` nudges it a hair outward, more with distance.
 - Dungeon generator, step 2 of `docs/dungeons.md` (2026-11-20):
   - `dungeon/Layout.h` grows a crypt from the tiles: portal room, a main path of 7-9 rooms with corridors between, down a stair halfway, the boss's arena at the end, 3-5 side rooms, dead ends on spare doors. Every tile agrees with its neighbours' sockets (the WFC rule), with backtracking and retries.
   - The Dungeon world type (New World > Type: Dungeon, with a map of the layout): solid rock with the dungeon through it; you arrive in the portal room.

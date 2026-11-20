@@ -14,6 +14,8 @@
 #include "TestWorld.h"
 #include "worldgen/DungeonGenerator.h"
 #include "npc/Pathfinder.h"
+#include "dungeon/Run.h"
+#include "game/CombatMoves.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -46,7 +48,7 @@ static void printMap(const Layout& L) {
 }
 
 int main(int argc, char** argv) {
-    if (!loadData()) { std::printf("can't load data (run from the repo root)\n"); return 1; }
+    if (!loadData() || !gStructures.load("data/registry/structures.toml")) { std::printf("can't load data (run from the repo root)\n"); return 1; }
     TileSet set;
     std::string why;
     int n = set.load("crypt", &why);
@@ -203,6 +205,144 @@ int main(int argc, char** argv) {
         check(legs == (int)L.mainPath.size() - 1 && walked == legs,
               "from the portal room to the boss on foot: " + std::to_string(walked) + "/" + std::to_string(L.mainPath.size() - 1) + " steps" +
               (stuck.empty() ? "" : " (stuck: " + stuck + ")"));
+    }
+
+    std::printf("coming alive (dungeon/Run.h)\n");
+    {
+        // a seed whose crypt has a secret room, to break its wall too
+        uint64_t seedWith = 77;
+        for (uint64_t sd = 77; sd < 300; sd++) {
+            Layout t;
+            if (!t.generate(set, sd)) continue;
+            bool secret = false;
+            for (auto& pt : t.tiles) secret = secret || t.variantOf(pt).tile->name == "side_secret";
+            if (secret) { seedWith = sd; break; }
+        }
+        DungeonGenerator gen(seedWith, DungeonGenerator::SIZE_CHUNKS);
+        const Layout& L = gen.dungeonLayout();
+        ChunkManager chunks;
+        glm::ivec3 lo(1 << 30), hi(-(1 << 30));
+        for (const auto& t : L.tiles) { lo = glm::min(lo, gen.worldOf(t)); hi = glm::max(hi, gen.worldOf(t) + L.variantOf(t).vol.size); }
+        for (int cx = lo.x / VOXEL_DIM; cx <= (hi.x - 1) / VOXEL_DIM; cx++)
+            for (int cz = lo.z / VOXEL_DIM; cz <= (hi.z - 1) / VOXEL_DIM; cz++) chunks.setChunk(cx, cz, gen.generateChunk(cx, cz));
+        VoxelPhysics phys; phys.init(chunks);
+        WorldEditor editor(chunks);
+        StructureManager structs(chunks, editor, gen);
+        ChestStore chests;
+        Simulation sim;
+        sim.attachWorld(&phys, nullptr);
+        sim.roaming.enabled = false;
+        Player& p = sim.addPlayer();
+        p.setMode(GameMode::Survival);
+        p.position = glm::vec3(gen.spawnPoint(DungeonGenerator::SIZE_CHUNKS, DungeonGenerator::SIZE_CHUNKS));
+        dungeon::Run run(gen);
+        auto tickAt = [&](glm::vec3 at) {
+            p.position = at;
+            auto fx = run.tick({ &p }, sim, chunks, structs, chests, editor);
+            editor.flush();
+            return fx;
+        };
+        auto inside = [&](int tile) {
+            const auto& t = L.tiles[(size_t)tile];
+            return glm::vec3(gen.worldOf(t)) + glm::vec3(L.variantOf(t).vol.size) * glm::vec3(0.5f, 0.0f, 0.5f) + glm::vec3(0, FLOOR, 0);
+        };
+        tickAt(p.position);
+        int chestsWanted = 0, chestsMade = 0;
+        for (auto& sp : run.allSpots()) if (sp.m.kind == "chest") { chestsWanted++; chestsMade += sp.done; }
+        check(sim.npcs().all().empty(), "in the portal room: nothing has spawned");
+        check(chestsWanted > 0 && chestsMade == chestsWanted, "the chests are put down (" + std::to_string(chestsMade) + "/" + std::to_string(chestsWanted) + ")");
+        int structsCount = 0; structs.forEachInstance([&](const StructureInstance&) { structsCount++; });
+        check(structsCount >= chestsWanted, "as real chests in the world");
+        // walk the main path: rooms with spawners fill as they're entered
+        int roomWith = -1;
+        for (int t : L.mainPath) for (auto& sp : run.allSpots()) if (sp.tile == t && sp.m.kind == "spawner" && roomWith < 0) roomWith = t;
+        size_t before = sim.npcs().all().size();
+        tickAt(inside(roomWith));
+        size_t after = sim.npcs().all().size();
+        check(after > before, "stepping into a room with a spawner: its dead appear (" + std::to_string(after - before) + ")");
+        tickAt(inside(roomWith));
+        check(sim.npcs().all().size() == after, "only once");
+        // the boss's arena: the boss (and its coffins)
+        before = sim.npcs().all().size();
+        auto fx = tickAt(inside(L.boss));
+        bool lord = false;
+        for (auto& n : sim.npcs().all()) lord = lord || n->typeId == "crypt_lord";
+        check(lord && sim.npcs().all().size() > before + 1, "into the arena: the Crypt Lord rises, and its coffins open");
+        // saved and loaded: done stays done
+        std::filesystem::path dir = std::filesystem::temp_directory_path() / "voxelrpg_dungeon_test";
+        std::filesystem::create_directories(dir);
+        run.save(dir.string());
+        dungeon::Run again(gen);
+        again.load(dir.string());
+        int same = 0, total = 0;
+        for (size_t i = 0; i < run.allSpots().size(); i++) { total++; same += run.allSpots()[i].done == again.allSpots()[i].done; }
+        check(same == total && again.wasEntered(L.boss), "what happened is saved (dungeon.dat)");
+        std::filesystem::remove_all(dir);
+        // the arena: barred while the boss lives and someone's inside
+        {
+            Npc* lordNpc = nullptr;
+            for (auto& n : sim.npcs().all()) if (n->typeId == "crypt_lord") lordNpc = n.get();
+            const auto& bars = run.barVoxels();
+            auto barsUp = [&] { int n = 0; for (auto& v : bars) n += chunks.typeAtVoxel(v.x, v.y, v.z) == gRegistry.getIDByName("iron_block"); return n; };
+            check(!bars.empty() && run.isBarred() && barsUp() > (int)bars.size() / 2,
+                  "the arena's doorway is barred while the Crypt Lord lives (" + std::to_string(barsUp()) + " bars)");
+            check(lordNpc && std::fabs(lordNpc->scale - 1.6f) < 0.01f && lordNpc->height > 25.0f, "  the Crypt Lord: a giant (" + std::to_string(lordNpc ? lordNpc->height : 0.0f).substr(0, 4) + " voxels tall)");
+            // its second phase: the other coffins
+            size_t before2 = sim.npcs().all().size();
+            if (lordNpc) { lordNpc->phaseTwo = true; }
+            fx = tickAt(inside(L.boss));
+            check(sim.npcs().all().size() > before2, "  its second phase opens more coffins (" + std::to_string(sim.npcs().all().size() - before2) + ")");
+            // everyone out (dead, back at the portal): the bars lift
+            glm::vec3 away = inside(L.mainPath[0]);
+            for (int i = 0; i < 3 * 60; i++) { p.position = away; run.tick({ &p }, sim, chunks, structs, chests, editor); editor.flush(); }
+            check(!run.isBarred() && barsUp() == 0, "  with nobody left inside, the bars lift");
+            tickAt(inside(L.boss));
+            check(run.isBarred(), "  back in: barred again");
+            // it falls: cleared
+            if (lordNpc) { lordNpc->health = 0.0f; }
+            bool said = false;
+            for (auto& e : tickAt(inside(L.boss))) said = said || e.line.find("falls") != std::string::npos;
+            check(run.isCleared() && said, "the Crypt Lord falls: the dungeon is cleared");
+            check(!run.isBarred() && barsUp() == 0, "  and the bars lift for good");
+            std::filesystem::create_directories(dir);
+            run.save(dir.string());
+            dungeon::Run third(gen);
+            third.load(dir.string());
+            check(third.isCleared(), "  cleared is saved");
+            std::filesystem::remove_all(dir);
+        }
+        // a secret wall: hit it until it breaks
+        check(!run.allWalls().empty(), "seed " + std::to_string(seedWith) + " has a secret wall");
+        if (!run.allWalls().empty()) {
+            const auto& w = run.allWalls()[0];
+            glm::ivec3 b0 = w.blocks[0];
+            check(chunks.typeAtVoxel(b0.x, b0.y, b0.z) != BLOCK_AIR, "a secret wall stands in the world");
+            // stand in front of it, facing it
+            glm::vec3 c = w.centre;
+            glm::vec3 dir(0.0f);
+            for (int d = 0; d < 4; d++) {
+                glm::vec3 probe = c + glm::vec3(dirStep(d)) * 6.0f;
+                if (chunks.typeAtVoxel((int)probe.x, (int)c.y, (int)probe.z) == BLOCK_AIR) { dir = glm::vec3(dirStep(d)); break; }
+            }
+            glm::vec3 stand = glm::vec3(c.x, 0.0f, c.z) + dir * 6.0f;
+            stand.y = (float)(gen.worldOf(L.tiles[(size_t)w.tile]).y + FLOOR);
+            int swings = 0;
+            p.inventory.setSlot(Inventory::FIRST_MAIN, gItems.find("iron_sword"), 1);
+            p.inventory.select(Inventory::FIRST_MAIN);
+            while (!run.allWalls()[0].broken && swings < 10) {
+                p.facing = -dir;
+                p.attack = AttackState();
+                p.moveset = gMovesets.find("sword");
+                combat::beginAttack(p, AttackKind::Light);
+                p.attack.t = p.attack.def().activeStart + 0.01f;
+                tickAt(stand);
+                p.attack = AttackState();
+                tickAt(stand);
+                swings++;
+            }
+            check(run.allWalls()[0].broken, "a secret wall breaks after " + std::to_string(swings) + " lights");
+            check(chunks.typeAtVoxel(b0.x, b0.y, b0.z) == BLOCK_AIR, "and the way is open");
+        }
     }
 
     std::printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);

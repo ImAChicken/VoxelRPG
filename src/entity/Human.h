@@ -49,8 +49,11 @@ struct HumanIntent {
     // off hand (game/CombatKit.h); plays the item's 'cast' attack.
     // The simulation checks the player really carries it.
     uint16_t useItem = 0;
+    // An attack by name from the moveset's specials (one-shot; NPCs:
+    // a boss's charge). Not sent over the network
+    const AttackDef* special = nullptr;
 
-    void clearOneShots() { jump = false; dodge = false; attackLight = false; attackHeavy = false; useItem = 0; }
+    void clearOneShots() { jump = false; dodge = false; attackLight = false; attackHeavy = false; useItem = 0; special = nullptr; }
 };
 
 class Human : public Entity {
@@ -156,6 +159,18 @@ public:
     // to hit, has no ragdoll (hits just push it) and gets about
     // by hopping (VoxelPhysics::hopTick)
     float standHeight = STAND_HEIGHT;  // collision height standing
+    // How big the body is against an ordinary person (a giant boss:
+    // 1.6). Its collision width and height, eyes, model and weapon
+    // all grow with it (Appearance::scale is the look's side of it)
+    float scale = 1.0f;
+    float attackSpeed = 1.0f;          // × how fast its attacks play (a boss's second phase)
+    float radius() const { return RADIUS * scale; }
+    void setScale(float s) {
+        scale = s;
+        standHeight = height = STAND_HEIGHT * s;
+        hitRadius = RADIUS * s;
+        eyeHeight = STAND_EYE * s;
+    }
     float hitRadius   = RADIUS;        // half width of its hit box when it has no limbs
     float hitHeight   = 0.0f;          // how tall that box is (0: its height). A slime's is taller than
                                        // it is: swings at a person's height still meet it
@@ -195,6 +210,9 @@ public:
     //   stamina       spent by attacks, dodges and blocking;
     //                 comes back after a short pause
     float       weaponDamage = 0.0f;
+    // degrees up (+) or down the body aims (a player: the camera's
+    // pitch; bows shoot along it). NPCs aim at their target instead
+    float       aimPitch = 0.0f;
     const Moveset* moveset = nullptr;      // the weapon's (game/Combat.h); nullptr: can't attack
     float       weaponWeight = 0.0f;       // kg, bends the moveset (combat::weightScales)
     // poise: hits wear it down; broken = stagger / knockdown

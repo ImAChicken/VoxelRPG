@@ -428,6 +428,55 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
     return ev;
 }
 
+// A shot (an arrow) landing on a body: as land() but from a flying
+// thing, so no attacker body is needed (it may be gone). A guard
+// held facing the shot takes it (stamina, no damage; no parry); a
+// rolling body it passes through (returns false). 'r' is what it
+// does to the body (a full draw: Stumble), against the body's
+// armor like a swing; poise still wears down.
+inline bool shotHit(Human& b, uint64_t attacker, float dmg, float poiseDmg, float knock, React r,
+                    float charge, glm::vec3 point, glm::vec3 dir, HitEvent& ev) {
+    if (invulnerable(b)) return false;
+    ev = HitEvent();
+    ev.attacker = attacker; ev.target = b.uuid; ev.kind = AttackKind::Shot;
+    ev.point = point; ev.charge = charge;
+    glm::vec3 flat(dir.x, 0.0f, dir.z);
+    flat = glm::length(flat) > 1e-3f ? glm::normalize(flat) : glm::vec3(0, 0, 1);
+    ev.dir = flat;
+    glm::vec2 bf(b.facing.x, b.facing.z);
+    const Human::GuardStyle& gs = b.guardStyle;
+    bool facing = glm::length(bf) > 1e-3f && glm::dot(glm::normalize(bf), -glm::vec2(flat.x, flat.z)) > gs.facing;
+    if (b.guarding && facing) {
+        ev.blocked = true;
+        float cost = dmg * (1.0f - gs.keep) * GUARD_COST * gs.cost;
+        if (!b.infiniteStamina) { b.stamina -= cost; b.staminaWait = STAMINA_DELAY; }
+        if (b.stamina < 0.0f) { b.stamina = 0.0f; ev.guardBroken = true; startReaction(b, React::Stumble, flat, point, -1.0f, 0.0f, ev); }
+        ev.damage = 0.0f;
+        b.hitStop = std::max(b.hitStop, HITSTOP_LIGHT * HITSTOP_BLOCKED);
+        return true;
+    }
+    b.health = std::max(0.0f, b.health - dmg);
+    ev.damage = dmg;
+    b.combo = 0;
+    bool armoredNow = b.attack.active() && b.attack.armored();
+    b.sincePoiseHit = 0.0f;
+    if (!armoredNow) b.poise -= poiseDmg;
+    if (b.poise <= 0.0f) {
+        ev.poiseBroken = true;
+        b.poise = b.maxPoise;
+        if (reactTier(r) < reactTier(React::Stumble)) r = React::Stumble;
+    }
+    float k = 0.0f;
+    if (b.dead()) { ev.knockedDown = ev.killed = true; k = std::max(knock, KNOCKDOWN_KNOCK); b.attack = AttackState(); b.ragdoll.stayDown = true; }
+    else if (ev.poiseBroken || (!armoredNow && reactTier(r) > b.armor)) k = startReaction(b, r, flat, point, -1.0f, charge, ev);
+    else k = std::min(knock, FLINCH_KNOCK);
+    knockBody(b, point, flat, 0.1f, k);
+    b.sinceHurt = 0.0f;
+    b.lastHitBy = attacker;
+    b.hitStop = std::max(b.hitStop, HITSTOP_LIGHT * (1.0f + 0.5f * charge));
+    return true;
+}
+
 // Every attack in its active window against every other body
 // canHit(attacker, target): false skips the pair (an NPC's swing
 // passes through its friends)
@@ -444,7 +493,7 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
         if (!a || !a->attack.active() || a->dead()) continue;
         AttackState& st = a->attack;
         if (st.kind == AttackKind::AirHeavy && !st.landed) continue;   // only the slam hits
-        if (!st.def().effect.empty()) continue;                         // a spell: its effect does the work (Simulation::castEffects)
+        if (!st.def().blade) continue;                         // a spell: its effect does the work (Simulation::castEffects)
         float t0 = st.prevT, t1 = st.t;
         // the blade: posed, with a weapon model (not the slam)
         hitshape::Posed pa;
@@ -501,11 +550,11 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
 // that overlap are pushed apart (by mass), where there is room.
 // fits(position) says a body could stand there.
 inline void separate(const std::vector<Human*>& bodies, const std::function<bool(glm::vec3)>& fits) {
-    const float minD = Human::RADIUS * 2.0f;
     for (size_t i = 0; i < bodies.size(); i++)
         for (size_t j = i + 1; j < bodies.size(); j++) {
             Human& a = *bodies[i];
             Human& b = *bodies[j];
+            const float minD = a.radius() + b.radius();
             if (a.ragdoll.controlsLocked() || b.ragdoll.controlsLocked()) continue;   // a fallen body is a ragdoll
             if (a.flying || b.flying) continue;
             glm::vec3 d = b.position - a.position;

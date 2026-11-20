@@ -160,6 +160,7 @@ public:
             f1("uTime", (float)std::fmod(now, 3600.0));
             glUniform3f(glGetUniformLocation(p, "uWind"), w.dir.x, w.dir.y, w.strength);
             glUniform1i(glGetUniformLocation(p, "uPlantStyle"), gSettings.plantStyle);
+            glUniform1i(glGetUniformLocation(p, "uLightCurve"), gSettings.lightCurve);
             // water: moving along its flow (world/LightBake.h flow), or plain
             glUniform1i(glGetUniformLocation(p, "uFlow"), 3);
             glUniform1i(glGetUniformLocation(p, "uWaterStyle"), gSettings.waterStyle);
