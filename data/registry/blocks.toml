@@ -1469,3 +1469,80 @@ opacity = "full"
 flags = ["solid", "destructible"]
 on_destroy = 0
 color = [0.53, 0.14, 0.13]
+
+# ── Dungeon tile markers (dungeon/Tile.h, docs/dungeons.md) ──
+# Placed in a tile like any block; each becomes the real thing when the
+# tile is put in a dungeon (a spawner, a chest, the portal …) and
+# vanishes. Their settings (what a spawner spawns) are kept in the
+# tile's [[tile.marker]] list. Bright, so they're easy to see in the
+# workshop
+
+[[block]]
+id = 135
+name = "marker_spawner"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.85, 0.15, 0.15]
+
+[[block]]
+id = 136
+name = "marker_chest"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.85, 0.65, 0.10]
+
+[[block]]
+id = 137
+name = "marker_portal"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.55, 0.25, 0.95]
+
+[[block]]
+id = 138
+name = "marker_exit"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.20, 0.85, 0.95]
+
+[[block]]
+id = 139
+name = "marker_boss"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.95, 0.10, 0.55]
+
+[[block]]
+id = 140
+name = "marker_coffin"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.45, 0.30, 0.20]
+
+[[block]]
+id = 141
+name = "marker_secret"
+material = "stone"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.55, 0.55, 0.50]

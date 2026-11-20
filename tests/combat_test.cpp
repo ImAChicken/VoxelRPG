@@ -88,7 +88,9 @@ int main() {
         check(ev.size() == 1, "hits the body in front exactly once (" + std::to_string(ev.size()) + ")");
         check(std::fabs(b.health - 88.0f) < 0.01f, "for the weapon's damage (" + std::to_string(b.health) + ")");
         float sp = hitSpeed(b);
-        check(sp > 1.0f && sp <= combat::FLINCH_KNOCK + 0.01f, "poise holds: only a flinch (" + std::to_string(sp) + ")");
+        check(ev.size() == 1 && ev[0].react == React::Flinch && b.react == React::Flinch && b.hitstun > 0.2f,
+              "a regular body reacts: a flinch, stuck in it (" + std::to_string(b.hitstun) + " s)");
+        check(sp > 1.0f && sp < Ragdoll::KNOCKDOWN_DV, "its limbs give way, it doesn't fall (" + std::to_string(sp) + ")");
         check(std::fabs(b.poise - (combat::POISE_BASE - atk(AttackKind::Light).poise)) < 0.01f, "and wears poise down");
         check(!a.attack.active(), "and ends");
     }
@@ -133,12 +135,15 @@ int main() {
         auto ev = runFor(1.3f, {&a, &b}, {press(false, true)});
         check(a.attack.kind == AttackKind::None && ev.size() == 1, "one heavy, one hit");
         check(std::fabs(b.health - (100.0f - 12.0f * atk(AttackKind::Heavy).damage)) < 0.01f, "hits harder");
-        check(hitSpeed(b) >= Ragdoll::KNOCKDOWN_DV, "breaks a plain body's poise and knocks it down (" + std::to_string(hitSpeed(b)) + ")");
+        check(b.react == React::Launch && b.pendingLift > 10.0f && hitSpeed(b) < Ragdoll::KNOCKDOWN_DV,
+              "the sword's heavy launches a plain body (" + std::to_string(b.pendingLift) + " vox/s up)");
         Human c, t;
         stand(c, {0, 0, 0}, F); stand(t, {0, 0, -8}, -F);
-        t.poise = t.maxPoise = 60.0f;                      // a tough one
+        t.poise = t.maxPoise = 60.0f;                      // a tough one, armored against stumbles
+        t.armor = 3;
         runFor(1.3f, {&c, &t}, {press(false, true)});
-        check(hitSpeed(t) <= combat::FLINCH_KNOCK + 0.01f && t.poise > 0.0f, "a tough body's poise holds: no knockdown");
+        check(hitSpeed(t) <= combat::FLINCH_KNOCK + 0.01f && t.poise > 0.0f && t.react == React::None,
+              "an armored body with poise left shrugs it off: no reaction");
     }
 
     std::printf("poise\n");
@@ -151,7 +156,8 @@ int main() {
         for (int n = 0; n < 6 && !broke; n++) {
             auto ev = runFor(0.7f, {&a, &b}, {press(true)});
             for (auto& e : ev) { hits++; if (e.poiseBroken) broke = true; }
-            if (!broke) check(hitSpeed(b) <= combat::FLINCH_KNOCK + 0.01f, "hit " + std::to_string(hits) + ": a flinch");
+            if (!broke) check(hitSpeed(b) < Ragdoll::KNOCKDOWN_DV && b.react == React::Flinch, "hit " + std::to_string(hits) + ": a flinch");
+            b.hitstun = 0.0f; b.react = React::None;
             b.hits.clear();
         }
         check(broke && hits == 3, "the third light hit breaks 30 poise (" + std::to_string(hits) + ")");
@@ -286,7 +292,9 @@ int main() {
         runFor(atk(AttackKind::Light).activeStart - 0.1f, {&a, &b});
         b.move = Human::Move::Roll; b.moveTimer = Human::ROLL_TIME;
         auto ev = runFor(atk(AttackKind::Light).activeEnd - atk(AttackKind::Light).activeStart + 0.15f, {&a, &b});
-        check(ev.empty() && b.health == 100.0f, "a roll's i-frames dodge it");
+        bool landed = false; for (auto& e : ev) landed = landed || !e.perfectDodge;
+        check(!landed && b.health == 100.0f, "a roll's i-frames dodge it");
+        check(ev.size() == 1 && ev[0].perfectDodge, "rolled just as it came: a perfect dodge");
     }
 
     std::printf("stamina\n");
@@ -340,6 +348,38 @@ int main() {
         check(b.ragdoll.stayDown, "and stays down");
         ev = runFor(1.0f, {&a, &b}, {press(true)});
         check(ev.empty(), "the dead aren't hit again");
+    }
+
+    std::printf("reactions and multi-hit swings\n");
+    {
+        // the staff's third light spins through twice: two hits on one body
+        const Moveset* staff = gMovesets.find("staff");
+        const AttackDef* l3 = staff ? staff->get(AttackKind::Light, 2) : nullptr;
+        check(l3 && l3->windowCount() == 2, "staff_light3 has two hit windows");
+        if (l3) {
+            Human a, b;
+            stand(a, {0, 0, 0}, F); stand(b, {0, 0, -7}, -F);
+            a.moveset = staff;
+            a.attack = AttackState(); a.attack.kind = AttackKind::Light; a.attack.chain = 2; a.attack.d = l3;
+            a.attack.dir = F;
+            std::vector<combat::HitEvent> ev;
+            for (int i = 0; i < 60 && a.attack.active(); i++) {
+                combat::advanceAttack(a, DT);
+                combat::resolveHits({&a, &b}, nullptr, ev);
+            }
+            check(ev.size() == 2 && ev[0].window == 0 && ev[1].window == 1,
+                  "it hits the same body once in each (" + std::to_string(ev.size()) + ")");
+            check(ev.size() == 2 && ev[1].combo == 2, "and counts them as a combo");
+        }
+        // a guard's armor: lights only wear its poise
+        Human a, g;
+        stand(a, {0, 0, 0}, F); stand(g, {0, 0, -8}, -F);
+        g.armor = 1; g.poise = g.maxPoise = 50.0f;
+        auto ev = runFor(1.0f, {&a, &g}, {press(true)});
+        check(ev.size() == 1 && ev[0].react == React::None && !g.stunned(), "armor 1: a light doesn't move it");
+        // a hit gets everything a listener needs
+        check(ev.size() == 1 && ev[0].damage > 0.0f && ev[0].combo == 1 && glm::length(ev[0].dir) > 0.5f,
+              "the hit says its damage, combo and direction");
     }
 
     std::printf("line of sight\n");

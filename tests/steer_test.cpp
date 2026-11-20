@@ -75,6 +75,49 @@ int main() {
         check(farthest < 40.0f, "while staying in the fight round the player");
     }
 
+    std::printf("taking turns (npcs.toml style: duelists one at a time, a horde all at once)\n");
+    {
+        auto fight = [](const char* type, int count, int& most, float& shortestGap, float& waitDist) {
+            World w;
+            Player& p = w.player(glm::vec3(256, GROUND, 256));
+            std::vector<Npc*> crowd;
+            for (int i = 0; i < count; i++)
+                crowd.push_back(w.sim.npcs().spawn(type, glm::vec3(256 + 30 + i * 3, GROUND, 256 + i * 4.0f), glm::vec3(-1, 0, 0)));
+            most = 0; shortestGap = 99.0f;
+            float lastEnd = -1.0f, t = 0.0f, waitSum = 0.0f; int waitN = 0;
+            int was = 0;
+            for (int k = 0; k < 60 * 16; k++) {
+                HumanIntent in;
+                w.sim.setIntent(p.uuid, in);
+                w.sim.step(DT);
+                t += DT;
+                p.health = p.maxHealth;
+                int now = 0;
+                for (Npc* n : crowd) if (!n->dead() && n->attack.active()) now++;
+                if (k > 60 * 4) {
+                    most = std::max(most, now);
+                    if (was > 0 && now == 0) lastEnd = t;
+                    if (was == 0 && now > 0 && lastEnd > 0.0f) shortestGap = std::min(shortestGap, t - lastEnd);
+                    for (Npc* n : crowd)
+                        if (!n->dead() && !n->attack.active() && !w.sim.encounters().holdsToken(n->uuid)) {
+                            waitSum += glm::length(glm::vec2(n->position.x - p.position.x, n->position.z - p.position.z)); waitN++;
+                        }
+                }
+                was = now;
+            }
+            waitDist = waitN ? waitSum / waitN : 0.0f;
+        };
+        int most; float gap, wait;
+        fight("bandit", 4, most, gap, wait);
+        std::printf("    bandits: at most %d swinging at once, shortest pause %.2f s, the rest wait %.1f voxels off\n", most, gap, wait);
+        check(most == 1, "duelists: one swings at a time");
+        check(gap >= 0.5f && gap < 90.0f, "with a pause between turns");
+        check(wait > 15.0f, "the rest wait well back");
+        fight("undead", 6, most, gap, wait);
+        std::printf("    undead: at most %d swinging at once, the rest %.1f voxels off\n", most, wait);
+        check(most >= 2, "a horde: several swing at once");
+    }
+
     std::printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);
     return failures ? 1 : 0;
 }

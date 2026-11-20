@@ -54,6 +54,23 @@
 #                 its reach; while winding up the swing turns toward the
 #                 target at up to 'track' deg/s (default 720), locked from
 #                 the hit window on
+#   react         what a hit does to a body that reacts to it (DMC
+#                 style: a regular enemy reacts to every hit):
+#                 "flinch" (a light's default), "stumble" (a heavy's:
+#                 driven back), "launch" (thrown up; hits in the air
+#                 keep it up, up to 5), "slam" (an air heavy's: driven
+#                 into the ground, bounces; on the ground it falls),
+#                 "knockdown" (the ragdoll). A full charge makes a
+#                 flinch a stumble, a stumble a launch. A body only
+#                 reacts to what beats its armor (npcs.toml); poise
+#                 still wears down, and breaking it staggers (or knocks
+#                 down, with knockdown = true)
+#   hitstun       s the body is stuck reacting (default by reaction:
+#                 flinch 0.38, stumble 0.65, launch 0.9, slam 0.8;
+#                 a player 0.65x). Knocked into a wall: pinned 0.6 s
+#   hits          [[from, to], …]: several hit windows in one swing
+#                 (a spin, a double thrust); each can hit the same
+#                 body again. Replaces active
 #   hitstop       s both bodies hold still when it hits (default 0.07 a
 #                 light, 0.13 a heavy; less on a block; more charged)
 #   charge        [at, time]: held, the wind-up waits at 'at' s for up to
@@ -99,6 +116,7 @@ id = "axe_heavy"
 pose = "sword_heavy"
 duration = 1.35
 active = [0.70, 0.84]
+react = "stumble"
 damage = 2.4
 poise = 40
 stamina = 32
@@ -147,6 +165,7 @@ id = "sword_light2"
 pose = "sword_light2"
 duration = 0.58
 active = [0.16, 0.28]
+react = "stumble"          # the combo's last hit drives it back
 damage = 1.0
 poise = 10
 stamina = 15
@@ -166,6 +185,7 @@ id = "sword_heavy"
 pose = "sword_heavy"
 duration = 1.10
 active = [0.52, 0.66]
+react = "launch"           # throws it up: hit it again in the air (air lights keep it up)
 damage = 2.2
 poise = 30
 stamina = 28
@@ -174,7 +194,7 @@ arc = [-20, 20]
 band = [0, 18]
 knock = 24
 lift = 0.30
-knockdown = true
+knockdown = false          # a poise break only staggers (it reacts anyway)
 lunge = 16
 lunge_time = [0.40, 0.66]
 step = 16               # root motion: voxels over lunge_time (was lunge = speed)
@@ -265,6 +285,7 @@ id = "club_heavy"
 pose = "sword_heavy"
 duration = 1.30
 active = [0.66, 0.80]
+react = "slam"             # in the air: driven into the ground, bounces; on the ground: it falls
 damage = 2.6
 poise = 48
 stamina = 32
@@ -317,6 +338,7 @@ pose = "sword_heavy"
 grip = "thrust"
 duration = 1.15
 active = [0.58, 0.70]
+react = "stumble"
 damage = 2.3
 poise = 34
 stamina = 30
@@ -325,7 +347,7 @@ arc = [-10, 10]
 band = [3, 16]
 knock = 30
 lift = 0.10
-knockdown = true
+knockdown = false          # a poise break only staggers (it reacts anyway)
 lunge = 34
 lunge_time = [0.50, 0.70]
 step = 22               # root motion: voxels over lunge_time (was lunge = speed)
@@ -386,6 +408,8 @@ id = "staff_light3"
 pose = "sword_heavy"
 duration = 0.66
 active = [0.28, 0.38]
+hits = [[0.28, 0.33], [0.36, 0.42]]   # spins through twice: two hits
+react = "stumble"
 damage = 1.3
 poise = 16
 stamina = 15

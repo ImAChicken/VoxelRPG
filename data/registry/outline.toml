@@ -14,6 +14,8 @@
 # Triggers:
 #   hurt         took damage (health)
 #   struck       the attacker, the moment its hit lands (with the hit-stop)
+#   perfect      you dodged at the last moment (a perfect dodge)
+#   slowed       an attacker slowed by your perfect dodge
 #   blocked      a hit landed on the guard
 #   guard_break  the guard was broken
 #   charge       an attack winding up: builds from its start to the
@@ -39,6 +41,22 @@ time = 0.14
 strength = 0.8
 blinks = 1
 priority = 1
+
+[[effect]]
+id = "perfect"
+color = [0.5, 0.8, 1.0]
+time = 0.6
+strength = 1.0
+blinks = 2
+priority = 4
+
+[[effect]]
+id = "slowed"
+color = [0.45, 0.6, 1.0]
+time = 1.6
+strength = 0.7
+blinks = 0
+priority = 2
 
 [[effect]]
 id = "blocked"

@@ -4,6 +4,8 @@
 #include "../world/Woodcutting.h"
 #include "Combat.h"
 #include "CombatHits.h"
+#include "../dungeon/Workshop.h"
+#include "../worldgen/DungeonGenerator.h"
 #include <glm/glm.hpp>
 #include <cmath>
 #include <cstdio>
@@ -57,6 +59,26 @@
 //            → green as it gets heavier; red spokes out from the
 //            ring where danger wins; the way it took (white, to the
 //            middle) and a line to the spot it steers for
+//   fight    turns and reactions (npc/Encounters.h, game/Combat.h
+//            React): round each player fought, the attack ring
+//            (red) and the waiting ring (grey) of the enemies'
+//            styles; from each enemy a line to where it's heading,
+//            red = its turn (attacking), yellow = next, grey =
+//            waiting, labelled with its style; over the player the
+//            pause left before the next turn. Every body reeling
+//            from a hit: its reaction, hitstun left (a shrinking
+//            bar), juggles, slowed (perfect dodge), get-up grace
+//   tiles    dungeon tiles being built (dungeon/Workshop.h): the
+//            plot's box and its half-cell grid; each socket as a
+//            square on its face (door green, open white, shaft
+//            yellow); each marker with its settings. The same for
+//            every tile laid out by "tile showcase"
+//   dungeon  a Dungeon world's layout (dungeon/Layout.h): every tile's
+//            box, coloured by its part (portal purple, main path gold,
+//            corridors on it tan, side rooms green, stair blue, boss
+//            pink, dead ends grey), the main path as a line from the
+//            portal to the boss, walled-up doors in red; near you,
+//            each tile's name and place on the path
 //   pad      the controller, bottom left of the screen: its
 //            buttons lit while held — or while the key bound to the
 //            same action is (input/PadLayout.h) — sticks, layer
@@ -66,7 +88,8 @@
 struct DebugLayers {
     bool on = false;
     bool bodies = true, ragdoll = true, combat = true, labels = true,
-         props = true, sight = true, world = true, ai = true, steering = true, pad = true, spawns = true;
+         props = true, sight = true, world = true, ai = true, steering = true, pad = true, spawns = true, fight = true, tiles = true,
+         dungeonMap = true;
 
     bool* find(const std::string& n) {
         if (n == "bodies") return &bodies;
@@ -80,13 +103,16 @@ struct DebugLayers {
         if (n == "steering") return &steering;
         if (n == "pad") return &pad;
         if (n == "spawns") return &spawns;
+        if (n == "fight") return &fight;
+        if (n == "tiles") return &tiles;
+        if (n == "dungeon") return &dungeonMap;
         return nullptr;
     }
     std::string list() const {
         auto f = [](const char* n, bool b) { return std::string(n) + (b ? " on" : " off"); };
         return f("bodies", bodies) + ", " + f("ragdoll", ragdoll) + ", " + f("combat", combat) + ", " +
                f("labels", labels) + ", " + f("props", props) + ", " + f("sight", sight) + ", " + f("world", world) + ", " +
-               f("ai", ai) + ", " + f("steering", steering) + ", " + f("pad", pad) + ", " + f("spawns", spawns);
+               f("ai", ai) + ", " + f("steering", steering) + ", " + f("pad", pad) + ", " + f("spawns", spawns) + ", " + f("fight", fight) + ", " + f("tiles", tiles) + ", " + f("dungeon", dungeonMap);
     }
 };
 inline DebugLayers gDebug;
@@ -393,6 +419,157 @@ inline void build(DebugDraw& dd, Simulation& sim, const Woodcutting* wood, const
                     if (gDebug.labels) dd.label(t->position + glm::vec3(0, -2.5f, 0), b, ORANGE);
                 }
         }
+    }
+
+    if (gDebug.fight) {
+        // turns: rings round each player fought, who's attacking, who's next
+        for (const auto& e : sim.encounters().all()) {
+            if (e.ended >= 0.0f) continue;
+            for (EntityId pid : e.players) {
+                Human* t = sim.find(pid);
+                if (!t) continue;
+                float engage = 0.0f, hold = 0.0f;
+                for (const auto& c : e.claims)
+                    if (c.target == pid)
+                        if (Npc* n = sim.npcs().find(c.npc); n && n->type) { engage = std::max(engage, n->type->engageDist); hold = std::max(hold, n->type->holdDist); }
+                if (engage > 0.0f) {
+                    dd.circle(t->position + glm::vec3(0, 0.3f, 0), engage, RED, 0.5f, 40);
+                    dd.circle(t->position + glm::vec3(0, 0.3f, 0), hold, GREY, 0.4f, 48);
+                }
+                float wait = sim.encounters().nextAttackAt(e, pid) - sim.now();
+                EntityId next = sim.encounters().nextUp(e, pid);
+                auto tk = e.tokens.find(pid);
+                int attacking = tk == e.tokens.end() ? 0 : (int)tk->second.size();
+                char b[96];
+                std::snprintf(b, sizeof(b), "attacking %d   next turn %s", attacking, wait > 0.0f ? (std::to_string(wait).substr(0, 4) + " s").c_str() : "now");
+                dd.label(t->position + glm::vec3(0, -4.0f, 0), b, ORANGE);
+                for (const auto& c : e.claims) {
+                    if (c.target != pid) continue;
+                    Npc* n = sim.npcs().find(c.npc);
+                    if (!n || n->dead()) continue;
+                    bool token = tk != e.tokens.end() && std::find(tk->second.begin(), tk->second.end(), c.npc) != tk->second.end();
+                    bool isNext = !token && next == c.npc;
+                    glm::vec3 col = token ? RED : isNext ? YELLOW : GREY;
+                    if (sim.now() - n->steerAt < 0.5f) dd.line(n->position + glm::vec3(0, 0.5f, 0), n->steerGoal + glm::vec3(0, 0.5f, 0), col, 0.8f);
+                    dd.circle(n->position + glm::vec3(0, 0.4f, 0), Human::RADIUS + 0.6f, col, 0.9f, 12);
+                    std::string what = token ? "ATTACKING" : isNext ? "NEXT" : "waiting";
+                    dd.label(n->position + glm::vec3(0, n->height + 6.0f, 0), what + " (" + (n->type ? n->type->style : std::string("?")) + ")", col);
+                }
+            }
+        }
+        // reactions: anyone reeling, slowed or just up
+        for (Human* h : sim.bodies()) {
+            if (h->dead()) continue;
+            glm::vec3 top = h->position + glm::vec3(0, h->height + 3.0f, 0);
+            if (h->stunned()) {
+                float full = std::max(combat::REACT_STUN[(int)h->react], 0.3f);
+                float k = std::clamp(h->hitstun / full, 0.0f, 1.0f);
+                glm::vec3 a = top + glm::vec3(-3.0f, 0, 0);
+                dd.line(a, a + glm::vec3(6.0f * k, 0, 0), YELLOW);
+                dd.line(a + glm::vec3(0, 0.3f, 0), a + glm::vec3(6.0f * k, 0.3f, 0), YELLOW);
+                char b[80];
+                std::snprintf(b, sizeof(b), "%s %.2fs%s", reactName(h->react), h->hitstun,
+                              h->juggles ? (" juggle " + std::to_string(h->juggles)).c_str() : "");
+                dd.label(top + glm::vec3(0, 1.5f, 0), b, YELLOW);
+                if (glm::length(h->reactDir) > 0.1f) dd.line(h->position + glm::vec3(0, 6, 0), h->position + glm::vec3(0, 6, 0) + h->reactDir * 6.0f, YELLOW);
+            }
+            if (h->slowed > 0.0f) dd.label(top + glm::vec3(0, 3.0f, 0), "slowed " + std::to_string(h->slowed).substr(0, 4), BLUE);
+            if (h->getUpGrace > 0.0f) dd.label(top + glm::vec3(0, 3.0f, 0), "getting up (untouchable)", GREEN);
+            if (h->combo > 1) dd.label(top + glm::vec3(0, 4.5f, 0), "combo " + std::to_string(h->combo), ORANGE);
+        }
+    }
+
+    if (gDebug.dungeonMap && gDungeonWorld && gDungeonWorld->generated()) {
+        using namespace dungeon;
+        const Layout& L = gDungeonWorld->dungeonLayout();
+        glm::vec3 me = local.position;
+        auto colOf = [&](const PlacedTile& t) {
+            if (t.role == "portal") return glm::vec3(0.6f, 0.3f, 0.95f);
+            if (t.role == "boss") return glm::vec3(0.95f, 0.2f, 0.5f);
+            if (t.role == "main") return glm::vec3(0.95f, 0.75f, 0.3f);
+            if (t.role == "stair") return glm::vec3(0.35f, 0.8f, 0.95f);
+            if (t.role == "side") return glm::vec3(0.35f, 0.8f, 0.4f);
+            if (t.role == "cap") return glm::vec3(0.45f, 0.45f, 0.5f);
+            return t.pathIndex >= 0 ? glm::vec3(0.7f, 0.6f, 0.45f) : glm::vec3(0.5f, 0.5f, 0.55f);
+        };
+        for (const PlacedTile& t : L.tiles) {
+            glm::vec3 lo(gDungeonWorld->worldOf(t)), hi = lo + glm::vec3(L.variantOf(t).vol.size);
+            glm::vec3 mid = (lo + hi) * 0.5f;
+            float far = glm::length(mid - me);
+            if (far > 600.0f) continue;
+            dd.box(lo + glm::vec3(0.2f), hi - glm::vec3(0.2f), colOf(t), far < 200.0f ? 0.7f : 0.35f);
+            if (far < 160.0f) {
+                std::string label = L.variantOf(t).tile->name;
+                if (t.pathIndex >= 0) label = "#" + std::to_string(t.pathIndex) + " " + label;
+                dd.label(glm::vec3(mid.x, lo.y + FLOOR + 20.0f, mid.z), label + " (" + t.role + ")", colOf(t));
+            }
+        }
+        for (size_t i = 1; i < L.mainPath.size(); i++) {
+            auto c = [&](int t) {
+                const PlacedTile& pt = L.tiles[(size_t)t];
+                return glm::vec3(gDungeonWorld->worldOf(pt)) + glm::vec3(L.variantOf(pt).vol.size) * glm::vec3(0.5f, 0.0f, 0.5f) + glm::vec3(0, FLOOR + 3.0f, 0);
+            };
+            dd.line(c(L.mainPath[i - 1]), c(L.mainPath[i]), YELLOW);
+        }
+        for (const OpenDoor& d : L.sealed) {
+            glm::vec3 c = glm::vec3(gDungeonWorld->gridOrigin() + d.cell * HALF) + glm::vec3(HALF * 0.5f, FLOOR + 10.0f, HALF * 0.5f);
+            c += glm::vec3(dirStep(d.face)) * (HALF * 0.5f);
+            dd.box(c - glm::vec3(3.0f), c + glm::vec3(3.0f), RED);
+        }
+    }
+
+    if (gDebug.tiles) {
+        using namespace dungeon;
+        auto drawTile = [&](glm::ivec3 o, const TileInfo& info, const std::string& title, bool live) {
+            glm::vec3 lo(o), s(info.voxels());
+            glm::vec3 col = live ? CYAN : GREY;
+            dd.box(lo, lo + s, col, 0.9f);
+            // the half-cell grid on the floor and walls
+            for (int i = 1; i < info.cells.x; i++) {
+                float x = lo.x + i * HALF;
+                dd.line({ x, lo.y + 0.05f, lo.z }, { x, lo.y + 0.05f, lo.z + s.z }, col, 0.25f);
+            }
+            for (int k = 1; k < info.cells.z; k++) {
+                float z = lo.z + k * HALF;
+                dd.line({ lo.x, lo.y + 0.05f, z }, { lo.x + s.x, lo.y + 0.05f, z }, col, 0.25f);
+            }
+            for (int j = 1; j < info.cells.y; j++) {
+                float y = lo.y + j * HALF;
+                dd.line({ lo.x, y, lo.z }, { lo.x + s.x, y, lo.z }, col, 0.25f);
+                dd.line({ lo.x, y, lo.z + s.z }, { lo.x + s.x, y, lo.z + s.z }, col, 0.25f);
+                dd.line({ lo.x, y, lo.z }, { lo.x, y, lo.z + s.z }, col, 0.25f);
+                dd.line({ lo.x + s.x, y, lo.z }, { lo.x + s.x, y, lo.z + s.z }, col, 0.25f);
+            }
+            // sockets: a square on the face, inset
+            for (const Socket& k : info.sockets) {
+                glm::vec3 c = glm::vec3(k.cell * HALF) + lo;
+                glm::vec3 sc = k.type == "door" ? GREEN : k.type == "open" ? WHITE : YELLOW;
+                glm::vec3 a, b, u, v;
+                float in = 2.0f, H = (float)HALF;
+                switch (k.face) {
+                case North: a = c + glm::vec3(in, in, -0.1f); u = glm::vec3(H - 2 * in, 0, 0); v = glm::vec3(0, H - 2 * in, 0); break;
+                case South: a = c + glm::vec3(in, in, H + 0.1f); u = glm::vec3(H - 2 * in, 0, 0); v = glm::vec3(0, H - 2 * in, 0); break;
+                case West:  a = c + glm::vec3(-0.1f, in, in); u = glm::vec3(0, 0, H - 2 * in); v = glm::vec3(0, H - 2 * in, 0); break;
+                case East:  a = c + glm::vec3(H + 0.1f, in, in); u = glm::vec3(0, 0, H - 2 * in); v = glm::vec3(0, H - 2 * in, 0); break;
+                case Up:    a = c + glm::vec3(in, H + 0.1f, in); u = glm::vec3(H - 2 * in, 0, 0); v = glm::vec3(0, 0, H - 2 * in); break;
+                default:    a = c + glm::vec3(in, -0.1f, in); u = glm::vec3(H - 2 * in, 0, 0); v = glm::vec3(0, 0, H - 2 * in); break;
+                }
+                b = a + u + v;
+                dd.line(a, a + u, sc); dd.line(a + u, b, sc); dd.line(b, a + v, sc); dd.line(a + v, a, sc);
+                dd.line(a, b, sc, 0.5f);
+            }
+            for (const Marker& m : info.markers) {
+                glm::vec3 p = lo + glm::vec3(m.at) + glm::vec3(0.5f, 1.5f, 0.5f);
+                std::string t = m.kind;
+                for (auto& [k, v] : m.props) t += " " + k + "=" + v;
+                dd.label(p + glm::vec3(0, 2.0f, 0), t, ORANGE);
+            }
+            char b[160];
+            std::snprintf(b, sizeof(b), "%s  (%s, %dx%dx%d, weight %.1f)", title.c_str(), info.kind.c_str(), info.cells.x, info.cells.y, info.cells.z, info.weight);
+            dd.label(lo + glm::vec3(s.x * 0.5f, s.y + 3.0f, s.z * 0.5f), b, col);
+        };
+        if (gWorkshop.editing) drawTile(gWorkshop.origin, gWorkshop.info, "editing " + gWorkshop.name, true);
+        for (const auto& sh : gWorkshop.showcase) drawTile(sh.origin, sh.info, sh.name, false);
     }
 
     if (gDebug.sight)

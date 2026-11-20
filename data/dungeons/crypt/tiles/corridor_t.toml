@@ -1,0 +1,19 @@
+# A dungeon tile (dungeon/Tile.h, docs/dungeons.md): a blueprint whose
+# voxels are in the .vxvol beside it. Edit it in game: tile edit corridor_t
+
+name = "corridor_t"
+display = "corridor_t"
+tags = ["dungeon", "crypt", "corridor"]
+size = [16, 32, 16]
+voxels = "corridor_t.vxvol"
+
+[tile]   # a dungeon tile (dungeon/Tile.h)
+theme = "crypt"
+kind = "corridor"
+cells = [1, 2, 1]   # half cells of 16 voxels
+weight = 1
+sockets = [
+  { cell = [0, 0, 0], face = "n", type = "door" },
+  { cell = [0, 0, 0], face = "e", type = "door" },
+  { cell = [0, 0, 0], face = "w", type = "door" },
+]

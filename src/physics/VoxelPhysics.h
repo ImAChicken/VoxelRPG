@@ -69,6 +69,11 @@ public:
                    float dt) override {
         if (!world) return;
         h.waitingForWorld = false;
+        // a perfect dodge against it: its time runs slow for a while
+        if (h.slowed > 0.0f) { h.slowed -= dt; dt *= combat::PERFECT_RATE; }
+        h.getUpGrace = std::max(0.0f, h.getUpGrace - dt);
+        h.sinceLanded += dt;
+        if (h.sinceLanded > 1.5f) h.combo = 0;
 
         // ── Knocked down ──────────────────────────────────
         // Limp: the ragdoll carries the body (stepRagdoll moves
@@ -77,9 +82,13 @@ public:
             h.velocity = glm::vec3(0.0f);
             return;
         }
+        // getting up: a dodge rolls out of it
+        if (intent.dodge && !h.dead() && h.ragdoll.canRollOut()) h.ragdoll.rollOut();
         HumanIntent locked;
         locked.fly = intent.fly; locked.flyMove = intent.flyMove; locked.flyFast = intent.flyFast;
-        const HumanIntent& in = (h.ragdoll.controlsLocked() || h.dead()) ? locked : intent;
+        // down, getting up, dead or reeling from a hit: no say in it
+        // (what's pressed meanwhile is dropped, not saved for later)
+        const HumanIntent& in = (h.ragdoll.controlsLocked() || h.dead() || h.hitstun > 0.0f) ? locked : intent;
         if (h.dead()) h.attack = AttackState();
 
         // ── Fly mode: no gravity, no collision ────────────
@@ -122,11 +131,21 @@ public:
             if (h.hitStop > 0.0f) return;
             h.hitStop = 0.0f;
         }
-        if (glm::dot(h.pendingShove, h.pendingShove) > 1e-4f) {
+        if (glm::dot(h.pendingShove, h.pendingShove) > 1e-4f || h.pendingLift != 0.0f) {
             h.velocity.x = h.pendingShove.x;
             h.velocity.z = h.pendingShove.z;
+            if (h.pendingLift != 0.0f) { h.velocity.y = h.pendingLift; h.grounded = false; }
             h.pendingShove = glm::vec3(0.0f);
-            h.shoveTime = combat::SHOVE_TIME;
+            h.pendingLift = 0.0f;
+            h.shoveTime = h.pendingSlide > 0.0f ? h.pendingSlide : combat::SHOVE_TIME;
+            h.pendingSlide = 0.0f;
+        }
+        // reeling: stuck until it runs out (held while in the air, so a
+        // body in a juggle stays in it until it lands)
+        if (h.hitstun > 0.0f) {
+            h.reactAge += dt;
+            h.hitstun = h.grounded ? h.hitstun - dt : std::max(h.hitstun - dt, 0.12f);
+            if (h.hitstun <= 0.0f) { h.hitstun = 0.0f; h.react = React::None; }
         }
 
         updateCrouch(h, in, dt);
@@ -152,6 +171,20 @@ public:
                      (h.weaponDamage > 0.0f || h.guardStyle.shield) && h.exposed <= 0.0f;
         h.guardTime = h.guarding ? h.guardTime + dt : 0.0f;     // a hit just after raising it is parried
 
+        // A dodge (or a jump) cancels a light attack any time but its hit window
+        // (wind-up or recovery); a heavy, a plunge, a cast only from
+        // their cancel_from (committed)
+        auto dodgeCancels = [&]() {
+            const AttackState& a = h.attack;
+            const AttackDef& d = a.def();
+            if (a.t >= d.cancelFrom) return true;
+            if (a.kind == AttackKind::Light || a.kind == AttackKind::AirLight) return a.t < d.activeStart || a.t > d.activeEnd;
+            return false;
+        };
+        bool canDodge = h.move == Human::Move::None && (!attacking || dodgeCancels());
+        // a jump cancels the same way (out of a light's recovery into the air)
+        if (in.jump && attacking && h.grounded && !busy && !h.hop.on && dodgeCancels() &&
+            h.attack.kind != AttackKind::AirHeavy) { h.attack = AttackState(); attacking = false; }
         if (in.jump && !busy && !attacking && !h.hop.on) {
             if (h.grounded) {
                 h.velocity.y = launchSpeed(Human::JUMP_HEIGHT);
@@ -164,17 +197,6 @@ public:
             }
         }
 
-        // A dodge cancels a light attack any time but its hit window
-        // (wind-up or recovery); a heavy, a plunge, a cast only from
-        // their cancel_from (committed)
-        auto dodgeCancels = [&]() {
-            const AttackState& a = h.attack;
-            const AttackDef& d = a.def();
-            if (a.t >= d.cancelFrom) return true;
-            if (a.kind == AttackKind::Light || a.kind == AttackKind::AirLight) return a.t < d.activeStart || a.t > d.activeEnd;
-            return false;
-        };
-        bool canDodge = h.move == Human::Move::None && (!attacking || dodgeCancels());
         if (in.dodge && canDodge) {
             glm::vec2 wish = wishDir(in);
             bool moving = (wish.x != 0.0f || wish.y != 0.0f);
@@ -227,7 +249,7 @@ public:
         if (h.shoveTime > 0.0f && h.grounded) {
             // Shoved by a hit: sliding, easing out, no say in it
             h.shoveTime -= dt;
-            vh *= std::exp(-dt * combat::SHOVE_DECAY);
+            vh *= std::exp(-dt * (h.hitstun > 0.0f ? combat::REACT_DECAY : combat::SHOVE_DECAY));   // a reaction slides further
         } else if (h.hop.on && !attacking) {
             // A hopper: still on the ground, moving only in the air
             hopTick(h, in, vh, dt);
@@ -290,6 +312,8 @@ public:
         bool plunge = false;
         if (h.attack.kind == AttackKind::AirLight && h.attack.t < h.attack.def().activeEnd + 0.05f)
             gravity *= combat::LURCH_GRAVITY;                   // the lurch carries
+        if (h.hitstun > 0.0f && !h.grounded && h.velocity.y < 12.0f && h.react != React::Slam)
+            gravity *= combat::JUGGLE_GRAVITY;                  // knocked into the air: it hangs (juggles)
         if (h.attack.kind == AttackKind::AirHeavy && !h.attack.landed) {
             gravity = 0.0f;
             plunge = h.attack.plunging;
@@ -315,9 +339,19 @@ public:
 
         // ── Move, colliding with the world ────────────────
         bool wasGrounded = h.grounded;
+        float fallSpeed = -h.velocity.y;
         h.velocity.x = vh.x;
         h.velocity.z = vh.y;
+        float flatBefore = glm::length(vh);
         moveAndCollide(h, delta);
+        // knocked into a wall: pinned to it a moment (a wall splat)
+        if (h.hitstun > 0.0f && flatBefore > combat::WALL_SPEED &&
+            glm::length(glm::vec2(h.velocity.x, h.velocity.z)) < flatBefore * 0.4f) {
+            h.velocity.x = h.velocity.z = 0.0f;
+            h.shoveTime = 0.0f;
+            h.hitstun = std::max(h.hitstun, combat::WALL_PIN);
+            h.wallHit = true;
+        }
 
         // ── Stay on the ground going down small steps ─────
         if (wasGrounded && h.grounded) followGround(h);
@@ -327,6 +361,15 @@ public:
             h.hasDoubleJump = true;
             h.hasAirDodge   = true;
             h.hasAirAttack  = true;
+            if (!wasGrounded && h.react == React::Slam && fallSpeed > 30.0f) {
+                // driven into the ground: it bounces, still reeling
+                h.velocity.y = combat::SLAM_BOUNCE;
+                h.grounded = false;
+                h.react = React::Stumble;
+                h.hitstun = std::max(h.hitstun, 0.6f);
+                h.wallHit = true;                                // (the same thud as a wall)
+            }
+            if (h.hitstun <= 0.0f) h.juggles = 0;
             if (h.attack.kind == AttackKind::AirHeavy && h.attack.plunging) {
                 // the plunge lands: the slam (its hit window) starts now
                 h.attack.plunging = false;
@@ -358,6 +401,7 @@ public:
     // ── The body: hits and the ragdoll ────────────────────
     void stepRagdoll(Human& h, float dt) override {
         Ragdoll& rd = h.ragdoll;
+        if (h.slowed > 0.0f) dt *= combat::PERFECT_RATE;
         if (h.hitStop > 0.0f && !rd.simulating()) return;   // hit-stop: the knock waits till it ends
         if (!world || h.flying) {           // no body to knock about
             h.hits.clear();
@@ -379,7 +423,7 @@ public:
         for (const Human::Hit& hit : h.hits) {
             // the capsule takes the push too (the ragdoll shows
             // it), unless the body is already down
-            if (!rd.controlsLocked()) {
+            if (!rd.controlsLocked() && !hit.visual) {
                 h.velocity += hit.impulse / std::max(h.mass, 1.0f);
                 if (hit.impulse.y > 0.0f) h.grounded = false;
             }
@@ -407,6 +451,7 @@ public:
             if (findStandingSpot(p.x, p.z, Human::RADIUS, Human::STAND_HEIGHT, spot))
                 h.position = spot;
             h.velocity = glm::vec3(0.0f);
+            h.getUpGrace = Ragdoll::RECOVER_TIME + combat::GETUP_GRACE;   // untouchable getting up, and a moment after
         }
     }
 

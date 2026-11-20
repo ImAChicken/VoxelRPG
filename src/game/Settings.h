@@ -53,6 +53,8 @@ struct GameSettings {
     // (dev worlds never do: see world/WorldSaveManager.h)
     int autosave = 1;        // 0 off, 1 on
     int controlHints = 1;    // 0 off, 1 on: what the buttons do now, bottom right (out of combat)
+    float cameraShake = 1.0f; // 0 off .. 2 double: hits shake the camera (render/CameraShake.h)
+    int damageNumbers = 1;   // 0 off, 1 on: damage pops up where a hit lands (yours and on you)
     int rumble    = 2;       // 0 off, 1 light, 2 full: the controller shakes on hits (input/Rumble.h)
     int particles = 2;       // 0 off, 1 fewer, 2 all: sparks, dust and splats (render/Particles.h)
 
@@ -77,7 +79,7 @@ struct GameSettings {
         plantStyle = 1; waterStyle = 1; roofStyle = 1; glassStyle = 1;
         autosave = 1;
         controlHints = 1;
-        rumble = 2; particles = 2;
+        rumble = 2; particles = 2; cameraShake = 1.0f; damageNumbers = 1;
         masterVolume = 0.8f; effectsVolume = 1.0f; voiceVolume = 1.0f; ambienceVolume = 0.7f; soundWalls = 1;
     }
 
@@ -98,6 +100,8 @@ struct GameSettings {
         autosave      = std::clamp(autosave, 0, 1);
         controlHints  = std::clamp(controlHints, 0, 1);
         rumble        = std::clamp(rumble, 0, 2);
+        cameraShake   = std::clamp(cameraShake, 0.0f, 2.0f);
+        damageNumbers = std::clamp(damageNumbers, 0, 1);
         particles     = std::clamp(particles, 0, 2);
         for (float* v : { &masterVolume, &effectsVolume, &voiceVolume, &ambienceVolume }) *v = std::clamp(*v, 0.0f, 1.0f);
         soundWalls    = std::clamp(soundWalls, 0, 1);
@@ -123,6 +127,8 @@ struct GameSettings {
             autosave      = (int)t["game"]["autosave"].value_or((int64_t)autosave);
             controlHints  = (int)t["game"]["control_hints"].value_or((int64_t)controlHints);
             rumble        = (int)t["game"]["rumble"].value_or((int64_t)rumble);
+            cameraShake   = (float)t["game"]["camera_shake"].value_or((double)cameraShake);
+            damageNumbers = (int)t["game"]["damage_numbers"].value_or((int64_t)damageNumbers);
             particles     = (int)t["game"]["particles"].value_or((int64_t)particles);
             masterVolume   = (float)t["sound"]["master"].value_or((double)masterVolume);
             effectsVolume  = (float)t["sound"]["effects"].value_or((double)effectsVolume);
@@ -163,6 +169,8 @@ struct GameSettings {
           << "autosave = " << autosave << "   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)\n"
           << "control_hints = " << controlHints << "   # 0 off, 1 on: what the buttons do now, bottom right\n"
           << "rumble = " << rumble << "   # 0 off, 1 light, 2 full: the controller shakes on hits\n"
+          << "camera_shake = " << cameraShake << "   # 0 off .. 2 double: hits shake the camera\n"
+          << "damage_numbers = " << damageNumbers << "   # 0 off, 1 on: damage pops up where a hit lands\n"
           << "particles = " << particles << "   # 0 off, 1 fewer, 2 all: sparks, dust and splats\n\n"
           << "[sound]\n"
           << "master   = " << masterVolume << "   # 0 - 1\n"

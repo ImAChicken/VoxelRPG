@@ -302,7 +302,7 @@ public:
                 sec.setRle(ChunkSection::allAirShared());
                 continue;
             }
-            if (oneDeep && y1 <= lowestRock) {            // solid rock
+            if (oneDeep && y1 <= lowestRock && !carvesInto(cx, cz, sy)) {   // solid rock
                 auto r = std::make_shared<RleData>();
                 r->ends.push_back((uint32_t)VOXEL_COUNT);
                 r->types.push_back(deepId);
@@ -447,6 +447,9 @@ protected:
     // A world type may hollow out the filled terrain of a section
     // (overhangs, alcoves) before trees and rocks go in.
     //   vox  the section, Y-major (Chunk::index)   y0  its bottom
+    // A world type that carves deep down (the Dungeon type) says which
+    // sections it reaches, so those aren't written as solid rock unseen
+    virtual bool carvesInto(int cx, int cz, int sy) const { (void)cx; (void)cz; (void)sy; return false; }
     virtual void carveSection(uint16_t* vox, int x0, int z0, int y0,
                               const std::vector<TerrainColumn>& cols) const {
         (void)vox; (void)x0; (void)z0; (void)y0; (void)cols;

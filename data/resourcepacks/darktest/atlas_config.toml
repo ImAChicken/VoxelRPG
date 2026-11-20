@@ -830,3 +830,45 @@ name    = "rug_red"
 top     = [13, 4]
 side    = [13, 4]
 bottom  = [13, 4]
+
+[[face_map]]
+name    = "marker_spawner"
+top     = [1, 15]
+side    = [1, 15]
+bottom  = [1, 15]
+
+[[face_map]]
+name    = "marker_chest"
+top     = [2, 15]
+side    = [2, 15]
+bottom  = [2, 15]
+
+[[face_map]]
+name    = "marker_portal"
+top     = [3, 15]
+side    = [3, 15]
+bottom  = [3, 15]
+
+[[face_map]]
+name    = "marker_exit"
+top     = [4, 15]
+side    = [4, 15]
+bottom  = [4, 15]
+
+[[face_map]]
+name    = "marker_boss"
+top     = [5, 15]
+side    = [5, 15]
+bottom  = [5, 15]
+
+[[face_map]]
+name    = "marker_coffin"
+top     = [6, 15]
+side    = [6, 15]
+bottom  = [6, 15]
+
+[[face_map]]
+name    = "marker_secret"
+top     = [7, 15]
+side    = [7, 15]
+bottom  = [7, 15]

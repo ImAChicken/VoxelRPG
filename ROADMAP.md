@@ -4,6 +4,29 @@ Living list of planned work. Sections marked **Tabled** are agreed
 ideas parked for later; add to them as new ideas come up.
 
 ## Recently done
+- Dungeon generator, step 2 of `docs/dungeons.md` (2026-11-20):
+  - `dungeon/Layout.h` grows a crypt from the tiles: portal room, a main path of 7-9 rooms with corridors between, down a stair halfway, the boss's arena at the end, 3-5 side rooms, dead ends on spare doors. Every tile agrees with its neighbours' sockets (the WFC rule), with backtracking and retries.
+  - The Dungeon world type (New World > Type: Dungeon, with a map of the layout): solid rock with the dungeon through it; you arrive in the portal room.
+  - Debug layer `dungeon` (each tile by its part, the main path, walled-up doors) and console `dungeon` (info, map, tp <n|portal|stair|boss>).
+  - `dungeon_test`: 60 seeds, sockets, overlaps, reachability, determinism, the world's chunks, and walking portal-to-boss with the pathfinder.
+  - Rooms look dim in the screenshots; torches may need adding or brightening.
+- Dungeon tiles, step 1 of `docs/dungeons.md` (2026-11-20):
+  - The tile format: `dungeon/Tile.h`, a blueprint with a `[tile]` table and a `.vxvol` voxel layer. Blueprints keep `voxels` and `[tile]` too.
+  - The grid in half cells of 16; sockets wall / door / open / shaft per outside face square; turns and mirrors.
+  - Marker blocks (spawner, chest, portal, exit, boss, coffin, secret; textures from `tools/gen_marker_textures.py`).
+  - The crypt's generated starter set (17 tiles, 68 placements, `data/dungeons/crypt/tiles`).
+  - Building tiles from the console in any world (`tile new | edit | socket | marker | kind | weight | save | showcase | starter | list | done`) with a `tiles` debug layer (the grid, sockets, markers).
+  - `tile_test`. The hammer's Tile mode and a ready-made workshop world come later; the console covers them for now.
+- Character-action combat (2026-11-20, Eddie: "closer to Metal Gear Rising, Black Myth: Wukong, DMC"; weight from enemy reactions and feedback, not physics):
+  - Reactions: every hit on a regular enemy interrupts it and puts it in hitstun (no control): flinch (lights), stumble (heavies, combo enders: a long slide), launch (the sword's heavy: thrown up; air hits keep it aloft, 5 at most), slam (air heavy / club heavy: driven into the ground and bounces; on the ground it falls), knockdown (the ragdoll). A full charge makes a reaction one stronger. Knocked into a wall: pinned 0.6 s. A heavier body slides less. `armor` in npcs.toml (guard 1) shrugs off weaker reactions; poise still wears down and breaking it staggers. Damage is flat per attack (no speed scaling).
+  - Several hit windows per swing (`hits = [[a, b], [c, d]]`; the staff's third light spins through twice).
+  - Players: stagger and knockdown take your input (presses meanwhile are dropped); hitstun on you is 0.65x; untouchable while getting up and 0.6 s after; a dodge rolls out of getting up; a jump cancels like a dodge; enemies don't hit a body on the ground.
+  - Perfect dodge: rolling or backstepping just as a hit would land slows the attacker and its friends near by to 0.3x for 1.6 s (blue outline, sparks, a buzz).
+  - Turns: fight styles in npcs.toml. Duelist (bandit, swordsman, guard): one attacks at a time, a 0.8-1.5 s pause between turns, the others wait 24 voxels off and keep moving; the next one comes in partway so you see it coming. Pack: two at a time, quick turns. Horde (the undead): five at once, no turns, close and pressing, no guard or rolls.
+  - Feedback: camera shake (Settings > General > Camera shake, off to 2x), slash trails behind blades, an impact flash at every hit, wall dust, damage numbers (Settings > General > Damage numbers; your hits, hits on you, gold for big ones, with the combo count).
+  - Every hit event now carries its reaction, hitstun, direction, bone, combo, charge and which hit of the swing, for anything that wants to listen (damage numbers are the first). New events: WallHit, PerfectDodge.
+  - Debug: a "fight" layer (rings, who's attacking / next / waiting, the pause before the next turn, every body's reaction and hitstun, juggles, slowed, getting up) and a "feel" line in the F3 panel.
+  - Next: air combos for the player (juggle follow-ups), feints and roles for waiting enemies, an aggression budget instead of a fixed attacker count, recorded hit sounds, a hit-reaction animation set to replace the ragdoll wobble, the network sending reactions (clients don't see them yet beyond what the bodies do).
 - Combat feel pass (2026-11-19, Eddie: "combat is a little too noodly. Players need to move more with attacks"):
   - Root motion: every attack has a `step` (voxels over lunge_time, fast at first, stopping sharp). A player's swing at a foe ahead stretches or shortens (up to 1.6x) to stop just inside its reach; at anyone else (a dummy, a villager) it only cuts short. An NPC's step stops at the edge of its reach and never stretches (a crowd round you doesn't pile in); every step stops short of a third body in the way.
   - Rotation window: during the wind-up the swing turns toward the target (or where you face) at `track` deg/s (720; NPCs at 0.6x), locked from the hit window on.
@@ -235,6 +258,8 @@ Target: at least 20 players per server for now.
 - The old pass-by-pass chart (IslandChart.h generateIsland) is unused now; remove it once the collapse is settled
 
 ## Up next
+
+- **Dimensions, portals and instance dungeons: the next big piece** (Eddie, 2026-11-20). The design and build order are in `docs/dungeons.md`: realm saves with dimensions; walk-through portals; servers running several worlds; hour-long instances; an undead crypt grown from hand-built tiles by WFC, with spawner markers, secret walls, a skeleton archer, a player bow and the first boss.
 
 - Chests and containers next: other sizes (small crate, iron chest), a lid that opens, locks and keys, stashes placed in camps and villages, a pack on the player's back (travel_pack: more slots), NPCs using what's in their pack (equip the armour they carry; drop the weapon in hand into the pack when they die), item stands and dropped-item containers for dev world showcases, a `model = "wooden_chest"` key so variants don't copy the layers, and keeping bodies (with what's on them) across saves
 - Inventory next: dropping items into the world, ring and amulet items, what off-hand items do (shield blocks, torch light), sorting, a real menu in the left window (crafting, a chest, trade); the world doesn't run while the inventory is open (like the build menu), which multiplayer will need to change

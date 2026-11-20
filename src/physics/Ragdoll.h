@@ -299,6 +299,9 @@ public:
     bool  isLimp()         const { return st == State::Limp; }
     // Limp or getting up: no walking, jumping or dodging
     bool  controlsLocked() const { return st == State::Limp || st == State::Recovering; }
+    // getting up, far enough along to roll out of it (a dodge pressed now)
+    bool  canRollOut()     const { return st == State::Recovering && timer >= RECOVER_TIME * 0.35f; }
+    void  rollOut()              { if (canRollOut()) handBack(); }
     bool  simulating()     const { return st != State::Animated || alwaysActive; }
     float strengthNow()    const { return strength; }
     float bodyMass()       const { return totalMass; }

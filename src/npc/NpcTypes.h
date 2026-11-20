@@ -58,6 +58,7 @@ struct NpcType {
         return it == barks.end() || it->second.empty() ? nullptr : &it->second;
     }
     float health = 100.0f, poise = 35.0f;
+    int   armor = 0;                   // reactions it shrugs off: 0 none, 1 flinches, 2 stumbles too, 3 launches too (game/Combat.h React)
     float climb = 1.0f;                // how much slopes slow it (0: not at all; Human::climb)
     std::vector<std::string> states;
     std::string start;
@@ -76,6 +77,16 @@ struct NpcType {
     // must see before it can answer an attack (s), the odds it does
     // (rolls away or guards), and how fast it turns to follow (deg/s)
     float reaction = 0.3f, readChance = 0.6f, turnSpeed = 540.0f;
+    // how it fights in a group (npc/Encounters.h): style sets the
+    // rest unless npcs.toml says otherwise
+    //   duelist  one attacks at a time, a pause between turns, the
+    //            rest stand back watching (bandits, guards)
+    //   pack     two at a time, quick turns (wolves)
+    //   horde    many at once, no turns, pressing in close (undead)
+    std::string style = "duelist";
+    int   attackers = 1;                     // how many of its style attack one target at once
+    float gapMin = 0.8f, gapMax = 1.5f;      // s after an attack ends before the next may start
+    float engageDist = 9.0f, holdDist = 24.0f;   // vox from the target: attacking, waiting a turn
     bool  menuProtected = false;
     float healsAfter = 0.0f;           // > 0: back to full health after this long unhurt
     bool  tracks = false;              // follows a trail of breadcrumbs past where it lost you
@@ -196,6 +207,7 @@ public:
                     d->health = (float)t["health"].value_or(100.0);
                     d->climb = (float)t["climb"].value_or(1.0);
                     d->poise = (float)t["poise"].value_or(35.0);
+                    d->armor = std::clamp((int)t["armor"].value_or((int64_t)0), 0, 4);
                     if (auto s = t["states"].as_array())
                         for (auto& x : *s) if (auto v = x.value<std::string>()) d->states.push_back(*v);
                     d->start = t["start"].value_or(std::string(d->has("patrol") ? "patrol" : "idle"));
@@ -217,6 +229,14 @@ public:
                     d->reaction   = (float)t["reaction"].value_or(0.3);
                     d->readChance = std::clamp((float)t["read_chance"].value_or(0.6), 0.0f, 1.0f);
                     d->turnSpeed  = std::max(30.0f, (float)t["turn_speed"].value_or(540.0));
+                    d->style = t["style"].value_or(std::string("duelist"));
+                    if (d->style == "pack")       { d->attackers = 2; d->gapMin = 0.3f; d->gapMax = 0.7f; d->engageDist = 9.0f; d->holdDist = 18.0f; }
+                    else if (d->style == "horde") { d->attackers = 5; d->gapMin = 0.0f; d->gapMax = 0.0f; d->engageDist = 7.0f; d->holdDist = 10.0f; }
+                    else d->style = "duelist";
+                    d->attackers = std::max(1, (int)t["attackers"].value_or((int64_t)d->attackers));
+                    pair(t["attack_gap"], d->gapMin, d->gapMax);
+                    d->engageDist = (float)t["engage_dist"].value_or((double)d->engageDist);
+                    d->holdDist = (float)t["hold_dist"].value_or((double)d->holdDist);
                     d->menuProtected = t["on_menu_attack"].value_or(std::string("interrupt")) == "protected";
                     d->healsAfter = (float)t["heals_after"].value_or(0.0);
                     d->tracks = t["tracks"].value_or(false);

@@ -65,6 +65,15 @@ struct HitEvent {
     bool       killed   = false;
     glm::vec3  point{0.0f};
     int        bone     = -1;         // the limb the blade touched (-1: the old arc rule)
+    // for whoever listens (damage numbers, the debug view, sounds …)
+    React      react    = React::None;   // what it did to the body (None: it shrugged it off)
+    float      hitstun  = 0.0f;       // s the body is stuck reacting
+    glm::vec3  dir{0.0f};             // the way it pushed the body
+    int        combo    = 0;          // the attacker's hits in a row, this one included
+    float      charge   = 0.0f;       // 0..1: how charged the attack was
+    int        window   = 0;          // which of the swing's hit windows
+    bool       wall     = false;      // (Simulation) knocked into a wall and pinned
+    bool       perfectDodge = false;  // nothing landed: the target dodged at the last moment
 };
 
 // Where a blade touched a body
@@ -82,6 +91,7 @@ using ClearFn = std::function<bool(glm::vec3, glm::vec3)>;
 
 // Invulnerable right now? (rolls, backsteps, air dodges)
 inline bool invulnerable(const Human& h) {
+    if (h.getUpGrace > 0.0f) return true;                // just got up
     if (h.move == Human::Move::Roll) {
         float done = 1.0f - h.moveTimer / Human::ROLL_TIME;
         return done >= ROLL_IFRAME_FROM && done <= ROLL_IFRAME_TO;
@@ -89,6 +99,23 @@ inline bool invulnerable(const Human& h) {
     if (h.move == Human::Move::Backstep)
         return 1.0f - h.moveTimer / Human::BACKSTEP_TIME <= BACKSTEP_IFRAME_TO;
     return h.move == Human::Move::AirDodge || h.freeze == Human::Freeze::AirDodge;
+}
+
+// A dodge just begun (within PERFECT_WINDOW) that a hit would have
+// met: a perfect dodge, once per dodge
+inline bool perfectDodge(Human& h) {
+    if (h.perfectUsed) return false;
+    float since = h.move == Human::Move::Roll ? Human::ROLL_TIME - h.moveTimer
+                : h.move == Human::Move::Backstep ? Human::BACKSTEP_TIME - h.moveTimer : 99.0f;
+    if (since > PERFECT_WINDOW) return false;
+    h.perfectUsed = true;
+    return true;
+}
+inline void dodged(Human& a, Human& b, std::vector<HitEvent>& out) {
+    if (!perfectDodge(b)) return;
+    HitEvent ev; ev.attacker = a.uuid; ev.target = b.uuid; ev.kind = a.attack.kind; ev.perfectDodge = true;
+    ev.point = b.bodyPoint(0.6f);
+    out.push_back(ev);
 }
 
 // Angle (degrees, positive to the left) of a horizontal offset
@@ -210,6 +237,61 @@ inline float poiseHit(Human& b, float poiseDmg, float knock, bool knockdown, Hit
     return std::clamp(knock, STAGGER_MIN, KNOCKDOWN_KNOCK * 0.7f);      // a stagger, never a fall
 }
 
+// The reaction an attack gives when its def doesn't say
+inline React defaultReact(AttackKind k) {
+    switch (k) {
+    case AttackKind::Heavy:    return React::Stumble;
+    case AttackKind::AirHeavy: return React::Slam;
+    case AttackKind::None:     return React::Flinch;      // a tool (the axe)
+    default:                   return React::Flinch;
+    }
+}
+
+// Put a body into a reaction: interrupted, stuck for its hitstun,
+// thrown by it (the shove and lift wait for the hit-stop to end;
+// physics plays them out). A knockdown is the ragdoll's: returns
+// the knock to give it (0 for the rest)
+inline float startReaction(Human& b, React r, glm::vec3 push, glm::vec3 point, float stunOverride, float charge, HitEvent& ev) {
+    if (r == React::Slam && b.grounded) r = React::Knockdown;     // nothing to drive into the ground: it falls
+    b.attack = AttackState();
+    b.guarding = false;
+    ev.react = r;
+    if (r == React::Knockdown) { ev.knockedDown = true; b.hitstun = 0.0f; b.react = React::None; return KNOCKDOWN_KNOCK; }
+    int ri = (int)r;
+    glm::vec3 flat(push.x, 0.0f, push.z);
+    flat = glm::length(flat) > 1e-3f ? glm::normalize(flat) : glm::vec3(0.0f);
+    float stun = stunOverride >= 0.0f ? stunOverride : REACT_STUN[ri];
+    if (b.isPlayer()) stun *= PLAYER_STUN;
+    b.hitstun = std::max(b.hitstun, stun);
+    b.react = r; b.reactDir = flat; b.reactAge = 0.0f;
+    ev.hitstun = b.hitstun;
+    // a heavier body is thrown less
+    float weight = std::clamp(75.0f / std::max(b.mass, 20.0f), 0.6f, 1.3f);
+    float shove = REACT_SHOVE[ri] * weight * (1.0f + 0.3f * charge), lift = 0.0f;
+    const bool air = !b.grounded;
+    switch (r) {
+    case React::Flinch: case React::Stumble:
+        if (air) { lift = b.juggles < JUGGLE_MAX ? JUGGLE_POP : 0.0f; shove *= 0.4f; b.juggles++; }
+        break;
+    case React::Launch:
+        lift = air ? JUGGLE_POP * 1.6f : std::sqrt(2.0f * Human::GRAVITY * LAUNCH_HEIGHT);
+        if (air) b.juggles++;
+        break;
+    case React::Slam:
+        lift = -SLAM_DOWN; shove *= 0.3f;
+        break;
+    default: break;
+    }
+    b.pendingShove = flat * shove;
+    b.pendingLift = lift;
+    b.pendingSlide = REACT_SLIDE[ri];
+    // the limbs give way with it (the ragdoll shakes, never falls)
+    glm::vec3 wob = glm::normalize(flat + glm::vec3(0.0f, r == React::Launch ? 0.6f : 0.15f, 0.0f));
+    float sp = Ragdoll::KNOCKDOWN_DV * REACT_WOBBLE * (r == React::Flinch ? 0.6f : 1.0f);
+    b.hit(point, wob * sp * std::max(b.mass, 1.0f), true);
+    return 0.0f;
+}
+
 // Give the body its knock: a speed change of 'knock' vox/s
 // whatever its mass (poise already accounts for toughness)
 inline void knockBody(Human& b, glm::vec3 point, glm::vec3 dir, float lift, float knock) {
@@ -249,6 +331,14 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
     const Human::GuardStyle& gs = b.guardStyle;
     bool facing = glm::length(bf) > 1e-3f && glm::dot(glm::normalize(bf), -glm::vec2(away.x, away.z)) > gs.facing;
     float knock;
+    bool reacted = false;
+    ev.charge = charge;
+    ev.dir = push;
+    ev.window = a.attack.window;
+    a.combo = a.sinceLanded < 1.5f ? a.combo + 1 : 1;
+    a.sinceLanded = 0.0f;
+    b.combo = 0;
+    ev.combo = a.combo;
     if (b.guarding && facing && b.guardTime <= gs.parry && a.attack.kind != AttackKind::AirHeavy) {
         // parried: the swing is knocked aside, the attacker reels
         ev.parried = ev.blocked = true;
@@ -272,6 +362,7 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
         b.attack = AttackState();
         knock = std::max(d.knock, KNOCKDOWN_KNOCK);
         dmg *= RIPOSTE_DAMAGE;
+        ev.react = React::Knockdown;
     } else if (b.guarding && facing) {
         ev.blocked = true;
         float cost = dmg * (1.0f - gs.keep) * GUARD_COST * gs.cost;
@@ -280,8 +371,8 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
             ev.guardBroken = true;
             b.stamina = 0.0f;
             dmg *= 0.5f;
-            b.attack = AttackState();
-            knock = std::clamp(d.knock, STAGGER_MIN, KNOCKDOWN_KNOCK * 0.7f);
+            knock = startReaction(b, React::Stumble, push, ev.point, -1.0f, 0.0f, ev);   // reels, wide open
+            reacted = true;
         } else {
             dmg *= gs.keep;
             knock = std::min(d.knock * (gs.shield ? 0.15f : 0.25f), FLINCH_KNOCK);   // pushed back a little (less behind a shield)
@@ -290,7 +381,26 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
         if (b.dead()) { knock = KNOCKDOWN_KNOCK; ev.knockedDown = true; }
     } else {
         b.health = std::max(0.0f, b.health - dmg);
-        knock = poiseHit(b, poiseDmg, d.knock, d.knockdown, ev);
+        // what it does to the body: the attack's reaction (a full
+        // charge one stronger). A body reacts to anything that beats
+        // its armor; poise still wears down, and when it breaks the
+        // body reels (or falls, for an attack that knocks down)
+        React r = d.react != React::None ? d.react : defaultReact(a.attack.kind);
+        if (charge >= 0.99f && (r == React::Flinch || r == React::Stumble)) r = (React)((int)r + 1);
+        bool armoredNow = b.attack.active() && b.attack.armored();
+        b.sincePoiseHit = 0.0f;
+        if (!armoredNow) b.poise -= poiseDmg;
+        if (b.poise <= 0.0f) {
+            ev.poiseBroken = true;
+            b.poise = b.maxPoise;
+            if (d.knockdown) r = React::Knockdown;
+            else if (reactTier(r) < reactTier(React::Stumble)) r = React::Stumble;
+        }
+        if (b.dead()) { ev.knockedDown = true; knock = std::max(d.knock, KNOCKDOWN_KNOCK); }
+        else if (ev.poiseBroken || (!armoredNow && reactTier(r) > b.armor)) {
+            knock = startReaction(b, r, push, ev.point, d.hitstun, charge, ev);
+            reacted = true;
+        } else knock = std::min(d.knock, FLINCH_KNOCK);                  // shrugged off: a flinch of the limbs
     }
     b.sinceHurt = 0.0f;
     b.lastHitBy = a.uuid;
@@ -301,6 +411,8 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
         b.ragdoll.stayDown = true;
     }
     knockBody(b, ev.point - push * 1.0f, push, d.lift, knock);
+    // a bigger reaction holds a little longer
+    if (ev.react == React::Launch || ev.react == React::Slam) stopFor *= 1.3f;
     // both bodies hold for a moment (the attacker's swing too); then
     // a hit its poise held (or a guard took) shoves the target back,
     // a quick slide; a broken poise is the ragdoll's
@@ -308,7 +420,7 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
     a.attack.prevT = a.attack.t;                 // (held: no sweep while it holds)
     a.hitStop = std::max(a.hitStop, stop);
     b.hitStop = std::max(b.hitStop, stop);
-    if (!ev.poiseBroken && !ev.knockedDown && !ev.killed && !b.noRagdoll) {
+    if (!reacted && !ev.knockedDown && !ev.killed && !b.noRagdoll) {
         glm::vec3 flat(push.x, 0.0f, push.z);
         if (glm::length(flat) > 1e-3f)
             b.pendingShove = glm::normalize(flat) * d.knock * SHOVE * (1.0f + 0.5f * charge) * (ev.blocked ? SHOVE_BLOCKED : 1.0f);
@@ -338,8 +450,20 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
         hitshape::Posed pa;
         bool blade = poseOf && st.kind != AttackKind::AirHeavy && poseOf(*a, pa) && pa.held;
         const AttackDef& d = st.def();
-        float lo = std::max(t0, d.activeStart), hi = std::min(t1, d.activeEnd);
-        bool inWindow = hi >= lo && t1 >= d.activeStart && t0 <= d.activeEnd;
+        // which hit window this step is in: a new one can hit the
+        // same bodies again
+        float lo = 0.0f, hi = -1.0f;
+        bool inWindow = false;
+        for (int wi = 0; wi < d.windowCount(); wi++) {
+            glm::vec2 w = d.window(wi);
+            float l = std::max(t0, w.x), h = std::min(t1, w.y);
+            if (h >= l && t1 >= w.x && t0 <= w.y) {
+                if (wi > st.window) { st.window = wi; st.hitIds.clear(); }
+                lo = l; hi = h; inWindow = true;
+                break;
+            }
+        }
+        if (!inWindow && !blade && d.windowCount() > 1) continue;   // between hits
         float s0 = 0.0f, s1 = 1.0f;
         if (blade) {
             if (!inWindow || t1 - t0 < 1e-6f) continue;    // outside the hit window, or held in hit-stop
@@ -356,7 +480,7 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
                 limbBoxes(*b, bp ? &pb : nullptr, limbs);
                 Contact c;
                 if (!bladeContact(pa, s0, s1, limbs, c)) continue;
-                if (invulnerable(*b)) continue;
+                if (invulnerable(*b)) { dodged(*a, *b, out); continue; }
                 if (clear && !clear(a->bodyPoint(0.6f), c.point)) continue;   // no hits through walls
                 st.hitIds.push_back(b->uuid);
                 out.push_back(land(*a, *b, &c));
@@ -364,7 +488,7 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
                 continue;
             }
             if (!sweeps(*a, *b, t0, t1)) continue;
-            if (invulnerable(*b)) continue;          // stays live: can still hit when the roll ends
+            if (invulnerable(*b)) { dodged(*a, *b, out); continue; }   // stays live: can still hit when the roll ends
             if (clear && !clear(a->bodyPoint(0.6f), b->bodyPoint(0.6f))) continue;
             st.hitIds.push_back(b->uuid);
             out.push_back(land(*a, *b));

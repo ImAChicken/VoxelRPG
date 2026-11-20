@@ -230,7 +230,7 @@ public:
     // flat one or a dev world (a stage). Console `roaming on|off`
     bool getRoamingSpawns() const {
         if (worldRoaming >= 0) return worldRoaming == 1;
-        return !worldDev && worldType != WorldType::Flat;
+        return !worldDev && worldType != WorldType::Flat && worldType != WorldType::Dungeon;
     }
     bool setRoamingSpawns(bool on) { worldRoaming = on ? 1 : 0; return saveDescriptor(); }
     int         getWorldBiome() const { return worldBiome; }

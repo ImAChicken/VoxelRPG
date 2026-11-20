@@ -33,7 +33,13 @@
 #   death_dust            someone killed; death_slime a slime
 #   step_dust             an attack's step pushing off (steps of 6+)
 #   dodge_dust            a roll or backstep
-#   land_dust             a hard landing (more the faster the fall)
+#   land_dust             a hard landing (more the faster the fall), and
+#                         under a body launched off the ground
+#   impact_flash          every hit that lands (bigger for a bigger
+#                         reaction or a charged hit)
+#   wall_dust             a body knocked into a wall and pinned (or
+#                         driven into the ground by a slam)
+#   perfect_dodge         a perfect dodge, round the dodger
 
 [[emitter]]
 id = "hit_spark"
@@ -224,3 +230,46 @@ jitter = 1.0
 color = [0.72, 0.66, 0.56, 0.45]
 color_end = [0.7, 0.65, 0.58, 0.0]
 color_vary = [0.03, 0.03, 0.03]
+
+[[emitter]]
+id = "impact_flash"
+count = [1, 1]
+speed = [0, 0]
+gravity = 0
+drag = 0
+life = [0.07, 0.07]
+size = [3.5, 5.5]
+jitter = 0
+color = [1.8, 1.7, 1.5, 0.8]
+color_end = [1.2, 0.9, 0.6, 0.0]
+additive = true
+
+[[emitter]]
+id = "wall_dust"
+count = [10, 14]
+speed = [8, 20]
+spread = 180
+gravity = 10
+drag = 3
+life = [0.4, 0.7]
+size = [1.2, 2.6]
+jitter = 1.5
+color = [0.7, 0.66, 0.6, 0.6]
+color_end = [0.68, 0.64, 0.6, 0.0]
+color_vary = [0.04, 0.04, 0.04]
+
+[[emitter]]
+id = "perfect_dodge"
+count = [16, 20]
+speed = [14, 26]
+spread = 180
+gravity = -8
+drag = 4
+life = [0.3, 0.5]
+size = [0.4, 0.1]
+shape = "spark"
+stretch = 0.03
+jitter = 2.0
+color = [1.0, 1.4, 2.0, 1.0]
+color_end = [0.4, 0.7, 1.4, 0.0]
+additive = true

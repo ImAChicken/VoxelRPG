@@ -54,6 +54,8 @@ struct SimEvent {
         EncounterStarted,   // encounter: its id
         EncounterMerged,    // encounter: the one kept, a: the one merged into it
         EncounterEnded,     // encounter: its id (Simulation::encounters() has the review)
+        WallHit,            // b: knocked into a wall (or driven into the ground) and pinned; at
+        PerfectDodge,       // a: the attacker (now slowed), b: who dodged at the last moment
     };
     uint32_t   encounter = 0;
     Kind       kind = Kind::Hit;
@@ -65,6 +67,15 @@ struct SimEvent {
     uint16_t   item = 0;
     int        count = 0;
     glm::vec3  at{0.0f};    // Hit: where it landed (the blade's contact)
+    // Hit, in full, for anything that wants it (damage numbers, the
+    // camera, the debug view): what it did to the body and how
+    React      react = React::None;   // the reaction (None: shrugged off, or blocked)
+    float      hitstun = 0.0f;        // s the target is stuck in it
+    glm::vec3  dir{0.0f};             // the way it pushed
+    int        bone = -1;             // the limb the blade met (-1: not known)
+    int        combo = 0;             // the attacker's hits in a row
+    float      charge = 0.0f;         // 0..1
+    int        window = 0;            // which hit of a multi-hit swing
 };
 
 class Simulation : public NpcWorld {
@@ -220,7 +231,9 @@ public:
             if (sight.size() < 64) sight.push_back({ a, b, c, 0.0f });   // for the debug overlay
             return c;
         }, hits, [this](const Human& a, const Human& b) {
-            // NPCs only hit what they're hostile to; players hit anyone
+            // NPCs only hit what they're hostile to, and not one lying
+            // down; players hit anyone
+            if (!a.isPlayer() && b.ragdoll.controlsLocked()) return false;
             return a.isPlayer() || hostile(static_cast<const Npc&>(a), b);
         }, [this](const Human& h, hitshape::Posed& out) { return poses.posed(h.uuid, out); },
         [this](const Human& a, const Human& b, hitshape::Posed& out) {
@@ -230,10 +243,31 @@ public:
             return it != viewDelay.end() && it->second > 0 && poses.posedAgo(b.uuid, it->second, out);
         });
         contactDamage(all);
+        // knocked into walls (physics marks them)
+        for (Human* h : all)
+            if (h->wallHit) {
+                h->wallHit = false;
+                SimEvent e; e.kind = SimEvent::Kind::WallHit; e.b = h->uuid; e.at = h->bodyPoint(0.5f);
+                events.push_back(e);
+            }
         combat::separate(all, [&](glm::vec3 pos) {
             return physics->capsuleIsClear(pos, Human::RADIUS, Human::STAND_HEIGHT);
         });
         for (const auto& h : hits) {
+            if (h.perfectDodge) {
+                // dodged at the last moment: the attacker and its friends
+                // close by slow down (the dodger's moment to strike)
+                Human* att = find(h.attacker);
+                if (att) {
+                    for (Human* o : all)
+                        if (o == att || (!o->isPlayer() && o->uuid != h.target &&
+                            glm::length(o->position - att->position) < combat::PERFECT_RADIUS && static_cast<Npc*>(o)->target == h.target))
+                            o->slowed = combat::PERFECT_SLOW;
+                }
+                SimEvent e; e.kind = SimEvent::Kind::PerfectDodge; e.a = h.attacker; e.b = h.target; e.at = h.point;
+                events.push_back(e);
+                continue;
+            }
             hitConsequences(h.attacker, h.target, h.point);
             fights.hit(h.attacker, h.target, h.damage);
             if (h.killed) fights.killed(h.attacker, h.target, xpFor(h.target));
@@ -245,6 +279,8 @@ public:
             e.parried = h.parried; e.riposte = h.riposte;
             e.poiseBroken = h.poiseBroken; e.knockedDown = h.knockedDown;
             e.at = h.point;
+            e.react = h.react; e.hitstun = h.hitstun; e.dir = h.dir; e.bone = h.bone;
+            e.combo = h.combo; e.charge = h.charge; e.window = h.window;
             events.push_back(e);
             if (h.killed) {
                 SimEvent k; k.kind = SimEvent::Kind::Killed; k.a = h.attacker; k.b = h.target;
@@ -669,9 +705,13 @@ public:
     void sawTarget(Npc& n, EntityId target) override { fights.seen(n.uuid, target); }
     bool slotSpot(Npc& n, const Human& t, glm::vec3& out, bool& engage, float dt) override {
         Slot s;
-        return fights.slotSpot(n.uuid, t.position, t.facing, n.position, out, engage, s, dt);
+        return n.type ? fights.slotSpot(n.uuid, t.position, t.facing, n.position, out, engage, s, dt, n.type->engageDist, n.type->holdDist)
+                      : fights.slotSpot(n.uuid, t.position, t.facing, n.position, out, engage, s, dt);
     }
-    bool requestAttack(Npc& n) override { return fights.requestAttack(n.uuid); }
+    bool requestAttack(Npc& n) override {
+        if (n.type) return fights.requestAttack(n.uuid, n.type->attackers, n.type->gapMax > 0.0f);
+        return fights.requestAttack(n.uuid);
+    }
 
     // Context steering (npc/ContextSteering.h): worked out every
     // STEER_EVERY ticks per NPC (staggered by id); between, the
@@ -710,7 +750,10 @@ public:
         n.steerAt = clock;
         return n.steerMap.move;
     }
-    void releaseAttack(Npc& n) override { fights.releaseAttack(n.uuid); }
+    void releaseAttack(Npc& n) override {
+        float gap = n.type ? n.randRange(n.type->gapMin, n.type->gapMax) : 0.0f;
+        fights.releaseAttack(n.uuid, gap);
+    }
     bool latestCrumb(EntityId p, glm::vec3& at) override {
         const encounter::Crumb* c = fights.latestCrumb(p);
         if (c) at = c->at;

@@ -44,6 +44,11 @@ static Swing swingAt(glm::vec3 offset, bool heavy = false, bool wallBetween = fa
     return s;
 }
 
+// one body moved by physics alone for 's' seconds (no brain)
+static void physicsStep(testworld::World& w, Human& h, float s) {
+    for (int i = 0; i < (int)std::lround(s / DT); i++) w.physics.moveHuman(h, HumanIntent(), DT);
+}
+
 int main() {
     if (!loadData()) { std::printf("run from the repo root (needs data/registry)\n"); return 1; }
     gHeldModels.loadDir("data/models/held");
@@ -232,6 +237,74 @@ int main() {
         stepped(true, 2.0f, glm::vec3(0, 0, -6), &held);
         check(tap > 0.0f, "a heavy that hits holds both bodies in a hit-stop (" + std::to_string(tap) + ")");
         check(held > tap * 1.4f, "held, the heavy charges and hits harder (" + std::to_string(tap) + " -> " + std::to_string(held) + ")");
+    }
+
+    std::printf("reactions in the world (launch, hitstun, walls, slow-mo)\n");
+    {
+        // the sword's heavy launches a plain body; it hangs, lands, recovers
+        World w;
+        glm::vec3 at(64.5f, (float)GROUND, 64.5f);
+        Player& p = w.player(at);
+        p.facing = glm::vec3(0, 0, -1);
+        p.inventory.setSlot(Inventory::FIRST_MAIN, gItems.find("iron_sword"), 1);
+        p.inventory.select(Inventory::FIRST_MAIN);
+        Npc& d = *w.sim.npcs().spawn("dummy", at + glm::vec3(0, 0, -6), glm::vec3(0, 0, 1));
+        d.health = d.maxHealth = 1000.0f;
+        w.run(0.4f);
+        w.sim.takeEvents();
+        float top = 0.0f; bool stuckInAir = false, launched = false;
+        for (int i = 0; i < 60 * 4; i++) {
+            HumanIntent in; in.attackHeavy = i == 0;
+            w.sim.setIntent(p.uuid, in);
+            p.facing = glm::vec3(0, 0, -1);
+            w.sim.step(DT);
+            for (const SimEvent& e : w.sim.takeEvents()) if (e.kind == SimEvent::Kind::Hit && e.react == React::Launch) launched = true;
+            top = std::max(top, d.position.y - (float)GROUND);
+            if (d.position.y > GROUND + 3.0f && d.stunned()) stuckInAir = true;
+        }
+        check(launched, "the heavy's hit says it launched");
+        check(top > 8.0f, "the body goes up (" + std::to_string(top) + " voxels)");
+        check(stuckInAir, "stuck reeling while in the air");
+        check(d.grounded && !d.stunned(), "then lands and gets its control back");
+
+        // a player in hitstun can't act; presses meanwhile are dropped
+        p.hitstun = 0.5f; p.react = React::Flinch;
+        HumanIntent in; in.attackLight = true;
+        w.sim.setIntent(p.uuid, in);
+        w.sim.step(DT);
+        check(!p.attack.active(), "reeling: an attack press does nothing");
+        for (int i = 0; i < 40; i++) { w.sim.setIntent(p.uuid, HumanIntent()); w.sim.step(DT); }
+        check(!p.stunned() && !p.attack.active(), "and isn't played once it ends");
+        w.sim.setIntent(p.uuid, in); w.sim.step(DT);
+        check(p.attack.active(), "after it: attacks again");
+
+        // knocked hard into a wall: pinned to it
+        World w2;
+        Player& p2 = w2.player(at + glm::vec3(20, 0, 20));
+        Npc& d2 = *w2.sim.npcs().spawn("dummy", at, glm::vec3(0, 0, 1));
+        w2.wall(56, 73, 60, 60, 20);
+        w2.run(0.3f);
+        w2.sim.takeEvents();
+        d2.hitstun = 0.5f; d2.react = React::Stumble; d2.pendingShove = glm::vec3(0, 0, -35); d2.pendingSlide = 0.4f;
+        bool pinned = false;
+        for (int i = 0; i < 60; i++) {
+            w2.sim.setIntent(p2.uuid, HumanIntent());
+            w2.sim.step(DT);
+            for (const SimEvent& e : w2.sim.takeEvents()) if (e.kind == SimEvent::Kind::WallHit && e.b == d2.uuid) pinned = true;
+        }
+        check(pinned, "a body knocked into a wall: pinned (a wall hit event)");
+
+        // slowed (a perfect dodge against it): its swing runs at PERFECT_RATE
+        Npc& b2 = *w2.sim.npcs().spawn("bandit", at + glm::vec3(-30, 0, 0), glm::vec3(1, 0, 0));
+        w2.run(0.2f);
+        HumanIntent sw; sw.attackLight = true;
+        b2.intent = sw;
+        b2.attack = AttackState();
+        combat::startAttack(b2, sw);
+        b2.slowed = 1.0f;
+        float t0 = b2.attack.t;
+        physicsStep(w2, b2, 0.1f);
+        check(b2.attack.active() && b2.attack.t - t0 < 0.05f, "slowed: its attack runs slow (" + std::to_string(b2.attack.t - t0) + " s in 0.1)");
     }
 
     std::printf("particles (render/Particles.h)\n");

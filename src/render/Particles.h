@@ -122,7 +122,7 @@ public:
     // A burst of emitter 'id' at 'at', thrown along 'dir' (any length;
     // zero: every way). 'light' 0..1 dims it (a cave); 'scale' its count.
     // Returns how many began.
-    int burst(const std::string& id, glm::vec3 at, glm::vec3 dir = glm::vec3(0.0f), float light = 1.0f, float scale = 1.0f) {
+    int burst(const std::string& id, glm::vec3 at, glm::vec3 dir = glm::vec3(0.0f), float light = 1.0f, float scale = 1.0f, float sizeScale = 1.0f) {
         const Emitter* e = emitter(id);
         if (!e || gSettings.particles <= 0) return 0;
         if (gSettings.particles == 1) scale *= 0.5f;
@@ -138,7 +138,7 @@ public:
             p.c1 = glm::clamp(e->colorEnd + glm::vec4(vary, 0.0f), 0.0f, 4.0f);
             p.maxLife = p.life = randf(e->lifeMin, e->lifeMax);
             float sz = randf(0.75f, 1.25f);
-            p.s0 = e->sizeStart * sz; p.s1 = e->sizeEnd * sz;
+            p.s0 = e->sizeStart * sz * sizeScale; p.s1 = e->sizeEnd * sz * sizeScale;
             p.stretch = e->stretch; p.gravity = e->gravity; p.drag = e->drag;
             p.light = std::clamp(light, 0.0f, 1.0f);
             p.additive = e->additive; p.bounce = e->bounce; p.shape = e->shape;
@@ -153,6 +153,14 @@ public:
     void onEvent(const SimEvent& ev, Simulation& sim) {
         if (ev.kind == SimEvent::Kind::Killed) {
             if (Human* b = sim.find(ev.b)) burst(b->noRagdoll ? "death_slime" : "death_dust", b->position + glm::vec3(0, 2, 0), glm::vec3(0, 1, 0), lightAt(b->position));
+            return;
+        }
+        if (ev.kind == SimEvent::Kind::WallHit) {
+            if (Human* b = sim.find(ev.b)) burst("wall_dust", ev.at, glm::vec3(0, 0.3f, 0), lightAt(ev.at));
+            return;
+        }
+        if (ev.kind == SimEvent::Kind::PerfectDodge) {
+            if (Human* b = sim.find(ev.b)) burst("perfect_dodge", b->position + glm::vec3(0, 7, 0), glm::vec3(0.0f), 1.0f);
             return;
         }
         if (ev.kind != SimEvent::Kind::Hit) return;
@@ -172,6 +180,11 @@ public:
             burst(b->guardStyle.shield ? "block_wood" : "block_sparks", at, -dir + glm::vec3(0, 0.3f, 0), L, heavy ? 1.5f : 1.0f);
             if (ev.guardBroken) burst("guard_break", at, glm::vec3(0, 1, 0), L);
         } else if (ev.amount > 0.0f) {
+            // a flash at the contact, bigger for a bigger reaction
+            float big = ev.react == React::Launch || ev.react == React::Slam || ev.react == React::Knockdown ? 1.6f
+                      : ev.react == React::Stumble ? 1.25f : 1.0f;
+            burst("impact_flash", at, glm::vec3(0.0f), L, 1.0f, big + 0.5f * ev.charge);
+            if (ev.react == React::Launch && b->grounded) burst("land_dust", b->position + glm::vec3(0, 0.3f, 0), glm::vec3(0, 1, 0), L);
             if (b->noRagdoll) burst("hit_slime", at, dir + glm::vec3(0, 0.5f, 0), L, heavy ? 1.6f : 1.0f);
             else {
                 burst("hit_spark", at, dir, L, heavy ? 1.6f : 1.0f);

@@ -4,6 +4,7 @@
 #include "../world/StructureManager.h"
 #include "../world/Chests.h"
 #include "../world/TerrainOps.h"
+#include "../dungeon/Tile.h"
 #include <glm/glm.hpp>
 #include <toml++/toml.hpp>
 #include <algorithm>
@@ -97,6 +98,13 @@ struct Blueprint {
     // Ones that never disagree (say the walls' palette and the doors')
     // can be merged into one when the player says so (mergePalettes)
     std::vector<PieceSpec> palettes;
+    // A voxel layer (world/VoxelVolume.h, a .vxvol beside the file):
+    // raw voxels as well as (or instead of) pieces. Dungeon tiles are
+    // made of it
+    std::string voxels;
+    // A dungeon tile: its [tile] table (dungeon/Tile.h)
+    bool isTile = false;
+    dungeon::TileInfo tile;
 
     bool hasTag(const std::string& t) const { return std::find(tags.begin(), tags.end(), t) != tags.end(); }
 
@@ -520,6 +528,8 @@ struct Blueprint {
         f << "]\n";
         f << "size = [" << size.x << ", " << size.y << ", " << size.z << "]\n";
         f << "front = " << front << "\n";
+        if (!voxels.empty()) f << "voxels = \"" << voxels << "\"\n";
+        if (isTile) tile.write(f);
         for (size_t i = 0; i < palettes.size(); i++)
             f << "\n[[palette]]   # " << i << "\nspec = \"" << palettes[i].text() << "\"\n";
         for (const BlueprintPart& p : parts) {
@@ -558,6 +568,9 @@ struct Blueprint {
             if (auto* a = tbl["size"].as_array(); a && a->size() == 3)
                 size = { (*a)[0].value_or(0), (*a)[1].value_or(0), (*a)[2].value_or(0) };
             front = tbl["front"].value_or(2) & 3;
+            voxels = tbl["voxels"].value_or(std::string());
+            isTile = false;
+            if (auto* tt = tbl["tile"].as_table()) { isTile = true; tile = dungeon::TileInfo(); tile.read(*tt); }
             parts.clear();
             palettes.clear();
             if (auto* arr = tbl["palette"].as_array())

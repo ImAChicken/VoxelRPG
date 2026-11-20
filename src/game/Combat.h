@@ -53,6 +53,28 @@
 // target's ragdoll.
 enum class AttackKind : uint8_t { None, Light, Heavy, AirLight, AirHeavy, Cast };   // Cast: an item's (a spell's) own attack
 
+// What a hit does to the body it lands on (DMC / Rising style: a
+// regular enemy reacts to every hit). Ordered by strength: a body
+// reacts only to what beats its armor (Human::armor, npcs.toml)
+enum class React : uint8_t { None, Flinch, Stumble, Launch, Slam, Knockdown };
+inline const char* reactName(React r) {
+    switch (r) {
+    case React::Flinch: return "flinch"; case React::Stumble: return "stumble"; case React::Launch: return "launch";
+    case React::Slam: return "slam"; case React::Knockdown: return "knockdown"; default: return "none";
+    }
+}
+inline React reactFromName(const std::string& s) {
+    if (s == "flinch") return React::Flinch; if (s == "stumble") return React::Stumble; if (s == "launch") return React::Launch;
+    if (s == "slam") return React::Slam; if (s == "knockdown") return React::Knockdown; return React::None;
+}
+// how strong a reaction is (armor 1 shrugs off flinches, 2 stumbles too …)
+inline int reactTier(React r) {
+    switch (r) {
+    case React::Flinch: return 1; case React::Stumble: return 2; case React::Launch: case React::Slam: return 3;
+    case React::Knockdown: return 4; default: return 0;
+    }
+}
+
 struct AttackDef {
     std::string id, pose;
     std::string effect;                  // what happens when the active window opens instead of a blade hit ("windburst")
@@ -64,7 +86,15 @@ struct AttackDef {
     float effectSpeed = 60.0f, effectGravity = 20.0f;   // vox/s, vox/s²
     std::string effectPlace;
     float duration = 0.5f;               // s, wind-up + active + recovery
-    float activeStart = 0.2f, activeEnd = 0.3f;   // s: the hit window
+    float activeStart = 0.2f, activeEnd = 0.3f;   // s: the hit window (all of them, when there are several)
+    // several hits in one swing (a spin, a double thrust): each window
+    // can hit the same body again. Empty: just [activeStart, activeEnd]
+    std::vector<glm::vec2> windows;
+    // what a hit does to a body that reacts (None: by kind: a light
+    // flinches, a heavy stumbles, an air heavy slams); hitstun: s the
+    // body is stuck in it (< 0: the reaction's own, REACT_STUN)
+    React react = React::None;
+    float hitstun = -1.0f;
     float damage = 1.0f;                 // × the weapon's damage
     float poise = 10.0f;                 // poise damage
     float stamina = 10.0f;               // cost
@@ -96,6 +126,9 @@ struct AttackDef {
     bool  thrust = false;                // grip = "thrust": the held item turns to point along the thrust
 
     float stepDistance() const { return step >= 0.0f ? step : lunge * std::max(0.0f, lungeTo - lungeFrom); }
+    // the hit windows, always at least one
+    int windowCount() const { return windows.empty() ? 1 : (int)windows.size(); }
+    glm::vec2 window(int i) const { return windows.empty() ? glm::vec2(activeStart, activeEnd) : windows[(size_t)i]; }
 };
 
 struct Moveset {
@@ -175,6 +208,29 @@ constexpr float LURCH_GRAVITY   = 0.4f;    // gravity while lurching
 constexpr float PLUNGE_HANG     = 0.18f;   // air heavy: s hanging before the plunge
 constexpr float PLUNGE_SPEED    = 120.0f;  // vox/s straight down
 constexpr float SLAM_AT         = 0.20f;   // s into the attack when it lands (the slam's window follows)
+// reactions (React): s stuck in each, and how fast it throws the body
+constexpr float REACT_STUN[6]  = { 0.0f, 0.38f, 0.65f, 0.9f, 0.8f, 0.0f };   // by React
+constexpr float REACT_SHOVE[6] = { 0.0f, 16.0f, 30.0f, 6.0f, 0.0f, 0.0f };   // vox/s along the hit
+constexpr float REACT_SLIDE[6] = { 0.0f, 0.2f, 0.45f, 0.0f, 0.0f, 0.0f };    // s it slides before it can stop
+constexpr float REACT_DECAY    = 5.0f;     // 1/s: how fast a reaction's slide slows (a flinch ~3 voxels, a stumble ~6)
+constexpr float LAUNCH_HEIGHT  = 16.0f;    // vox a launch throws a body up
+constexpr float JUGGLE_POP     = 14.0f;    // vox/s up when hit in the air (kept aloft)
+constexpr int   JUGGLE_MAX     = 5;        // air hits before it falls regardless
+constexpr float JUGGLE_GRAVITY = 0.55f;    // × gravity on a body stuck in the air
+constexpr float SLAM_DOWN      = 90.0f;    // vox/s a slam drives an airborne body down
+constexpr float SLAM_BOUNCE    = 18.0f;    // vox/s it bounces back up off the ground
+constexpr float PLAYER_STUN    = 0.65f;    // × hitstun on a player (they get control back sooner)
+constexpr float WALL_SPEED     = 20.0f;    // vox/s: a body knocked into a wall this fast is pinned
+constexpr float WALL_PIN       = 0.6f;     // s pinned to it
+constexpr float REACT_WOBBLE   = 0.55f;    // × the ragdoll's knockdown speed: how hard a reaction shakes the limbs
+// getting up: s untouchable once on its feet
+constexpr float GETUP_GRACE    = 0.6f;
+// a perfect dodge: a hit that would land in the first this-many s of a
+// roll or backstep slows the attacker (and foes near) for PERFECT_SLOW s
+constexpr float PERFECT_WINDOW = 0.18f;
+constexpr float PERFECT_SLOW   = 1.6f;
+constexpr float PERFECT_RATE   = 0.3f;     // × their time while slowed
+constexpr float PERFECT_RADIUS = 40.0f;
 // i-frames: share of the move's time that is invulnerable
 constexpr float ROLL_IFRAME_FROM = 0.08f, ROLL_IFRAME_TO = 0.72f;
 constexpr float BACKSTEP_IFRAME_TO = 0.6f;
@@ -224,6 +280,15 @@ public:
                     d->pose = v["pose"].value_or(d->id);
                     d->duration = (float)v["duration"].value_or(0.5);
                     pair(v["active"], d->activeStart, d->activeEnd);
+                    if (auto* hw = v["hits"].as_array()) {
+                        for (auto& w : *hw)
+                            if (auto* p = w.as_array(); p && p->size() == 2)
+                                d->windows.push_back({ (float)p->get(0)->value_or(0.0), (float)p->get(1)->value_or(0.0) });
+                        std::sort(d->windows.begin(), d->windows.end(), [](glm::vec2 a, glm::vec2 b) { return a.x < b.x; });
+                        if (!d->windows.empty()) { d->activeStart = d->windows.front().x; d->activeEnd = d->windows.back().y; }
+                    }
+                    d->react = reactFromName(v["react"].value_or(std::string()));
+                    d->hitstun = (float)v["hitstun"].value_or(-1.0);
                     d->damage = (float)v["damage"].value_or(1.0);
                     d->poise = (float)v["poise"].value_or(10.0);
                     d->stamina = (float)v["stamina"].value_or(10.0);
@@ -328,7 +393,8 @@ struct AttackState {
     bool       queuedLight = false;// a light press waiting to chain
     bool       plunging = false;   // air heavy: falling
     bool       landed = false;     // air heavy: has slammed
-    std::vector<uint64_t> hitIds;  // bodies this swing has hit already
+    std::vector<uint64_t> hitIds;  // bodies this swing (this hit window) has hit already
+    int        window = 0;         // which hit window the sweep is in (AttackDef::windows)
     uint16_t   item = 0;           // a cast: the item (spellbook) it came from, held while it plays
     // root motion and aim (Simulation::aimAttacks fills these)
     glm::vec3  aim{0.0f};          // the target's feet, while it has one

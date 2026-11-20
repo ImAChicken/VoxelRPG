@@ -102,7 +102,7 @@ public:
     const FlatOptions& getNewWorldFlat() const { return flat; }
     // Roaming enemy spawns (sim/Roaming.h): the Enemies row; left as
     // is, on unless the world is flat or a dev world
-    bool        getNewWorldRoaming() const { return roaming >= 0 ? roaming == 1 : !(newDev || worldType == WorldType::Flat); }
+    bool        getNewWorldRoaming() const { return roaming >= 0 ? roaming == 1 : !(newDev || worldType == WorldType::Flat || worldType == WorldType::Dungeon); }
 
     // Coming back from a world: always start at the main
     // page, not whichever panel was open before
@@ -131,6 +131,11 @@ private:
     std::string worldSeed;
     GameMode    worldMode   = GameMode::Survival;  // default mode
     WorldType   worldType   = WorldType::Island;
+    // the Dungeon type's preview: its tiles and the layout of this seed
+    std::unique_ptr<dungeon::TileSet> dungeonTiles;
+    dungeon::Layout dungeonPreview;
+    uint64_t dungeonSeed = ~0ull;
+    bool dungeonOk = false;
     int         islandSize  = 96;                  // chunks per side
     int         singleBiome = island::Forest;      // single-biome worlds
     TerrainStyle terrain    = TerrainStyle::GuidedRivers;
@@ -441,10 +446,10 @@ private:
         // ── World type, and what it is ────────────────────
         rowLabel(ui, theme, "Type", lx, ly, bh, true);
         {
-            static const WorldType ORDER[] = { WorldType::Island, WorldType::SingleBiome, WorldType::Classic, WorldType::Flat };
+            static const WorldType ORDER[] = { WorldType::Island, WorldType::SingleBiome, WorldType::Classic, WorldType::Flat, WorldType::Dungeon };
             std::vector<std::string> names;
             int sel = 0;
-            for (int k = 0; k < 4; k++) { names.push_back(worldTypeName(ORDER[k])); if (ORDER[k] == worldType) sel = k; }
+            for (int k = 0; k < 5; k++) { names.push_back(worldTypeName(ORDER[k])); if (ORDER[k] == worldType) sel = k; }
             int c = choiceRow(ui, theme, cx, ly, cw, names, sel);
             if (c >= 0) worldType = ORDER[c];
         }
@@ -489,7 +494,12 @@ private:
         }
         // ── Enemies: roaming spawns (sim/Roaming.h; console roaming
         // on|off later). A flat world has it in its Extras row
-        if (worldType != WorldType::Flat) {
+        if (worldType == WorldType::Dungeon) {
+            rowLabel(ui, theme, "Theme", lx, ly, bh, true);
+            choiceRow(ui, theme, cx, ly, cw, { "Crypt" }, 0);
+            ly += bh + rowGap;
+        }
+        if (worldType != WorldType::Flat && worldType != WorldType::Dungeon) {
             rowLabel(ui, theme, "Enemies", lx, ly, bh, true);
             int c = choiceRow(ui, theme, cx, ly, cw, { "Roaming", "None" }, getNewWorldRoaming() ? 0 : 1);
             if (c >= 0) roaming = c == 0 ? 1 : 0;
@@ -739,6 +749,57 @@ private:
             line(flat.decor ? "bushes, logs and stones" : "no bushes, logs or stones", flat.decor);
             if (flat.anyDecoration())
                 fitText(ui, std::string("as they grow in: ") + island::biomeInfo(flat.biome).name, x, iy + 6, w, theme.accent);
+            return;
+        }
+
+        if (worldType == WorldType::Dungeon) {
+            // the layout from above, one level beside the next, coloured
+            // by what each tile is for (dungeon/Layout.h)
+            uint64_t dseed = getNewWorldSeed();
+            if (!dungeonTiles) { dungeonTiles = std::make_unique<dungeon::TileSet>(); dungeonTiles->load("crypt"); dungeonSeed = ~0ull; }
+            if (dseed != dungeonSeed) {
+                dungeonSeed = dseed;
+                dungeonOk = !dungeonTiles->all().empty() && dungeonPreview.generate(*dungeonTiles, dseed);
+            }
+            ui.drawText("Dungeon: crypt", x, y, theme.title, 2);
+            if (!dungeonOk) {
+                fitText(ui, dungeonTiles->all().empty() ? "no tiles in data/dungeons/crypt/tiles" : "couldn't grow one from this seed: " + dungeonPreview.failure,
+                        x, y + 34, w, theme.textDim);
+                return;
+            }
+            const auto& L = dungeonPreview;
+            fitText(ui, std::to_string(L.mainRooms) + " rooms on the path, " + std::to_string(L.sideRooms) + " side rooms, " +
+                    std::to_string(L.tiles.size()) + " tiles", x, y + 30, w, theme.text);
+            int levels = 0;
+            for (const auto& t : L.tiles) levels = std::max(levels, t.level + 1);
+            // the used part of the grid
+            glm::ivec3 lo(1 << 20), hi(-(1 << 20));
+            for (const auto& t : L.tiles) { lo = glm::min(lo, t.at); hi = glm::max(hi, t.at + L.variantOf(t).cells); }
+            float gap = 16.0f, top = y + 62;
+            float spanX = (float)(hi.x - lo.x), spanZ = (float)(hi.z - lo.z);
+            float s = std::min((w - gap * (levels - 1)) / std::max(1.0f, spanX * levels), (h - (top - y) - 30) / std::max(1.0f, spanZ));
+            for (int lv = 0; lv < levels; lv++) {
+                float ox = x + lv * (spanX * s + gap);
+                float frame[4] = { theme.border[0], theme.border[1], theme.border[2], 120 };
+                ui.drawBorder(ox - 2, top - 2, spanX * s + 4, spanZ * s + 4, frame, 1.0f);
+                fitText(ui, lv == 0 ? "top level" : "level " + std::to_string(lv + 1), ox, top + spanZ * s + 6, spanX * s, theme.textDim);
+                for (const auto& t : L.tiles) {
+                    if (t.level != lv) continue;
+                    glm::ivec3 c = L.variantOf(t).cells;
+                    float col[4] = { 110, 110, 120, 255 };
+                    auto setc = [&](float r, float g, float b) { col[0] = r; col[1] = g; col[2] = b; };
+                    if (t.role == "portal") setc(150, 80, 240);
+                    else if (t.role == "boss") setc(230, 40, 120);
+                    else if (t.role == "main") setc(210, 170, 90);
+                    else if (t.role == "stair") setc(90, 200, 230);
+                    else if (t.role == "side") setc(90, 180, 100);
+                    else if (t.role == "cap") setc(80, 80, 90);
+                    else if (t.pathIndex >= 0) setc(150, 130, 100);
+                    ui.drawRect(ox + (t.at.x - lo.x) * s + 1, top + (t.at.z - lo.z) * s + 1, c.x * s - 2, c.z * s - 2, col);
+                }
+            }
+            float ky = top + spanZ * s + 34;
+            fitText(ui, "portal  path  side  stair  boss", x, ky, w, theme.textDim);
             return;
         }
 

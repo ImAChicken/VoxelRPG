@@ -224,6 +224,22 @@ public:
     float       hitStop = 0.0f;            // s frozen by a hit landing (both bodies: game/CombatHits.h)
     glm::vec3   pendingShove{0.0f};        // a hit's shove, given when the hit-stop ends
     float       shoveTime = 0.0f;          // s still sliding from a shove
+    // ── Reacting to hits (game/Combat.h React) ────────────
+    float       hitstun = 0.0f;            // s stuck reacting: no control (a flinch, a stumble, a launch …)
+    React react = React::None;   // the reaction playing (for the animation and the debug view)
+    glm::vec3   reactDir{0.0f};            // the way the hit pushed it
+    float       reactAge = 0.0f;           // s since it began
+    float       pendingLift = 0.0f;        // vox/s up, given with the shove (a launch, a juggle pop, a slam)
+    float       pendingSlide = 0.0f;       // s the shove slides before control returns to the legs
+    int         juggles = 0;               // hits taken in the air since it last stood (JUGGLE_MAX)
+    int         armor = 0;                 // reactions up to this tier don't move it (npcs.toml armor; 0: all do)
+    bool        wallHit = false;           // set by physics when a knock pins it to a wall (Simulation turns it into an event)
+    float       getUpGrace = 0.0f;         // s untouchable after standing up
+    float       slowed = 0.0f;             // s its time runs slow (a perfect dodge against it)
+    bool        perfectUsed = false;       // this dodge already made a perfect dodge
+    int         combo = 0;                 // hits it has landed in a row (reset when it's hit or 1.5 s pass)
+    float       sinceLanded = 9.0f;        // s since it last landed a hit
+    bool stunned() const { return hitstun > 0.0f; }
     bool        hasAirAttack = true;       // one per jump, back on landing
     AttackState attack;
     float       sinceHurt = 99.0f;         // s since last damaged (HUD)
@@ -251,6 +267,7 @@ public:
     struct Hit {
         glm::vec3 point;      // where it lands, world voxels
         glm::vec3 impulse;    // kg·voxels/s
+        bool visual = false;  // only shakes the limbs (a reaction moves the capsule itself)
     };
     BodyMass         body;
     Ragdoll          ragdoll;
@@ -260,7 +277,7 @@ public:
     // heavier bodies are moved less, lighter ones more
     static constexpr float REFERENCE_MASS = 70.0f;
 
-    void hit(glm::vec3 point, glm::vec3 impulse) { hits.push_back({ point, impulse }); }
+    void hit(glm::vec3 point, glm::vec3 impulse, bool visual = false) { hits.push_back({ point, impulse, visual }); }
 
     // A point on the body by height: 0 feet, 1 top of the head
     glm::vec3 bodyPoint(float frac) const {
@@ -297,5 +314,8 @@ public:
         guarding = false;
         guardTime = 0.0f;
         exposed = 0.0f;
+        hitStop = 0.0f; pendingShove = glm::vec3(0.0f); shoveTime = 0.0f;
+        hitstun = 0.0f; react = React::None; pendingLift = 0.0f; pendingSlide = 0.0f;
+        juggles = 0; wallHit = false; getUpGrace = 0.0f; slowed = 0.0f; perfectUsed = false;
     }
 };

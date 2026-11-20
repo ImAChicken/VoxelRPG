@@ -1,5 +1,8 @@
 #pragma once
 #include "render/Particles.h"
+#include "dungeon/StarterTiles.h"
+#include "dungeon/Workshop.h"
+#include "worldgen/DungeonGenerator.h"
 #include "input/Rumble.h"
 #include "DevTools.h"
 #include "StructureRegistry.h"
@@ -733,13 +736,262 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             gOutlineFx.start(who, a[0]);
             c.log("outline " + a[0]);
         });
+    reg.add("dungeon", "dungeon [tp <n>|portal|boss|stair] | map",
+        "a Dungeon world (docs/dungeons.md): how it was grown; tp to a tile on the main path (#n), the portal, the stair or the boss; map: the layout",
+        [](C& c, const Args& a) {
+            using namespace dungeon;
+            const DungeonGenerator* g = dynamic_cast<const DungeonGenerator*>(c.gen);
+            if (!g) { c.log("not a Dungeon world (New World > Type: Dungeon)"); return; }
+            if (!g->generated()) { c.log("the dungeon didn't grow: " + g->dungeonLayout().failure + " " + g->tileReport()); return; }
+            const Layout& L = g->dungeonLayout();
+            if (a.empty()) {
+                c.log("crypt, seed " + std::to_string(L.seed) + " (" + std::to_string(L.attemptsUsed) + " attempts): " + std::to_string(L.tiles.size()) +
+                      " tiles, " + std::to_string(L.mainRooms) + " rooms on the main path (" + std::to_string(L.mainPath.size()) + " tiles long), " +
+                      std::to_string(L.sideRooms) + " side rooms, " + std::to_string(L.sealed.size()) + " doors walled up. dungeon tp boss, debug dungeon");
+                return;
+            }
+            if (a[0] == "map") {
+                int levels = 0;
+                for (auto& t : L.tiles) levels = std::max(levels, t.level + 1);
+                glm::ivec3 lo(1 << 20), hi(-(1 << 20));
+                for (auto& t : L.tiles) { lo = glm::min(lo, t.at); hi = glm::max(hi, t.at + L.variantOf(t).cells); }
+                for (int lv = 0; lv < levels; lv++) {
+                    c.log("level " + std::to_string(lv + 1) + "  (P portal, R room, # path, s side, S stair, B boss, x dead end)");
+                    for (int z = lo.z; z < hi.z; z++) {
+                        std::string row;
+                        for (int x = lo.x; x < hi.x; x++) {
+                            char ch = '.';
+                            for (int y = lo.y; y < hi.y; y++) {
+                                int t = L.tileAt({ x, y, z });
+                                if (t < 0 || L.tiles[(size_t)t].level != lv) continue;
+                                const std::string& r = L.tiles[(size_t)t].role;
+                                ch = r == "portal" ? 'P' : r == "boss" ? 'B' : r == "stair" ? 'S' : r == "main" ? 'R' : r == "side" ? 's' :
+                                     r == "cap" ? 'x' : L.tiles[(size_t)t].pathIndex >= 0 ? '#' : 'o';
+                            }
+                            row += ch;
+                        }
+                        c.log(row);
+                    }
+                }
+                return;
+            }
+            if (a[0] == "tp" && a.size() > 1) {
+                int which = -1;
+                if (a[1] == "portal") which = L.portal;
+                else if (a[1] == "boss") which = L.boss;
+                else if (a[1] == "stair") { for (size_t i = 0; i < L.tiles.size(); i++) if (L.tiles[i].role == "stair") which = (int)i; }
+                else { int n = std::atoi(a[1].c_str()); if (n >= 0 && n < (int)L.mainPath.size()) which = L.mainPath[(size_t)n]; }
+                if (which < 0) { c.log("no such tile (0.." + std::to_string(L.mainPath.size() - 1) + ", portal, stair, boss)"); return; }
+                const PlacedTile& t = L.tiles[(size_t)which];
+                const TileVariant& v = L.variantOf(t);
+                glm::ivec3 w = g->worldOf(t);
+                // a spot on the floor that's open
+                glm::vec3 to = glm::vec3(w) + glm::vec3(v.vol.size.x * 0.5f, FLOOR, v.vol.size.z * 0.5f);
+                for (int r = 0; r < 20; r++) {
+                    glm::ivec3 q = glm::ivec3(v.vol.size.x / 2 + (r % 5) * 3 - 6, FLOOR + 1, v.vol.size.z / 2 + (r / 5) * 3 - 6);
+                    if (v.vol.at(q.x, q.y, q.z) == BLOCK_AIR && v.vol.at(q.x, q.y + 12, q.z) == BLOCK_AIR) { to = glm::vec3(w + q) + glm::vec3(0.5f, -1.0f, 0.5f); break; }
+                }
+                c.player.position = to;
+                c.player.velocity = glm::vec3(0.0f);
+                c.log("to " + v.tile->name + " (" + t.role + (t.pathIndex >= 0 ? ", #" + std::to_string(t.pathIndex) : "") + ")");
+                return;
+            }
+            c.log("dungeon | dungeon map | dungeon tp <n|portal|stair|boss>");
+        });
+    reg.add("tile", "tile new|edit|socket|marker|kind|weight|min|max|rotate|theme|save|showcase|starter|list|done …",
+        "build dungeon tiles (dungeon/Workshop.h, docs/dungeons.md): tile new <name> <w> <h> <d> [kind] (half cells of 16)",
+        [](C& c, const Args& a) {
+            using namespace dungeon;
+            Workshop& ws = gWorkshop;
+            std::string sub = a.empty() ? "help" : a[0];
+            WorldEditor* ed = c.dev.worldEditor();
+            auto needWorld = [&]() { if (!ed) { c.log("no world"); return false; } return true; };
+            // a plot in front of you, on the 16 grid, its floor where you stand
+            auto plotSpot = [&](glm::ivec3 size) {
+                glm::vec3 f(c.player.facing.x, 0.0f, c.player.facing.z);
+                f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(0, 0, -1);
+                glm::vec3 centre = c.player.position + f * (8.0f + 0.5f * std::max(size.x, size.z));
+                glm::ivec3 o((int)std::floor((centre.x - size.x * 0.5f) / HALF) * HALF, (int)std::floor(c.player.position.y) - FLOOR,
+                             (int)std::floor((centre.z - size.z * 0.5f) / HALF) * HALF);
+                return o;
+            };
+            auto stamp = [&](const VoxelVolume& vol, glm::ivec3 origin, const char* label) {
+                VoxelVolume v = vol; v.anchor = glm::ivec3(0);
+                EditBatch b = WorldEditor::paste(v, origin, false, EditSource::Command);
+                b.label = label;
+                ed->submit(std::move(b));
+            };
+            auto doorBox = [&](glm::ivec3 cell, int face, glm::ivec3& lo, glm::ivec3& hi) {
+                glm::ivec3 o = cell * HALF, s = ws.size();
+                int y0 = o.y + FLOOR, y1 = y0 + DOOR_H, a0 = (HALF - DOOR_W) / 2, a1 = a0 + DOOR_W, d = WALL + 1;
+                switch (face) {
+                case North: lo = { o.x + a0, y0, 0 }; hi = { o.x + a1, y1, d }; return true;
+                case South: lo = { o.x + a0, y0, s.z - d }; hi = { o.x + a1, y1, s.z }; return true;
+                case West:  lo = { 0, y0, o.z + a0 }; hi = { d, y1, o.z + a1 }; return true;
+                case East:  lo = { s.x - d, y0, o.z + a0 }; hi = { s.x, y1, o.z + a1 }; return true;
+                case Up:    lo = { o.x + 2, s.y - WALL, o.z + 2 }; hi = { o.x + HALF - 2, s.y, o.z + HALF - 2 }; return true;
+                case Down:  lo = { o.x + 2, 0, o.z + 2 }; hi = { o.x + HALF - 2, FLOOR, o.z + HALF - 2 }; return true;
+                }
+                return false;
+            };
+            if (sub == "help") {
+                c.log("tile new <name> <w> <h> <d> [kind] | edit <name> | socket [wall|door|open|shaft] | marker <key> <value>");
+                c.log("tile kind|weight|min|max|rotate|theme <v> | save [name] | showcase [theme] | starter [theme] [over] | list | done");
+                return;
+            }
+            if (sub == "starter") {
+                std::string theme = a.size() > 1 ? a[1] : "crypt", report;
+                writeStarterTiles(theme, a.size() > 2 && a[2] == "over", report);
+                c.log(report);
+                return;
+            }
+            if (sub == "list") {
+                TileSet set; std::string why;
+                int n = set.load(a.size() > 1 ? a[1] : (ws.editing ? ws.info.theme : "crypt"), &why);
+                std::string line;
+                for (auto& t : set.all())
+                    line += (line.empty() ? "" : ", ") + t->name + " (" + t->info.kind + " " + std::to_string(t->info.cells.x) + "x" +
+                            std::to_string(t->info.cells.y) + "x" + std::to_string(t->info.cells.z) + ")";
+                c.log(std::to_string(n) + " tiles, " + std::to_string(set.allVariants().size()) + " ways to place them: " + line);
+                if (!why.empty()) c.log(why);
+                return;
+            }
+            if (sub == "new") {
+                if (!needWorld()) return;
+                if (a.size() < 5) { c.log("tile new <name> <w> <h> <d> [kind]   (half cells of 16 voxels: a corridor 1 2 2, a room 4 2 4)"); return; }
+                glm::ivec3 cells(std::atoi(a[2].c_str()), std::atoi(a[3].c_str()), std::atoi(a[4].c_str()));
+                if (glm::any(glm::lessThan(cells, glm::ivec3(1))) || glm::any(glm::greaterThan(cells, glm::ivec3(16)))) { c.log("sizes 1 to 16"); return; }
+                TileBuilder b(a[1], ws.editing ? ws.info.theme : "crypt", a.size() > 5 ? a[5] : "room", cells);
+                b.hollow();
+                ws.editing = true; ws.name = a[1]; ws.info = b.t.info;
+                ws.origin = plotSpot(b.size());
+                stamp(b.t.vol, ws.origin, "tile new");
+                c.log("tile " + ws.name + ": " + std::to_string(b.size().x) + "x" + std::to_string(b.size().y) + "x" + std::to_string(b.size().z) +
+                      " voxels at " + std::to_string(ws.origin.x) + " " + std::to_string(ws.origin.y) + " " + std::to_string(ws.origin.z) +
+                      ". Look at an edge and: tile socket door. debug tiles shows the grid");
+                return;
+            }
+            if (sub == "edit") {
+                if (!needWorld()) return;
+                if (a.size() < 2) { c.log("tile edit <name>"); return; }
+                std::string theme = a.size() > 2 ? a[2] : (ws.editing ? ws.info.theme : "crypt"), why;
+                Tile t;
+                if (!TileSet::loadTile(std::filesystem::path(TileSet::dirFor(theme)) / (a[1] + ".toml"), t, why)) { c.log(a[1] + ": " + why); return; }
+                ws.editing = true; ws.name = t.name; ws.info = t.info;
+                ws.origin = plotSpot(t.vol.size);
+                stamp(t.vol, ws.origin, "tile edit");
+                c.log("editing " + t.name + " (" + t.info.kind + "): tile save when done");
+                return;
+            }
+            if (sub == "showcase") {
+                if (!needWorld()) return;
+                TileSet set; std::string why;
+                int n = set.load(a.size() > 1 ? a[1] : "crypt", &why);
+                if (!n) { c.log("no tiles (tile starter writes the starter set)"); return; }
+                glm::vec3 f(c.player.facing.x, 0.0f, c.player.facing.z);
+                f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(0, 0, -1);
+                glm::vec3 side(-f.z, 0.0f, f.x);
+                ws.showcase.clear();
+                glm::vec3 at = c.player.position + f * 20.0f;
+                float along = 0.0f;
+                for (auto& t : set.all()) {
+                    glm::vec3 p = at + side * along;
+                    glm::ivec3 o((int)std::floor(p.x / HALF) * HALF, (int)std::floor(c.player.position.y) - FLOOR, (int)std::floor(p.z / HALF) * HALF);
+                    stamp(t->vol, o, "tile showcase");
+                    ws.showcase.push_back({ o, t->name, t->info });
+                    along += std::max(t->vol.size.x, t->vol.size.z) + 16.0f;
+                }
+                c.log("showcase: " + std::to_string(n) + " tiles in a row to your side (debug tiles labels them)");
+                return;
+            }
+            if (sub == "done") { ws.editing = false; c.log("stopped editing (the plot stays in the world)"); return; }
+            if (!ws.editing) { c.log("not editing a tile: tile new or tile edit first"); return; }
+            if (sub == "socket") {
+                if (!needWorld()) return;
+                glm::ivec3 cell; int face;
+                if (!c.target.hit || !ws.faceAt(c.target.blockPos, cell, face)) { c.log("look at an outside edge of the tile"); return; }
+                std::string now = ws.info.socketAt(cell, face), type;
+                if (a.size() > 1) type = a[1];
+                else {
+                    const auto& types = socketTypes();
+                    auto it = std::find(types.begin(), types.end(), now);
+                    type = types[(size_t)((it - types.begin()) + 1) % types.size()];
+                    if (face < 4 && type == "shaft") type = "wall";
+                }
+                if (std::find(socketTypes().begin(), socketTypes().end(), type) == socketTypes().end()) { c.log("wall, door, open or shaft"); return; }
+                ws.info.setSocket(cell, face, type);
+                glm::ivec3 lo, hi;
+                if (doorBox(cell, face, lo, hi)) {
+                    EditBatch b; b.source = EditSource::Command; b.label = "tile socket";
+                    uint16_t wallB = gRegistry.getIDByName("stone_bricks");
+                    if (type == "open" && face < 4) { lo.y = cell.y * HALF + FLOOR; hi.y = std::min((cell.y + 1) * HALF, ws.size().y - WALL); if (face == North || face == South) { lo.x = cell.x * HALF; hi.x = lo.x + HALF; } else { lo.z = cell.z * HALF; hi.z = lo.z + HALF; } }
+                    for (int y = lo.y; y < hi.y; y++) for (int z = lo.z; z < hi.z; z++) for (int x = lo.x; x < hi.x; x++)
+                        b.set(ws.origin.x + x, ws.origin.y + y, ws.origin.z + z, type == "wall" ? wallB : BLOCK_AIR);
+                    ed->submit(std::move(b));
+                }
+                c.log(std::string("socket ") + dirName(face) + " of cell " + std::to_string(cell.x) + " " + std::to_string(cell.y) + " " +
+                      std::to_string(cell.z) + ": " + type);
+                return;
+            }
+            if (sub == "marker") {
+                if (!c.target.hit || !ws.inside(c.target.blockPos)) { c.log("look at a marker block in the tile"); return; }
+                std::string kind = markerKindOf((uint16_t)c.target.blockID);
+                if (kind.empty()) { c.log("that's not a marker block (marker_spawner, marker_chest …)"); return; }
+                glm::ivec3 at = c.target.blockPos - ws.origin;
+                Marker* m = ws.info.markerAt(at);
+                if (!m) { ws.info.markers.push_back({ at, kind, {} }); m = &ws.info.markers.back(); }
+                m->kind = kind;
+                if (a.size() < 3) {
+                    std::string s;
+                    for (auto& [k, v] : m->props) s += " " + k + "=" + v;
+                    c.log(kind + " marker:" + (s.empty() ? " no settings (spawner: spawn <type>, count <lo hi>, rule enter|sight|boss|wave)" : s));
+                    return;
+                }
+                std::string v = a[2];
+                for (size_t i = 3; i < a.size(); i++) v += " " + a[i];
+                m->props[a[1]] = v;
+                c.log(kind + " marker: " + a[1] + " = " + v);
+                return;
+            }
+            if (sub == "kind" && a.size() > 1)   { ws.info.kind = a[1]; c.log("kind " + a[1]); return; }
+            if (sub == "theme" && a.size() > 1)  { ws.info.theme = a[1]; c.log("theme " + a[1]); return; }
+            if (sub == "weight" && a.size() > 1) { ws.info.weight = (float)std::atof(a[1].c_str()); c.log("weight " + a[1]); return; }
+            if (sub == "min" && a.size() > 1)    { ws.info.minCount = std::atoi(a[1].c_str()); c.log("min " + a[1]); return; }
+            if (sub == "max" && a.size() > 1)    { ws.info.maxCount = std::atoi(a[1].c_str()); c.log("max " + a[1]); return; }
+            if (sub == "rotate" && a.size() > 1) { ws.info.rotate = a[1] != "off" && a[1] != "0" && a[1] != "false"; c.log(std::string("rotate ") + (ws.info.rotate ? "on" : "off")); return; }
+            if (sub == "save") {
+                if (!needWorld()) return;
+                Tile t;
+                t.name = a.size() > 1 ? a[1] : ws.name;
+                t.info = ws.info;
+                t.vol = ed->copy(ws.origin, ws.origin + ws.size() - 1);
+                t.vol.anchor = glm::ivec3(0);
+                // markers: as the blocks are now (one moved or removed is updated)
+                std::vector<Marker> found;
+                for (int y = 0; y < t.vol.size.y; y++) for (int z = 0; z < t.vol.size.z; z++) for (int x = 0; x < t.vol.size.x; x++) {
+                    std::string k = markerKindOf(t.vol.at(x, y, z));
+                    if (k.empty() || k == "secret") continue;
+                    Marker m; if (const Marker* old = ws.info.markerAt({ x, y, z })) m = *old;
+                    m.at = { x, y, z }; m.kind = k; found.push_back(m);
+                }
+                t.info.markers = found;
+                std::string why;
+                if (!TileSet::saveTile(t, TileSet::dirFor(t.info.theme), why)) { c.log("couldn't save: " + why); return; }
+                ws.name = t.name;
+                c.log("saved " + TileSet::dirFor(t.info.theme) + "/" + t.name + " (" + std::to_string(t.info.sockets.size()) + " sockets, " +
+                      std::to_string(found.size()) + " markers)");
+                return;
+            }
+            c.log("tile: unknown '" + sub + "' (tile help)");
+        });
     reg.add("particle", "particle <emitter> [count x]",
         "fire a particle burst (data/registry/particles.toml: hit_spark, block_sparks, land_dust …) in front of you; alone, lists them",
         [](C& c, const Args& a) {
             if (a.empty()) {
                 std::string ids;
                 for (const char* id : { "hit_spark", "hit_puff", "hit_slime", "block_sparks", "block_wood", "parry_flash", "guard_break",
-                                        "poise_break", "death_dust", "death_slime", "step_dust", "dodge_dust", "land_dust" })
+                                        "poise_break", "death_dust", "death_slime", "step_dust", "dodge_dust", "land_dust",
+                                        "impact_flash", "wall_dust", "perfect_dodge" })
                     if (gParticles.emitter(id)) ids += std::string(ids.empty() ? "" : ", ") + id;
                 c.log(std::to_string(gParticles.emitterCount()) + " emitters: " + ids + "   (particle <id> [count x])");
                 return;

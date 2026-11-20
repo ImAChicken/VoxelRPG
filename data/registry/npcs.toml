@@ -37,6 +37,21 @@
 #   slots           preferred places around its target in a fight,
 #                   best first (front, rear_flank, left, right,
 #                   front_left, front_right, rear_left, rear_right, ring)
+#   armor           which hit reactions it shrugs off (it still takes
+#                   the damage and the poise): 0 none (reacts to every
+#                   hit), 1 flinches, 2 stumbles too, 3 launches and
+#                   slams too. Breaking its poise always staggers it
+#   style           how it fights in a group: "duelist" (default: one
+#                   attacks at a time, a pause between turns, the rest
+#                   stand back watching; the next one comes in partway),
+#                   "pack" (two at a time, quick turns), "horde" (five
+#                   at once, no turns, pressing in close, no guard)
+#   attackers       how many of it may attack one target at once
+#                   (default by style: 1, 2, 5)
+#   attack_gap      [min, max] s after an attack before the next turn
+#                   (default by style: [0.8, 1.5], [0.3, 0.7], none)
+#   engage_dist     vox from the target while attacking (9; horde 7)
+#   hold_dist       vox while waiting a turn (24; pack 18; horde 10)
 #   reaction        s of a swing's wind-up it must see before it can
 #                   answer it (roll away or guard; default 0.3: a
 #                   quick light is on it first)
@@ -151,6 +166,7 @@ loot = "guard"
 wear = ["iron_helmet", "chainmail", "iron_greaves", "leather_boots"]
 health = 140
 poise = 50
+armor = 1                  # shrugs off flinches: lights only wear its poise
 states = ["idle", "unavailable", "patrol", "alert", "combat", "search", "return", "dead"]
 idle = "stand"
 territory = { radius = 80, leash = 200 }
@@ -201,6 +217,9 @@ wander_radius = 16
 sight = { range = 50, fov = 120 }
 hearing = 1.6
 alert_time = [0.8, 1.6]
+style = "horde"            # many at once, pressing in: the crowd is the threat
+read_chance = 0            # never rolls or guards
+turn_speed = 220
 slots = ["front", "left", "right", "rear_flank", "ring"]
 aggression = 0.9
 tracks = true

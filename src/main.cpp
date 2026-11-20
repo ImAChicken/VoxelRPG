@@ -52,6 +52,8 @@
 #include "render/OutlineFx.h"
 #include "render/Particles.h"
 #include "render/ParticleRenderer.h"
+#include "render/CameraShake.h"
+#include "render/Trails.h"
 #include "input/Rumble.h"
 #include "ui/CharacterScreen.h"
 #include "chunk/TerrainGenerator.h"
@@ -319,6 +321,11 @@ int main() {
     if (!blobs.init()) std::cerr << "Box renderer failed to start\n";
     ParticleRenderer particleRenderer;        // sparks, puffs, dust (render/Particles.h)
     if (!particleRenderer.init()) std::cerr << "Particle renderer failed to start\n";
+    Trails trails;                            // slash trails behind blades in their hit windows
+    if (!trails.init()) std::cerr << "Trail renderer failed to start\n";
+    // damage numbers (Settings: Damage numbers): where hits landed, rising and fading
+    struct WorldPopup { glm::vec3 at, vel; std::string text; float age = 0.0f, life = 0.9f; float rgb[3]; int scale = 2; };
+    std::vector<WorldPopup> popups;
     PropRenderer props;                       // logs, wood, leaves: drawn like the world
     if (!props.init()) std::cerr << "Prop renderer failed to start\n";
     RoofRenderer roofs;                       // roofs drawn smooth, eaves overhanging (Settings → Roofs)
@@ -595,6 +602,7 @@ int main() {
         lockOn.clear();
         gParticles.clear();
         rumble::gRumble.stop();
+        trails.clear(); popups.clear(); gCamShake.clear();
         if (save) saveWorld();
         if (remote) remote->leave();
         streamer.reset();
@@ -927,7 +935,7 @@ int main() {
         float aspect = (float)gRenderer->getScreenWidth() /
                        (float)std::max(1,
                            gRenderer->getScreenHeight());
-        gRenderer->setCamera(camera, aspect);
+        gRenderer->setCamera(gCamShake.apply(camera), aspect);   // shaken by hits (a copy: the look itself never drifts)
 
         glm::ivec2 pc = world->worldToChunk(camera.position);
 
@@ -1382,6 +1390,25 @@ int main() {
             }
         }
 
+        // Slash trails, then particles: over the world and the bodies
+        if (trails.count()) {
+            glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
+                                              Camera::NEAR_PLANE, Camera::FAR_PLANE);
+            trails.draw(proj * glr->getViewMatrix());
+        }
+        hud.popups.clear();
+        if (!popups.empty()) {
+            glm::mat4 vp = glm::perspective(glm::radians(Camera::FOV_DEG), aspect, Camera::NEAR_PLANE, Camera::FAR_PLANE) * glr->getViewMatrix();
+            for (const WorldPopup& p : popups) {
+                glm::vec4 c = vp * glm::vec4(p.at, 1.0f);
+                if (c.w < 0.1f) continue;
+                float u = p.age / p.life;
+                Hud::Popup hp{ (c.x / c.w * 0.5f + 0.5f) * gRenderer->getScreenWidth(),
+                               (1.0f - (c.y / c.w * 0.5f + 0.5f)) * gRenderer->getScreenHeight(),
+                               p.text, u < 0.6f ? 1.0f : 1.0f - (u - 0.6f) / 0.4f, p.scale + (p.age < 0.08f ? 1 : 0), { p.rgb[0], p.rgb[1], p.rgb[2] } };
+                hud.popups.push_back(hp);
+            }
+        }
         // Particles (render/Particles.h): over the world and the bodies
         if (gParticles.count()) {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
@@ -1401,6 +1428,7 @@ int main() {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
             glm::mat4 vp = proj * glr->getViewMatrix();
+            gDungeonWorld = dynamic_cast<const DungeonGenerator*>(session.gen.get());
             debugview::build(debugDraw, sim, wood.get(), player, axeTrail);
             debugDraw.flush(vp);
             float sw = (float)gRenderer->getScreenWidth(), shh = (float)gRenderer->getScreenHeight();
@@ -2072,6 +2100,29 @@ int main() {
                     return std::clamp(lit / 15.0f, 0.0f, 1.0f);
                 };
                 gParticles.watch(sim.bodies());
+                gCamShake.update(frameDt);
+                // slash trails: each blade in (or just around) its hit window
+                trails.update(frameDt);
+                for (Human* h : sim.bodies()) {
+                    const AttackState& a = h->attack;
+                    if (!a.active() || h->dead() || !a.def().effect.empty()) continue;
+                    const AttackDef& d = a.def();
+                    if (a.t < d.activeStart - 0.04f || a.t > d.activeEnd + 0.05f) continue;
+                    if (glm::length(h->position - camera.position) > 160.0f) continue;
+                    hitshape::Posed pp;
+                    if (!sim.bodyPoses().posed(h->uuid, pp) || !pp.now || !pp.held || !pp.model) continue;
+                    glm::mat4 W = (*pp.now)[B_WRIST_R] * pp.held->turn(*pp.model, pp.turnNow);
+                    std::vector<hitshape::OBB> wb;
+                    hitshape::weaponBoxes(*pp.held, *pp.model, W, wb);
+                    glm::vec3 wrist(W[3]), tip = wrist; float far = 0.0f;
+                    for (auto& o : wb) { glm::vec3 c8[8]; hitshape::corners(o, c8); for (auto& x : c8) { float dd = glm::length(x - wrist); if (dd > far) { far = dd; tip = x; } } }
+                    if (far < 2.0f) continue;                              // a fist or a stub: no ribbon
+                    bool heavy = a.kind == AttackKind::Heavy || a.kind == AttackKind::AirHeavy;
+                    glm::vec3 col = h->isPlayer() ? glm::vec3(1.0f, 0.95f, 0.85f) : glm::vec3(1.0f, 0.75f, 0.6f);
+                    trails.sample(h->uuid, glm::mix(wrist, tip, 0.35f), tip, col, (heavy ? 1.0f : 0.7f) * (0.6f + 0.4f * a.charge()));
+                }
+                for (WorldPopup& p : popups) { p.age += frameDt; p.at += p.vel * frameDt; p.vel *= std::exp(-frameDt * 3.0f); }
+                popups.erase(std::remove_if(popups.begin(), popups.end(), [](const WorldPopup& p) { return p.age > p.life; }), popups.end());
                 gParticles.update(frameDt, [&](glm::vec3 p) {
                     if (!world) return false;
                     uint16_t t = world->typeAtVoxel((int)std::floor(p.x), (int)std::floor(p.y), (int)std::floor(p.z));
@@ -2107,6 +2158,40 @@ int main() {
                 for (const SimEvent& e : happened) {
                     gOutlineFx.onEvent(e);       // flashing outlines (hurt, blocked …)
                     gParticles.onEvent(e, sim);  // sparks, puffs, splats at the contact
+                    // the camera: your hits and hits on you shake it, by how big
+                    if (e.kind == SimEvent::Kind::Hit && (e.a == player.uuid || e.b == player.uuid)) {
+                        float k = e.parried ? 0.35f : e.blocked ? 0.15f
+                                : e.react == React::Launch || e.react == React::Slam ? 0.38f
+                                : e.react == React::Knockdown || e.knockedDown ? 0.45f
+                                : e.react == React::Stumble ? 0.24f : 0.13f;
+                        if (e.b == player.uuid && !e.blocked) k += 0.15f;
+                        gCamShake.add(k + 0.15f * e.charge);
+                    }
+                    if (e.kind == SimEvent::Kind::WallHit && glm::length(e.at - player.position) < 60.0f) gCamShake.add(0.25f);
+                    if (e.kind == SimEvent::Kind::PerfectDodge && e.b == player.uuid) {
+                        gOutlineFx.start(player.uuid, "perfect");
+                        rumble::gRumble.kick(0.1f, 0.5f, 0.15f);
+                        gOutlineFx.start(e.a, "slowed");
+                        gCamShake.add(0.1f);
+                        say("perfect dodge");
+                    }
+                    // damage numbers: hits you landed and hits on you
+                    if (gSettings.damageNumbers && e.kind == SimEvent::Kind::Hit && !e.parried && e.amount > 0.0f &&
+                        (e.a == player.uuid || e.b == player.uuid)) {
+                        WorldPopup p;
+                        p.at = e.at != glm::vec3(0.0f) ? e.at : player.position + glm::vec3(0, 10, 0);
+                        unsigned hsh = (unsigned)(e.b * 2654435761u + (unsigned)popups.size() * 40503u);
+                        p.vel = glm::vec3(((hsh & 255) / 255.0f - 0.5f) * 8.0f, 14.0f, (((hsh >> 8) & 255) / 255.0f - 0.5f) * 8.0f);
+                        p.text = std::to_string((int)std::lround(e.amount));
+                        bool big = e.riposte || e.charge >= 0.99f || e.react == React::Launch || e.react == React::Knockdown;
+                        if (e.combo > 1 && e.a == player.uuid) p.text += " x" + std::to_string(e.combo);
+                        p.scale = big ? 3 : 2;
+                        float onYou[3] = {255, 90, 80}, yours[3] = {255, 235, 200}, blockedC[3] = {170, 170, 190}, crit[3] = {255, 200, 60};
+                        const float* c = e.b == player.uuid ? onYou : e.blocked ? blockedC : big ? crit : yours;
+                        p.rgb[0] = c[0]; p.rgb[1] = c[1]; p.rgb[2] = c[2];
+                        popups.push_back(p);
+                        if (popups.size() > 40) popups.erase(popups.begin());
+                    }
                     if (e.kind == SimEvent::Kind::Hit && (e.a == player.uuid || e.b == player.uuid)) {
                         // the pad shakes: a thud when you're hit, a buzz when you land one
                         bool heavy = e.attack == AttackKind::Heavy || e.attack == AttackKind::AirHeavy;
@@ -2208,6 +2293,10 @@ int main() {
                              gRegistry.get((uint16_t)r.blockID).name.c_str(), light::skyOf(L), light::rOf(L), (L >> 8) & 15, (L >> 4) & 15,
                              streamer ? streamer->canopyAt(lp.x, lp.y, lp.z) : 0.0f);
                     }
+                    line("feel: shake %.2f  trails %zu  damage numbers %zu  particles %zu  you: %s %.2fs combo %d%s",
+                         gCamShake.now(), trails.count(), popups.size(), gParticles.count(),
+                         player.stunned() ? reactName(player.react) : "free", player.hitstun, player.combo,
+                         player.getUpGrace > 0.0f ? "  (getting up)" : "");
                     line("layers: %s", gDebug.list().c_str());
                 }
 

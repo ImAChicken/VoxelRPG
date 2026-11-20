@@ -94,6 +94,10 @@ struct Encounter {
     std::vector<Claim> claims;
     std::unordered_map<EntityId, glm::vec2> front;           // per target: the front direction (x, z)
     std::unordered_map<EntityId, std::vector<EntityId>> tokens;   // per target: who may attack now
+    // turns (duelists and packs): per target, when the next attack may
+    // start, and who asked first while waiting (they go next)
+    std::unordered_map<EntityId, float> nextAt;
+    std::unordered_map<EntityId, std::vector<std::pair<EntityId, float>>> waiting;   // npc, when it asked
     std::unordered_map<EntityId, float> lastSeen;            // per player: when anyone in it last saw them
 
     bool has(const std::vector<EntityId>& v, EntityId x) const { return std::find(v.begin(), v.end(), x) != v.end(); }
@@ -230,7 +234,8 @@ public:
     // the engage distance if it holds an attack token, else hold.
     // false if it has no slot (not in an encounter).
     bool slotSpot(EntityId npc, glm::vec3 targetPos, glm::vec3 targetFacing, glm::vec3 npcPos,
-                  glm::vec3& out, bool& engage, Slot& slot, float dt) {
+                  glm::vec3& out, bool& engage, Slot& slot, float dt,
+                  float engageDist = ENGAGE_DIST, float holdDist = HOLD_DIST) {
         Encounter* e = of(npc);
         if (!e) return false;
         const Encounter::Claim* c = nullptr;
@@ -238,7 +243,9 @@ public:
         if (!c) return false;
         slot = c->slot;
         engage = hasToken(*e, c->target, npc);
-        float dist = engage ? ENGAGE_DIST : HOLD_DIST;
+        // the one going next comes in partway, so you can see it coming
+        bool next = !engage && nextUp(*e, c->target) == npc;
+        float dist = engage ? engageDist : next ? (engageDist + holdDist) * 0.5f : holdDist;
         glm::vec2& f = frontFor(*e, c->target, targetPos, npcPos);
         // the front holder defines the front; it turns slowly toward the target's facing
         glm::vec2 tf(targetFacing.x, targetFacing.z);
@@ -263,22 +270,50 @@ public:
         out = (hooks.standNear && hooks.standNear(want, stand)) ? stand : want;
         return true;
     }
-    // Ask to attack the target now; true = go
-    bool requestAttack(EntityId npc) {
+    // Ask to attack the target now; true = go. 'attackers': how many
+    // may attack it at once (its type's style); 'turns': it waits its
+    // turn (the pause after the last attack, and whoever asked first)
+    bool requestAttack(EntityId npc, int attackers = TOKENS_PER_TARGET, bool turns = false) {
         Encounter* e = of(npc);
         if (!e) return true;                    // not in one: free to swing
         const Encounter::Claim* c = claimOf(*e, npc);
         if (!c) return true;
         auto& v = e->tokens[c->target];
         if (std::find(v.begin(), v.end(), npc) != v.end()) return true;
-        if ((int)v.size() >= TOKENS_PER_TARGET) return false;
+        const float now = hooks.now ? hooks.now() : 0.0f;
+        auto& q = e->waiting[c->target];
+        // forget those that stopped asking (dead, moved on)
+        q.erase(std::remove_if(q.begin(), q.end(), [&](auto& w) { return now - w.second > 3.0f || !e->has(e->active, w.first); }), q.end());
+        auto mine = std::find_if(q.begin(), q.end(), [&](auto& w) { return w.first == npc; });
+        if (mine != q.end()) mine->second = now; else q.push_back({ npc, now });
+        bool full = (int)v.size() >= attackers;
+        bool early = turns && now < e->nextAt[c->target];
+        bool notFirst = turns && !q.empty() && q.front().first != npc;
+        if (full || early || notFirst) return false;
+        q.erase(std::remove_if(q.begin(), q.end(), [&](auto& w) { return w.first == npc; }), q.end());
         v.push_back(npc);
         return true;
     }
-    void releaseAttack(EntityId npc) {
+    // Done attacking; 'gap': s before the next turn may start
+    void releaseAttack(EntityId npc, float gap = 0.0f) {
         Encounter* e = of(npc);
         if (!e) return;
-        for (auto& [t, v] : e->tokens) v.erase(std::remove(v.begin(), v.end(), npc), v.end());
+        const float now = hooks.now ? hooks.now() : 0.0f;
+        for (auto& [t, v] : e->tokens) {
+            auto it = std::find(v.begin(), v.end(), npc);
+            if (it == v.end()) continue;
+            v.erase(it);
+            e->nextAt[t] = std::max(e->nextAt[t], now + gap);
+        }
+    }
+    // Who goes next against a target (0: no one waiting), and when it may
+    EntityId nextUp(const Encounter& e, EntityId target) const {
+        auto it = e.waiting.find(target);
+        return it == e.waiting.end() || it->second.empty() ? 0 : it->second.front().first;
+    }
+    float nextAttackAt(const Encounter& e, EntityId target) const {
+        auto it = e.nextAt.find(target);
+        return it == e.nextAt.end() ? 0.0f : it->second;
     }
     bool holdsToken(EntityId npc) {
         Encounter* e = of(npc);

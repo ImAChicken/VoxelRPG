@@ -30,6 +30,8 @@ public:
         addChoice("Auto save", &gSettings.autosave, { "Off", "On" });
         addChoice("Control hints", &gSettings.controlHints, { "Off", "On" });
         addChoice("Controller rumble", &gSettings.rumble, { "Off", "Light", "Full" });
+        addSlider("Camera shake", &gSettings.cameraShake, 0.0f, 2.0f, [](float v) { return v < 0.01f ? std::string("off") : times(v); });
+        addChoice("Damage numbers", &gSettings.damageNumbers, { "Off", "On" });
         // ── Graphics ──────────────────────────────────────
         page("Graphics");
         addSlider("Chunk distance", &gSettings.chunkDistance, 2.0f, 16.0f,

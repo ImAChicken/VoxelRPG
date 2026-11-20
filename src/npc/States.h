@@ -226,6 +226,10 @@ private:
         if (hopper) in.sprint = false;                 // (sprint is its lunge: only the attack asks)
         bool busy = n.attack.active() || n.move != Human::Move::None || n.hop.lunging;
         float aggression = n.type ? n.type->aggression : 0.7f;
+        const bool horde = n.type && n.type->style == "horde";
+        // the target is down (or just getting up): leave it be
+        const bool targetDown = t.ragdoll.controlsLocked() || t.getUpGrace > 0.0f;
+        if (targetDown && sub == Sub::Attack && !busy) { w.releaseAttack(n); to(Sub::Circle, 0.6f); }
         // its place in the fight (npc/Encounters.h): where to stand,
         // and whether it holds an attack token (may close in)
         glm::vec3 spot = tp;
@@ -271,7 +275,9 @@ private:
         float offSpot = glm::length(toSpot);
         switch (sub) {
         case Sub::Approach:
-            if (slotted && offSpot > 4.0f && !(engage && dist <= reach)) {
+            // (close enough and still not on its spot after a while, the
+            // crowd in the way: it gets on with the fight from where it is)
+            if (slotted && offSpot > 4.0f && !(engage && dist <= reach) && !(subTime < -1.5f && dist < reach + 12.0f)) {
                 // far, or up something too high to step onto: a path (it says where to jump)
                 if (offSpot > STEER_RANGE || spot.y - n.position.y > Human::STEP_UP - 0.5f)
                     n.walkTo(w, spot, 1.0f, offSpot > 30.0f && n.stamina > 40.0f, 2.0f);
@@ -305,10 +311,16 @@ private:
             if ((slotted && offSpot > 12.0f) || (!slotted && dist > reach + 12.0f)) { to(Sub::Approach, 0); break; }
             if (subTime <= 0.0f) {
                 float r = n.rand01();
-                if (n.stamina < 35.0f && !hopper) to(Sub::Guard, 1.0f);
-                else if (r < aggression && w.requestAttack(n)) to(Sub::Attack, hopper ? 4.0f : 2.0f);   // its turn (a hopper's hops take longer)
-                else if (hopper) to(Sub::Circle, n.randRange(0.5f, 1.3f));
-                else to(Sub::Guard, n.randRange(0.5f, 1.3f));
+                if (n.stamina < 35.0f && !hopper && !horde) to(Sub::Guard, 1.0f);
+                else if (!targetDown && r < aggression && w.requestAttack(n)) to(Sub::Attack, hopper ? 4.0f : 2.0f);   // its turn (a hopper's hops take longer)
+                else if (hopper || horde) to(Sub::Circle, n.randRange(0.2f, 0.6f));
+                else if (n.rand01() < 0.25f) to(Sub::Guard, n.randRange(0.5f, 1.0f));
+                else {
+                    // not its turn: keeps moving round, watching (now
+                    // and then the other way)
+                    if (n.rand01() < 0.4f) side = -side;
+                    to(Sub::Circle, n.randRange(0.4f, 1.0f));
+                }
             }
             break;
         }
@@ -337,7 +349,7 @@ private:
             to(Sub::Recover, n.randRange(0.3f, 0.8f));
             break;
         case Sub::Guard:
-            if (hopper) { to(Sub::Circle, 0.3f); break; }
+            if (hopper || horde) { to(Sub::Circle, 0.3f); break; }
             in.guard = true;
             in.move = left * side * 0.4f;
             if (subTime <= 0.0f) to(Sub::Circle, n.randRange(0.4f, 1.0f));

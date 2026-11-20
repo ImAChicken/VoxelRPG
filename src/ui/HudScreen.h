@@ -42,6 +42,10 @@ public:
     // The locked-on target (game/LockOn.h): where to put the marker
     struct LockMarker { bool on = false; float x = 0, y = 0; };
     LockMarker lockMarker;
+    // Damage numbers (Settings: Damage numbers), placed by the game
+    // each frame where the hits landed (screen pixels)
+    struct Popup { float x, y; std::string text; float alpha; int scale; float rgb[3]; };
+    std::vector<Popup> popups;
 
     // The debug overlay (F3): labels placed by the game (screen
     // pixels) and a block of text for the corner
@@ -214,6 +218,15 @@ public:
             float red[4] = {210, 60, 50, 255 * b.alpha};
             ui.drawRect(b.x - w * 0.5f, b.y, w, h, sh0);
             ui.drawRect(b.x - w * 0.5f + 1, b.y + 1, (w - 2) * std::clamp(b.fill, 0.0f, 1.0f), h - 2, red);
+        }
+
+        // ── Damage numbers ────────────────────────────────
+        for (const Popup& p : popups) {
+            float w = (float)ui.textWidth(p.text, p.scale);
+            float sh[4] = {0, 0, 0, 200 * p.alpha};
+            float c[4] = {p.rgb[0], p.rgb[1], p.rgb[2], 255 * p.alpha};
+            ui.drawText(p.text, p.x - w * 0.5f + 1, p.y + 1, sh, p.scale);
+            ui.drawText(p.text, p.x - w * 0.5f, p.y, c, p.scale);
         }
 
         // ── The lock-on marker: a small dotted diamond ────

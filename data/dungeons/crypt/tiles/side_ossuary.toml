@@ -1,0 +1,41 @@
+# A dungeon tile (dungeon/Tile.h, docs/dungeons.md): a blueprint whose
+# voxels are in the .vxvol beside it. Edit it in game: tile edit side_ossuary
+
+name = "side_ossuary"
+display = "side_ossuary"
+tags = ["dungeon", "crypt", "side"]
+size = [32, 32, 48]
+voxels = "side_ossuary.vxvol"
+
+[tile]   # a dungeon tile (dungeon/Tile.h)
+theme = "crypt"
+kind = "side"
+cells = [2, 2, 3]   # half cells of 16 voxels
+weight = 0.8
+sockets = [
+  { cell = [0, 0, 2], face = "s", type = "door" },
+]
+
+[[tile.marker]]
+at = [2, 2, 8]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [2, 2, 18]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [2, 2, 28]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [2, 2, 38]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"

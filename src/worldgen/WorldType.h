@@ -2,6 +2,7 @@
 #include "../chunk/TerrainGenerator.h"
 #include "IslandGenerator.h"
 #include "FlatGenerator.h"
+#include "DungeonGenerator.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -24,16 +25,23 @@
 //   Flat    — a level field at the Classic size, no structures;
 //             trees, plants and decor each on or off, any ground
 //             block (worldgen/FlatGenerator.h). For test worlds
-enum class WorldType : uint8_t { Classic = 0, Island = 1, SingleBiome = 2, Flat = 3, COUNT };
+//   Dungeon — solid rock with a dungeon grown from tiles through it
+//             (worldgen/DungeonGenerator.h, docs/dungeons.md): you
+//             arrive in its portal room. For walking one before the
+//             portals that lead to them exist
+enum class WorldType : uint8_t { Classic = 0, Island = 1, SingleBiome = 2, Flat = 3, Dungeon = 4, COUNT };
 
 inline const char* worldTypeKey(WorldType t) {
-    return t == WorldType::Island ? "island" : t == WorldType::SingleBiome ? "single" : t == WorldType::Flat ? "flat" : "classic";
+    return t == WorldType::Island ? "island" : t == WorldType::SingleBiome ? "single" : t == WorldType::Flat ? "flat" :
+           t == WorldType::Dungeon ? "dungeon" : "classic";
 }
 inline const char* worldTypeName(WorldType t) {
-    return t == WorldType::Island ? "Island" : t == WorldType::SingleBiome ? "One biome" : t == WorldType::Flat ? "Flat" : "Classic";
+    return t == WorldType::Island ? "Island" : t == WorldType::SingleBiome ? "One biome" : t == WorldType::Flat ? "Flat" :
+           t == WorldType::Dungeon ? "Dungeon" : "Classic";
 }
 inline WorldType worldTypeFromKey(const std::string& k) {
-    return k == "island" ? WorldType::Island : k == "single" ? WorldType::SingleBiome : k == "flat" ? WorldType::Flat : WorldType::Classic;
+    return k == "island" ? WorldType::Island : k == "single" ? WorldType::SingleBiome : k == "flat" ? WorldType::Flat :
+           k == "dungeon" ? WorldType::Dungeon : WorldType::Classic;
 }
 // What a world type is, in a line (New World screen)
 inline const char* worldTypeBlurb(WorldType t) {
@@ -41,6 +49,7 @@ inline const char* worldTypeBlurb(WorldType t) {
     case WorldType::Island:      return "One designed island: mountains, plains, coast, forest and swamp.";
     case WorldType::SingleBiome: return "One biome all over, with its own features.";
     case WorldType::Flat:        return "A level field with no structures. A base for testing.";
+    case WorldType::Dungeon:     return "An undead crypt grown from tiles, boxed in by rock. You start in its portal room.";
     default:                     return "Rolling hills and forest.";
     }
 }
@@ -64,6 +73,7 @@ inline const char* islandSizeName(int s) {
 }
 
 inline int worldSizeFor(WorldType t, int requested) {
+    if (t == WorldType::Dungeon) return DungeonGenerator::SIZE_CHUNKS;
     if (t != WorldType::Island) return CLASSIC_WORLD_SIZE;
     for (int s : ISLAND_SIZES) if (requested <= s) return s;
     return ISLAND_SIZES[2];
@@ -93,6 +103,8 @@ inline std::unique_ptr<TerrainGenerator> makeGenerator(WorldType t, uint64_t see
                                                        const FlatOptions& flat = FlatOptions()) {
     if (t == WorldType::Flat)
         return std::make_unique<FlatGenerator>((int)seed, size, flat);
+    if (t == WorldType::Dungeon)
+        return std::make_unique<DungeonGenerator>(seed, size, "crypt");
     IslandOptions opt;
     opt.bakeCache    = bakeCache;
     opt.params       = params;

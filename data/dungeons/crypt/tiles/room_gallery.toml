@@ -1,0 +1,78 @@
+# A dungeon tile (dungeon/Tile.h, docs/dungeons.md): a blueprint whose
+# voxels are in the .vxvol beside it. Edit it in game: tile edit room_gallery
+
+name = "room_gallery"
+display = "room_gallery"
+tags = ["dungeon", "crypt", "room"]
+size = [32, 32, 96]
+voxels = "room_gallery.vxvol"
+
+[tile]   # a dungeon tile (dungeon/Tile.h)
+theme = "crypt"
+kind = "room"
+cells = [2, 2, 6]   # half cells of 16 voxels
+weight = 0.8
+sockets = [
+  { cell = [0, 0, 0], face = "n", type = "door" },
+  { cell = [1, 0, 5], face = "s", type = "door" },
+]
+
+[[tile.marker]]
+at = [1, 2, 17]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [30, 2, 17]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [1, 2, 33]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [30, 2, 33]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [1, 2, 49]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [30, 2, 49]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [1, 2, 65]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [30, 2, 65]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [1, 2, 81]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"
+
+[[tile.marker]]
+at = [30, 2, 81]
+kind = "coffin"
+rule = "enter"
+spawn = "undead"

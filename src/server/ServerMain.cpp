@@ -158,8 +158,9 @@ int main(int argc, char** argv) {
     if (!session.begin(cfg.world, cfg.dev)) {
         // not there: make one (server.toml new_world), so a machine
         // with only the server can start from nothing
-        WorldType type = cfg.newWorld == "island" ? WorldType::Island : cfg.newWorld == "classic" ? WorldType::Classic : WorldType::Flat;
-        if (cfg.newWorld != "flat" && cfg.newWorld != "classic" && cfg.newWorld != "island") {
+        WorldType type = cfg.newWorld == "island" ? WorldType::Island : cfg.newWorld == "classic" ? WorldType::Classic :
+                         cfg.newWorld == "dungeon" ? WorldType::Dungeon : WorldType::Flat;
+        if (cfg.newWorld != "flat" && cfg.newWorld != "classic" && cfg.newWorld != "island" && cfg.newWorld != "dungeon") {
             std::cerr << "No world '" << cfg.world << "' in " << WorldSaveManager::rootFor(cfg.dev)
                       << "/ (copy one in, make one in the game, or set new_world in server.toml)\n";
             return 1;
