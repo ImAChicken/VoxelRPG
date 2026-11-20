@@ -65,7 +65,8 @@
 //                 waits for their ChunkData instead of generating them
 namespace proto {
 
-constexpr uint32_t VERSION = 4;       // 2: Request, the names in Welcome; 3: off hands (Loadout, BodyState); 4: a piece's spec in Request
+constexpr uint32_t VERSION = 5;       // 2: Request, the names in Welcome; 3: off hands (Loadout, BodyState); 4: a piece's spec in Request;
+                                      // 5: a hit's point in Event, a held heavy in Input
 constexpr int TICK_HZ = 60;            // the simulation
 constexpr int SNAPSHOT_EVERY = 3;      // ticks between snapshots (20 Hz)
 constexpr int INPUT_REDUNDANCY = 4;    // inputs repeated in each Input packet (loss)
@@ -180,7 +181,7 @@ inline void putIntent(wire::Writer& w, const HumanIntent& in, const IdMap* ids =
     uint16_t use = ids ? ids->itemToServer(in.useItem) : in.useItem;
     uint16_t f = (in.sprint ? 1 : 0) | (in.crouch ? 2 : 0) | (in.jump ? 4 : 0) | (in.dodge ? 8 : 0) | (in.fly ? 16 : 0) |
                  (in.flyFast ? 32 : 0) | (in.attackLight ? 64 : 0) | (in.attackHeavy ? 128 : 0) | (in.guard ? 256 : 0) |
-                 (use ? 512 : 0);
+                 (use ? 512 : 0) | (in.heavyHeld ? 1024 : 0);
     w.u16(f);
     w.vec2(in.move);
     w.f32(in.speedScale);
@@ -192,6 +193,7 @@ inline HumanIntent getIntent(wire::Reader& r) {
     uint16_t f = r.u16();
     in.sprint = f & 1; in.crouch = f & 2; in.jump = f & 4; in.dodge = f & 8; in.fly = f & 16;
     in.flyFast = f & 32; in.attackLight = f & 64; in.attackHeavy = f & 128; in.guard = f & 256;
+    in.heavyHeld = f & 1024;
     in.move = r.vec2();
     if (glm::length(in.move) > 1.001f) in.move = glm::normalize(in.move);        // no faster than walking allows
     in.speedScale = std::clamp(r.f32(), 0.0f, 1.0f);
@@ -472,13 +474,14 @@ struct EventMsg {
     uint8_t  attack = 0;
     float    amount = 0;
     uint16_t flags = 0;              // 1 blocked, 2 guardBroken, 4 poiseBroken, 8 knockedDown, 16 parried, 32 riposte
+    glm::vec3 at{0.0f};              // a hit: where it landed
 };
 inline std::vector<uint8_t> event(const EventMsg& e) {
-    wire::Writer w; w.u8((uint8_t)Msg::Event); w.u8(e.kind); w.u64(e.a); w.u64(e.b); w.u8(e.attack); w.f32(e.amount); w.u16(e.flags);
+    wire::Writer w; w.u8((uint8_t)Msg::Event); w.u8(e.kind); w.u64(e.a); w.u64(e.b); w.u8(e.attack); w.f32(e.amount); w.u16(e.flags); w.vec3(e.at);
     return w.buf;
 }
 inline EventMsg readEvent(wire::Reader& r) {
-    EventMsg e; e.kind = r.u8(); e.a = r.u64(); e.b = r.u64(); e.attack = r.u8(); e.amount = r.f32(); e.flags = r.u16(); return e;
+    EventMsg e; e.kind = r.u8(); e.a = r.u64(); e.b = r.u64(); e.attack = r.u8(); e.amount = r.f32(); e.flags = r.u16(); e.at = r.vec3(); return e;
 }
 
 } // namespace proto

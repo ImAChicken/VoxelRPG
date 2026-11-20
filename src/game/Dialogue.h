@@ -25,7 +25,7 @@ namespace dialogue {
 
 enum class Topic : uint8_t { Greet, About, News, People, Bye };
 
-// The questions you can ask, in order (keys 1-4)
+// The questions you can ask, in order (picked with the D-pad / arrow keys)
 inline const std::vector<std::pair<Topic, std::string>>& questions() {
     static const std::vector<std::pair<Topic, std::string>> q = {
         { Topic::About, "What do you do here?" }, { Topic::News, "Any news?" },

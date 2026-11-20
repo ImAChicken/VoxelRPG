@@ -223,8 +223,14 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
     const AttackDef& d = a.attack.def();
     HitEvent ev;
     ev.attacker = a.uuid; ev.target = b.uuid; ev.kind = a.attack.kind;
-    float dmg = a.weaponDamage * d.damage;
-    float poiseDmg = d.poise * a.attack.poiseScale;
+    // a charged heavy hits harder (game/Combat.h charge)
+    const float charge = a.attack.charge();
+    float dmg = a.weaponDamage * d.damage * (1.0f + (d.chargeDamage - 1.0f) * charge);
+    float poiseDmg = d.poise * a.attack.poiseScale * (1.0f + (d.chargePoise - 1.0f) * charge);
+    // the hit-stop both bodies take (the attack's own, or by its kind)
+    float stopFor = d.hitstop >= 0.0f ? d.hitstop
+                  : (a.attack.kind == AttackKind::Heavy || a.attack.kind == AttackKind::AirHeavy) ? HITSTOP_HEAVY : HITSTOP_LIGHT;
+    stopFor *= 1.0f + 0.5f * charge;
     glm::vec3 off = b.position - a.position; off.y = 0.0f;
     glm::vec3 away = glm::length(off) > 1e-3f ? glm::normalize(off) : a.attack.dir;
     // AirHeavy throws outward from the slam; the rest along the swing
@@ -253,6 +259,7 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
         glm::vec3 back = -away;
         knockBody(a, a.bodyPoint(0.7f), back, 0.1f, PARRY_KNOCK);
         b.guardTime = gs.parry + 1.0f;               // one parry per raise
+        a.hitStop = b.hitStop = HITSTOP_PARRY;       // the clash holds both
         return ev;
     }
     if (b.exposed > 0.0f) {
@@ -294,7 +301,18 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
         b.ragdoll.stayDown = true;
     }
     knockBody(b, ev.point - push * 1.0f, push, d.lift, knock);
-    a.attack.stop = HITSTOP;
+    // both bodies hold for a moment (the attacker's swing too); then
+    // a hit its poise held (or a guard took) shoves the target back,
+    // a quick slide; a broken poise is the ragdoll's
+    float stop = stopFor * (ev.blocked ? HITSTOP_BLOCKED : 1.0f);
+    a.attack.prevT = a.attack.t;                 // (held: no sweep while it holds)
+    a.hitStop = std::max(a.hitStop, stop);
+    b.hitStop = std::max(b.hitStop, stop);
+    if (!ev.poiseBroken && !ev.knockedDown && !ev.killed && !b.noRagdoll) {
+        glm::vec3 flat(push.x, 0.0f, push.z);
+        if (glm::length(flat) > 1e-3f)
+            b.pendingShove = glm::normalize(flat) * d.knock * SHOVE * (1.0f + 0.5f * charge) * (ev.blocked ? SHOVE_BLOCKED : 1.0f);
+    }
     return ev;
 }
 

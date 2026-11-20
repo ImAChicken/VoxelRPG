@@ -50,7 +50,9 @@ public:
     std::vector<std::string> debugText;
     std::string talkingTo;              // an NPC menu is open
     std::string talkLine;               // … what it just said (game/Dialogue.h)
-    std::vector<std::string> talkOptions;   // … what you can ask (keys 1-4)
+    std::vector<std::string> talkOptions;   // … what you can ask (D-pad / arrow keys)
+    int  talkSel = 0;                   // … the one picked (D-pad / arrows)
+    bool talkPad = false;               // … the controller was used last (its hints)
 
     // Encounter bookends (npc/Encounters.h): a banner when a
     // fight starts, a review when it ends. Neither pauses.
@@ -173,11 +175,18 @@ public:
             y += 34;
             for (const std::string& l : lines) { ui.drawText(l, x0 + 20, y, say, 2); y += lineH; }
             y += 14;
+            float pick[4] = {255, 215, 120, 255};
+            float pickBg[4] = {120, 90, 50, 120};
             for (size_t i = 0; i < talkOptions.size(); i++) {
-                ui.drawText(std::to_string(i + 1) + "   " + talkOptions[i], x0 + 32, y, ask, 2);
+                bool on = (int)i == talkSel;
+                if (on) ui.drawRect(x0 + 20, y - 4, bw - 40, lineH, pickBg);
+                std::string lead = on ? ">" : " ";
+                ui.drawText(lead + "   " + talkOptions[i], x0 + 32, y, on ? pick : ask, 2);
                 y += lineH;
             }
-            std::string t = "1 - " + std::to_string(talkOptions.size()) + ": ask   {interact}: leave";
+            std::string t = talkPad ? "D-pad: choose   A: ask   B: leave"
+                                    : "arrow keys: choose   Enter: ask   {interact}: leave";
+            if (talkOptions.empty()) t = talkPad ? "B: leave" : "{interact}: leave";
             keytext::draw(ui, t, x0 + bw - 20 - keytext::width(ui, t, 2), y + 6, hint, 2);
         }
 

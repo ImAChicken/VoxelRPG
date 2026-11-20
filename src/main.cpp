@@ -50,6 +50,9 @@
 #include "render/CharacterRenderer.h"
 #include "character/HumanAnim.h"
 #include "render/OutlineFx.h"
+#include "render/Particles.h"
+#include "render/ParticleRenderer.h"
+#include "input/Rumble.h"
 #include "ui/CharacterScreen.h"
 #include "chunk/TerrainGenerator.h"
 #include "voxel/VoxelRegistry.h"
@@ -254,6 +257,7 @@ int main() {
     gAnims.load("data/animations", "data/animations/retarget.toml");
     gAnimMap.load("data/animations/anim_map.toml");
     gOutlineFx.load("data/registry/outline.toml");
+    gParticles.load("data/registry/particles.toml");
     decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
     gItems.addDecor(*decor::current());
 
@@ -313,6 +317,8 @@ int main() {
     if (!charRenderer.init()) std::cerr << "Character renderer failed to start\n";
     BoxRenderer blobs;                        // bodies with no skeleton (slimes): stacked boxes
     if (!blobs.init()) std::cerr << "Box renderer failed to start\n";
+    ParticleRenderer particleRenderer;        // sparks, puffs, dust (render/Particles.h)
+    if (!particleRenderer.init()) std::cerr << "Particle renderer failed to start\n";
     PropRenderer props;                       // logs, wood, leaves: drawn like the world
     if (!props.init()) std::cerr << "Prop renderer failed to start\n";
     RoofRenderer roofs;                       // roofs drawn smooth, eaves overhanging (Settings → Roofs)
@@ -455,6 +461,9 @@ int main() {
     EntityId talkingTo = 0;           // the NPC this player is in a menu with
     std::string talkLine;             // what it last said (game/Dialogue.h)
     float talkCloseIn = -1.0f;        // after goodbye: the menu closes in this many s
+    int talkSel = 0;                  // the question picked with the D-pad / arrow keys
+    bool talkUpHeld = false, talkDownHeld = false, talkEnterHeld = false;
+    pad::State talkPadPrev;           // last frame's buttons (the talk box reads presses)
     uint32_t talkRng = 0x2f6b1d3u;
     bool pendingVillage = false;      // a new flat world with a village: built once you stand on the ground
     glm::ivec3 villageAt{ 0 };        // where its square goes (picked when you land)
@@ -584,6 +593,8 @@ int main() {
         pendingKit = false;
         pendingVillage = false;
         lockOn.clear();
+        gParticles.clear();
+        rumble::gRumble.stop();
         if (save) saveWorld();
         if (remote) remote->leave();
         streamer.reset();
@@ -1371,6 +1382,14 @@ int main() {
             }
         }
 
+        // Particles (render/Particles.h): over the world and the bodies
+        if (gParticles.count()) {
+            glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
+                                              Camera::NEAR_PLANE, Camera::FAR_PLANE);
+            particleRenderer.draw(gParticles, proj * glr->getViewMatrix(), camera.position,
+                                  OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
+        }
+
         // Debug overlay (F3): lines now, labels to the HUD
         hud.debugLabels.clear();
         if (gDebug.on) {
@@ -1658,6 +1677,8 @@ int main() {
             }
         }
         frameDt = dt;
+        // the pad's motors: only while playing (a pause stops them)
+        rumble::gRumble.update(dt, gInput.padLastUsed() && gState == GameState::Playing);
         if ((gState == GameState::Playing || gState == GameState::Console) && !remote) gClock.update(dt);
 
         // Menus draw block icons from the world atlas (ui/ItemIcon.h)
@@ -1671,7 +1692,9 @@ int main() {
         glfwPollEvents();
         gInput.setCombatLayer(player.combatStance);   // the pad's combat buttons (input/PadLayout.h)
         const bool menuUp = gState != GameState::Playing && gState != GameState::Console;
-        gInput.setMenuMode(menuUp);
+        // talking (game/Dialogue.h): the pad drives the talk box, not
+        // the body (no swing or jump by mistake)
+        gInput.setMenuMode(menuUp || talkingTo != 0);
         gInput.setToolLayer(!player.combatStance && rulesFor(player.mode, false).hasBody && PlayerInteraction::takesPad(player));
         gInput.poll(window);
         // the controller in menus (ui/PadNav.h): a new screen starts its focus afresh
@@ -1787,6 +1810,7 @@ int main() {
                 gAnims.load("data/animations", "data/animations/retarget.toml");
                 gAnimMap.load("data/animations/anim_map.toml");
                 gOutlineFx.load("data/registry/outline.toml");
+                gParticles.load("data/registry/particles.toml");
                 decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
                 gItems.addDecor(*decor::current());
                 gStructures.load("data/registry/structures.toml"); gStructures.addDecorTrees(*decor::current()); gBlueprints.load(); gBuildPalettes.load();
@@ -2012,8 +2036,10 @@ int main() {
                 //    Which buttons do what depends on the
                 //    mode and stance (see PlayerController).
                 controller.slotKeysBlocked =
-                    PlayerInteraction::blocksToolbarKeys(dev) || talkingTo != 0;   // (talking: 1-4 ask)
+                    PlayerInteraction::blocksToolbarKeys(dev) || talkingTo != 0;   // (talking: the hotbar stays put)
                 controller.readInput(player, camera, dt);
+                // talking: standing still, hands down (keys and mouse too)
+                if (talkingTo) { bool fly = controller.intent.fly; controller.intent = HumanIntent(); controller.intent.fly = fly; }
 
                 // 2. The simulation, in fixed 1/60 s ticks. A
                 //    fast frame may run none, a slow one several.
@@ -2039,6 +2065,18 @@ int main() {
                 // 3. What happened, as it concerns this player
                 //    (on a server: what the server says happened)
                 gOutlineFx.update(frameDt);
+                // particles: dust from bodies moving, then everything moves on
+                if (streamer) gParticles.lightAt = [&](glm::vec3 p) {
+                    uint16_t L = streamer->lightAt(p.x, p.y, p.z);
+                    int lit = std::max({ light::skyOf(L), light::rOf(L), light::gOf(L), light::bOf(L) });
+                    return std::clamp(lit / 15.0f, 0.0f, 1.0f);
+                };
+                gParticles.watch(sim.bodies());
+                gParticles.update(frameDt, [&](glm::vec3 p) {
+                    if (!world) return false;
+                    uint16_t t = world->typeAtVoxel((int)std::floor(p.x), (int)std::floor(p.y), (int)std::floor(p.z));
+                    return t != 0 && gRegistry.get(t).isSolid() && !gRegistry.get(t).sprite;
+                });
                 std::vector<SimEvent> happened = sim.takeEvents();
                 if (remote) {
                     happened.clear();
@@ -2047,6 +2085,7 @@ int main() {
                         e.kind = (SimEvent::Kind)m.kind; e.a = m.a; e.b = m.b; e.attack = (AttackKind)m.attack; e.amount = m.amount;
                         e.blocked = m.flags & 1; e.guardBroken = m.flags & 2; e.poiseBroken = m.flags & 4; e.knockedDown = m.flags & 8;
                         e.parried = m.flags & 16; e.riposte = m.flags & 32;
+                        e.at = m.at;
                         if (e.kind <= SimEvent::Kind::Respawned) happened.push_back(e);
                     }
                     remote->events.clear();
@@ -2067,6 +2106,17 @@ int main() {
                 }
                 for (const SimEvent& e : happened) {
                     gOutlineFx.onEvent(e);       // flashing outlines (hurt, blocked …)
+                    gParticles.onEvent(e, sim);  // sparks, puffs, splats at the contact
+                    if (e.kind == SimEvent::Kind::Hit && (e.a == player.uuid || e.b == player.uuid)) {
+                        // the pad shakes: a thud when you're hit, a buzz when you land one
+                        bool heavy = e.attack == AttackKind::Heavy || e.attack == AttackKind::AirHeavy;
+                        if (e.parried)              rumble::gRumble.kick(0.3f, 0.8f, 0.18f);
+                        else if (e.b == player.uuid) {
+                            if (e.blocked)          rumble::gRumble.kick(0.35f, 0.3f, 0.12f);
+                            else if (e.amount > 0)  rumble::gRumble.kick(heavy ? 0.9f : 0.6f, 0.35f, heavy ? 0.32f : 0.2f);
+                        } else if (!e.blocked && e.amount > 0) rumble::gRumble.kick(heavy ? 0.5f : 0.2f, heavy ? 0.6f : 0.45f, heavy ? 0.16f : 0.09f);
+                        else if (e.blocked)         rumble::gRumble.kick(0.15f, 0.35f, 0.08f);
+                    }
                     if (e.kind == SimEvent::Kind::Hit && e.parried && e.b == player.uuid) say("parried - strike now for a riposte");
                     if (e.kind == SimEvent::Kind::Hit && e.parried && e.a == player.uuid) say("you were parried");
                     if (e.kind == SimEvent::Kind::Hit && e.riposte && e.a == player.uuid) say("riposte");
@@ -2249,6 +2299,8 @@ int main() {
                             if (sim.openMenu(best->uuid, player.uuid)) {
                                 talkingTo = best->uuid;
                                 talkCloseIn = -1.0f;
+                                talkSel = 0;
+                                talkPadPrev = gInput.padNow();
                                 // villagers and guards talk (game/Dialogue.h); others just greet
                                 if (best->life.on || best->typeId == "guard") {
                                     talkLine = dialogue::say(*best, dialogue::Topic::Greet, gClock.time * 24.0f, npcs, talkRng);
@@ -2266,13 +2318,29 @@ int main() {
                 if (talkingTo && !remote) {
                     Npc* tn = npcs.find(talkingTo);
                     const auto& qs = dialogue::questions();
-                    if (tn && !talkLine.empty() && talkCloseIn < 0.0f)
-                        for (size_t i = 0; i < qs.size(); i++) {
-                            if (!gInput.isPressed((InputAction)((int)InputAction::ToolbarSlot1 + (int)i))) continue;
-                            talkLine = dialogue::say(*tn, qs[i].first, gClock.time * 24.0f, npcs, talkRng);
-                            sound::gSounds.say(tn->uuid, sound::gSounds.voiceOf(*tn), talkLine, sound::SoundDirector::mouthOf(*tn));
-                            if (qs[i].first == dialogue::Topic::Bye) talkCloseIn = 1.8f;
-                        }
+                    // the controller: D-pad up / down picks, A asks, B leaves;
+                    // keys the same way: the arrow keys pick, Enter asks (not
+                    // the number keys: in a fight they use what's in a slot)
+                    const pad::State& ps = gInput.padNow();
+                    auto padHit = [&](int b) { return ps.down[(size_t)b] && !talkPadPrev.down[(size_t)b]; };
+                    int ask = -1;
+                    bool leave = padHit(pad::B);
+                    if (tn && !talkLine.empty() && talkCloseIn < 0.0f) {
+                        const int n = (int)qs.size();
+                        if (padHit(pad::Up) || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS && !talkUpHeld) talkSel = (talkSel + n - 1) % n;
+                        if (padHit(pad::Down) || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS && !talkDownHeld) talkSel = (talkSel + 1) % n;
+                        if (padHit(pad::A) || glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS && !talkEnterHeld) ask = talkSel;
+                    }
+                    talkUpHeld = glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS;
+                    talkDownHeld = glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS;
+                    talkEnterHeld = glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS;
+                    talkPadPrev = ps;
+                    if (ask >= 0) {
+                        talkLine = dialogue::say(*tn, qs[(size_t)ask].first, gClock.time * 24.0f, npcs, talkRng);
+                        sound::gSounds.say(tn->uuid, sound::gSounds.voiceOf(*tn), talkLine, sound::SoundDirector::mouthOf(*tn));
+                        if (qs[(size_t)ask].first == dialogue::Topic::Bye) talkCloseIn = 1.8f;
+                    }
+                    if (leave && talkCloseIn < 0.0f) sim.closeMenu(talkingTo);
                     if (talkCloseIn >= 0.0f && (talkCloseIn -= dt) < 0.0f) { sim.closeMenu(talkingTo); }
                 }
                 hud.talkingTo.clear();
@@ -2284,6 +2352,8 @@ int main() {
                         hud.talkLine = talkLine;
                         if (!talkLine.empty() && talkCloseIn < 0.0f)
                             for (auto& q : dialogue::questions()) hud.talkOptions.push_back(q.second);
+                        hud.talkSel = talkSel;
+                        hud.talkPad = gInput.padLastUsed();
                     } else talkingTo = 0;
                 }
 

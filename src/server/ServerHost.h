@@ -177,6 +177,7 @@ public:
             m.kind = (uint8_t)e.kind; m.a = e.a; m.b = e.b; m.attack = (uint8_t)e.attack; m.amount = e.amount;
             m.flags = (e.blocked ? 1 : 0) | (e.guardBroken ? 2 : 0) | (e.poiseBroken ? 4 : 0) | (e.knockedDown ? 8 : 0) |
                       (e.parried ? 16 : 0) | (e.riposte ? 32 : 0);
+            m.at = e.at;
             events.push_back(e);
             auto bytes = proto::event(m);
             for (auto& c : list) if (c->joined) c->conn->send(bytes, net::Channel::Reliable);

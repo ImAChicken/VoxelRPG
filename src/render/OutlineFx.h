@@ -68,6 +68,7 @@ public:
         else if (e.guardBroken) start(e.b, "guard_break");
         else if (e.blocked)     start(e.b, "blocked");
         else if (e.amount > 0)  start(e.b, "hurt");
+        if (e.a && !e.blocked && e.amount > 0) start(e.a, "struck");   // the attacker's own flash, with the stop
     }
     // Start an effect on a body by hand (console, tests, later triggers)
     void start(EntityId who, const std::string& id) {

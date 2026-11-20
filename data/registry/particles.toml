@@ -1,0 +1,226 @@
+# Particles (render/Particles.h): each [[emitter]] is one burst.
+# The game fires them by id; the ids below are the ones it uses (a
+# missing one just doesn't show). Try one in game: "particle <id>".
+# F5 (reload data) picks up changes.
+#
+#   count       [min, max] particles per burst
+#   speed       [min, max] vox/s, thrown along the burst's direction
+#   spread      degrees around that direction (180: every way)
+#   up          vox/s added upward
+#   gravity     vox/s² pulling down (negative: drifts up)
+#   drag        1/s: how fast they slow
+#   life        [min, max] s
+#   size        [start, end] vox (each particle ±25%)
+#   shape       "puff" (a square facing you) or "spark" (a streak
+#               along its motion, 'stretch' s of its speed long)
+#   color       [r, g, b, a] at the start; color_end at the end (the
+#               default: the same, faded out). Above 1 glows brighter
+#               on additive ones
+#   color_vary  [r, g, b] ± per particle
+#   additive    true: adds light (sparks, flashes), false: laid over
+#   bounce      true: stops on the ground instead of falling through
+#   jitter      vox: how far from the point each one starts
+#
+# Fired by:
+#   hit_spark, hit_puff   a hit on a body (at the blade's contact,
+#                         thrown away from the attacker; a heavy: more)
+#   hit_slime             … on a slime
+#   block_sparks          a blocked hit on a blade, and with a parry
+#   block_wood            … on a shield
+#   parry_flash           a parry
+#   guard_break           the guard broken
+#   poise_break           poise broken (a stagger or knockdown)
+#   death_dust            someone killed; death_slime a slime
+#   step_dust             an attack's step pushing off (steps of 6+)
+#   dodge_dust            a roll or backstep
+#   land_dust             a hard landing (more the faster the fall)
+
+[[emitter]]
+id = "hit_spark"
+count = [6, 9]
+speed = [25, 55]
+spread = 55
+gravity = 60
+drag = 4
+life = [0.12, 0.26]
+size = [0.35, 0.15]
+shape = "spark"
+stretch = 0.035
+color = [1.6, 1.3, 0.9, 1.0]
+color_end = [1.0, 0.45, 0.15, 0.0]
+additive = true
+
+[[emitter]]
+id = "hit_puff"
+count = [4, 6]
+speed = [4, 10]
+spread = 70
+up = 2
+gravity = -4
+drag = 5
+life = [0.25, 0.45]
+size = [1.0, 2.0]
+color = [0.95, 0.92, 0.88, 0.55]
+color_end = [0.8, 0.78, 0.75, 0.0]
+color_vary = [0.04, 0.04, 0.04]
+
+[[emitter]]
+id = "hit_slime"
+count = [10, 14]
+speed = [12, 28]
+spread = 70
+up = 8
+gravity = 70
+drag = 1.5
+life = [0.35, 0.6]
+size = [0.8, 0.5]
+color = [0.35, 0.85, 0.35, 1.0]
+color_end = [0.25, 0.65, 0.25, 0.0]
+color_vary = [0.05, 0.1, 0.05]
+bounce = true
+
+[[emitter]]
+id = "block_sparks"
+count = [10, 14]
+speed = [30, 70]
+spread = 65
+up = 6
+gravity = 80
+drag = 2.5
+life = [0.15, 0.35]
+size = [0.3, 0.1]
+shape = "spark"
+stretch = 0.03
+color = [2.0, 1.7, 1.0, 1.0]
+color_end = [1.2, 0.5, 0.1, 0.0]
+additive = true
+
+[[emitter]]
+id = "block_wood"
+count = [6, 9]
+speed = [10, 24]
+spread = 60
+up = 6
+gravity = 60
+drag = 2
+life = [0.3, 0.6]
+size = [0.5, 0.35]
+color = [0.62, 0.45, 0.28, 1.0]
+color_end = [0.55, 0.4, 0.25, 0.0]
+color_vary = [0.06, 0.05, 0.03]
+bounce = true
+
+[[emitter]]
+id = "parry_flash"
+count = [1, 1]
+speed = [0, 0]
+gravity = 0
+drag = 0
+life = [0.14, 0.14]
+size = [3.0, 7.0]
+jitter = 0
+color = [2.0, 1.9, 1.6, 0.9]
+color_end = [1.5, 1.2, 0.8, 0.0]
+additive = true
+
+[[emitter]]
+id = "guard_break"
+count = [14, 18]
+speed = [20, 40]
+spread = 180
+gravity = 30
+drag = 3
+life = [0.25, 0.45]
+size = [0.4, 0.1]
+shape = "spark"
+stretch = 0.03
+color = [1.4, 1.5, 2.0, 1.0]
+color_end = [0.5, 0.6, 1.2, 0.0]
+additive = true
+
+[[emitter]]
+id = "poise_break"
+count = [8, 12]
+speed = [10, 20]
+spread = 180
+gravity = -6
+drag = 4
+life = [0.35, 0.55]
+size = [1.2, 2.4]
+color = [1.0, 0.95, 0.85, 0.5]
+color_end = [0.9, 0.85, 0.8, 0.0]
+
+[[emitter]]
+id = "death_dust"
+count = [14, 20]
+speed = [6, 16]
+spread = 180
+up = 4
+gravity = -3
+drag = 3
+life = [0.6, 1.0]
+size = [1.5, 3.0]
+jitter = 2.0
+color = [0.75, 0.72, 0.68, 0.6]
+color_end = [0.7, 0.68, 0.65, 0.0]
+color_vary = [0.04, 0.04, 0.04]
+
+[[emitter]]
+id = "death_slime"
+count = [20, 26]
+speed = [14, 30]
+spread = 180
+up = 10
+gravity = 70
+drag = 1.5
+life = [0.5, 0.9]
+size = [1.0, 0.6]
+jitter = 1.5
+color = [0.35, 0.85, 0.35, 1.0]
+color_end = [0.25, 0.65, 0.25, 0.0]
+color_vary = [0.05, 0.1, 0.05]
+bounce = true
+
+[[emitter]]
+id = "step_dust"
+count = [3, 5]
+speed = [5, 11]
+spread = 40
+up = 3
+gravity = -2
+drag = 4
+life = [0.3, 0.5]
+size = [0.9, 1.8]
+jitter = 0.8
+color = [0.72, 0.66, 0.56, 0.5]
+color_end = [0.7, 0.65, 0.58, 0.0]
+color_vary = [0.03, 0.03, 0.03]
+
+[[emitter]]
+id = "dodge_dust"
+count = [5, 8]
+speed = [6, 14]
+spread = 50
+up = 3
+gravity = -2
+drag = 3.5
+life = [0.35, 0.6]
+size = [1.0, 2.2]
+jitter = 1.0
+color = [0.72, 0.66, 0.56, 0.5]
+color_end = [0.7, 0.65, 0.58, 0.0]
+color_vary = [0.03, 0.03, 0.03]
+
+[[emitter]]
+id = "land_dust"
+count = [6, 9]
+speed = [8, 16]
+spread = 85
+gravity = 0
+drag = 4
+life = [0.35, 0.55]
+size = [1.0, 2.0]
+jitter = 1.0
+color = [0.72, 0.66, 0.56, 0.45]
+color_end = [0.7, 0.65, 0.58, 0.0]
+color_vary = [0.03, 0.03, 0.03]

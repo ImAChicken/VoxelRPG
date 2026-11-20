@@ -74,13 +74,28 @@ struct AttackDef {
     float knock = 14.0f;                 // vox/s to the target's ragdoll when it staggers
     float lift = 0.15f;                  // share of the knock that goes up
     bool  knockdown = false;             // a poise break knocks down
-    float lunge = 0.0f;                  // ground: forward speed during the lunge (vox/s)
+    float lunge = 0.0f;                  // ground: forward speed during the lunge (vox/s) (old: step says it better)
     float lungeFrom = 0.0f, lungeTo = 0.0f;
+    // Root motion: the step the attack carries the body, voxels over
+    // lunge_time, fast at first and stopping sharply (step_curve: the
+    // higher, the sharper). With a target in front it stretches or
+    // shortens (up to STEP_STRETCH ×) to stop just inside its reach.
+    // < 0: from lunge × lunge_time
+    float step = -1.0f;
+    float stepCurve = 1.5f;
+    float hitstop = -1.0f;               // s both bodies freeze on a hit (< 0: by kind, HITSTOP_*)
+    float track = 720.0f;                // deg/s it turns toward its target while winding up; locked from the hit window
+    // a heavy held: the wind-up stops at charge_at while the button is
+    // held, for up to charge_time s; a full charge gives these ×
+    float chargeAt = -1.0f, chargeTime = 1.0f;
+    float chargeDamage = 1.6f, chargePoise = 1.6f;
     float comboFrom = -1.0f;             // s: a queued light press chains from here (< 0: no chain);
                                          //    presses are taken (buffered) from activeStart on
     float cancelFrom = 0.4f;             // s: a dodge cancels it from here
     float armorFrom = -1.0f;             // s: hyper armour from here to activeEnd (< 0: none)
     bool  thrust = false;                // grip = "thrust": the held item turns to point along the thrust
+
+    float stepDistance() const { return step >= 0.0f ? step : lunge * std::max(0.0f, lungeTo - lungeFrom); }
 };
 
 struct Moveset {
@@ -114,7 +129,31 @@ constexpr float AIRDODGE_STAMINA= 14.0f;
 constexpr float GUARD_SPEED     = 0.5f;    // walking speed while guarding
 constexpr float GUARD_KEEP      = 0.1f;    // damage that gets through a guard
 constexpr float GUARD_COST      = 2.5f;    // stamina per point of damage blocked
-constexpr float HITSTOP         = 0.06f;   // s the attacker's swing pauses on a hit
+constexpr float HITSTOP         = 0.06f;   // s the attacker's swing pauses on a hit (old default)
+// hit-stop: both bodies freeze this long on a hit (an attack's
+// 'hitstop' overrides); a block shows less, a full charge more
+constexpr float HITSTOP_LIGHT   = 0.07f;
+constexpr float HITSTOP_HEAVY   = 0.13f;
+constexpr float HITSTOP_BLOCKED = 0.6f;    // × on a block
+constexpr float HITSTOP_PARRY   = 0.16f;
+// knockback: a hit the target's poise holds still shoves it, a
+// quick slide (the ragdoll is for a poise break); SHOVE × the
+// attack's knock = the shove's speed (vox/s), easing out over
+// SHOVE_TIME (it covers about speed / SHOVE_DECAY voxels)
+constexpr float SHOVE           = 4.5f;
+constexpr float SHOVE_DECAY     = 10.0f;
+constexpr float SHOVE_TIME      = 0.25f;
+constexpr float SHOVE_BLOCKED   = 0.6f;    // × behind a guard
+// root motion
+constexpr float STEP_STRETCH    = 1.6f;    // a step toward a target goes up to this × its own length
+constexpr float AIM_CONE        = 0.5f;    // cos: a player's attack takes a target within ±60° of its facing
+constexpr float NPC_TRACK       = 0.6f;    // × how fast an NPC's swing turns (they read you less perfectly)
+// an NPC's step stops this far into its reach (x reach), never stretched
+// (Simulation::aimAttacks): a crowd round you doesn't pile into you
+constexpr float NPC_STOP = 0.8f;
+// sprinting into an attack: its speed carries on, fading at this rate (1/s)
+constexpr float CARRY_DECAY     = 3.5f;
+constexpr float CARRY_KEEP      = 0.9f;
 // parry: a hit that lands within PARRY_WINDOW of raising the guard
 constexpr float PARRY_WINDOW    = 0.18f;   // s after the guard goes up
 constexpr float GUARD_FACING    = 0.35f;   // cos: a weapon's guard covers ±70° in front
@@ -196,6 +235,15 @@ public:
                     d->knockdown = v["knockdown"].value_or(false);
                     d->lunge = (float)v["lunge"].value_or(0.0);
                     pair(v["lunge_time"], d->lungeFrom, d->lungeTo);
+                    pair(v["step_time"], d->lungeFrom, d->lungeTo);
+                    d->step = (float)v["step"].value_or(-1.0);
+                    d->stepCurve = (float)v["step_curve"].value_or(1.5);
+                    d->hitstop = (float)v["hitstop"].value_or(-1.0);
+                    d->track = (float)v["track"].value_or(720.0);
+                    pair(v["charge"], d->chargeAt, d->chargeTime);
+                    if (!v["charge"]) d->chargeAt = -1.0f;
+                    d->chargeDamage = (float)v["charge_damage"].value_or(1.6);
+                    d->chargePoise = (float)v["charge_poise"].value_or(1.6);
                     d->comboFrom = (float)v["combo_from"].value_or(-1.0);
                     d->cancelFrom = (float)v["cancel_from"].value_or((double)d->duration);
                     d->armorFrom = (float)v["armor_from"].value_or(-1.0);
@@ -282,6 +330,17 @@ struct AttackState {
     bool       landed = false;     // air heavy: has slammed
     std::vector<uint64_t> hitIds;  // bodies this swing has hit already
     uint16_t   item = 0;           // a cast: the item (spellbook) it came from, held while it plays
+    // root motion and aim (Simulation::aimAttacks fills these)
+    glm::vec3  aim{0.0f};          // the target's feet, while it has one
+    bool       hasAim = false;
+    uint64_t   aimId = 0;
+    float      stepLen = -1.0f;    // the step it will take (< 0: its own length)
+    glm::vec2  carry{0.0f};        // a sprint's speed, carried on (fading)
+    // a charge (a heavy held)
+    bool       held = false;       // the button is down (from the intent)
+    float      charged = 0.0f;     // s held at charge_at
+    float      charge() const { return d && d->chargeAt >= 0.0f ? std::clamp(charged / std::max(d->chargeTime, 1e-3f), 0.0f, 1.0f) : 0.0f; }
+    bool       charging() const { return d && d->chargeAt >= 0.0f && held && t >= d->chargeAt && charged < d->chargeTime; }
 
     bool active() const { return kind != AttackKind::None && d; }
     const AttackDef& def() const { static const AttackDef NONE; return d ? *d : NONE; }

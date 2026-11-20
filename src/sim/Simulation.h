@@ -64,6 +64,7 @@ struct SimEvent {
     bool       parried = false, riposte = false;   // Hit: b parried a (a is exposed) / a hit an exposed b
     uint16_t   item = 0;
     int        count = 0;
+    glm::vec3  at{0.0f};    // Hit: where it landed (the blade's contact)
 };
 
 class Simulation : public NpcWorld {
@@ -163,6 +164,7 @@ public:
     // ── One fixed tick ────────────────────────────────────
     void step(float dt) {
         if (!physics) return;
+        aimAttacks();
 
         // players
         for (auto& pp : playerList) {
@@ -242,6 +244,7 @@ public:
             e.blocked = h.blocked; e.guardBroken = h.guardBroken;
             e.parried = h.parried; e.riposte = h.riposte;
             e.poiseBroken = h.poiseBroken; e.knockedDown = h.knockedDown;
+            e.at = h.point;
             events.push_back(e);
             if (h.killed) {
                 SimEvent k; k.kind = SimEvent::Kind::Killed; k.a = h.attacker; k.b = h.target;
@@ -808,6 +811,100 @@ public:
             n.intent.jump = true;                       // too high to walk up
         return next;
     }
+    // ── Aim: each attack's target, while it winds up ──────
+    // (game/Combat.h root motion and rotation window). An NPC aims at
+    // its target; a player at the hostile body nearest the middle of
+    // a cone in front (combat::AIM_CONE) within reach of its step. The
+    // step stretches or shortens to stop just inside the attack's
+    // reach of it, fixed once the step starts
+    void aimAttacks() {
+        std::vector<Human*> all = bodies();
+        // where o stood as h saw it: a remote player's view runs behind
+        // (lag compensation, setViewDelay), so its step stops where the
+        // target was on its screen, the same place its swing is judged
+        auto seen = [&](const Human& h, const Human& o) {
+            auto it = viewDelay.find(h.uuid);
+            hitshape::Posed past;
+            if (it != viewDelay.end() && it->second > 0 && poses.posedAgo(o.uuid, it->second, past) && past.now) {
+                glm::vec3 hip((*past.now)[B_ROOT][3]);
+                return glm::vec3(hip.x, o.position.y, hip.z);
+            }
+            return o.position;
+        };
+        for (Human* h : all) {
+            AttackState& a = h->attack;
+            if (!a.active() || h->dead()) continue;
+            const AttackDef& d = a.def();
+            if (a.t >= d.activeStart) continue;               // locked
+            if (a.kind != AttackKind::Light && a.kind != AttackKind::Heavy) continue;
+            const float own = d.stepDistance();
+            Human* target = nullptr, *stopBy = nullptr;
+            if (!h->isPlayer()) {
+                const Npc& n = *static_cast<const Npc*>(h);
+                Human* t = find(n.target);
+                if (t && !t->dead() && hostile(n, *t)) target = t;
+            } else {
+                glm::vec2 f(h->facing.x, h->facing.z);
+                if (glm::length(f) < 1e-3f) continue;
+                f = glm::normalize(f);
+                float range = d.reach + own * combat::STEP_STRETCH + 4.0f, best = 1e9f, bestNear = 1e9f;
+                for (Human* o : all) {
+                    if (o == h || o->dead() || o->isPlayer() || untouchable(*o)) continue;
+                    const Npc& n = *static_cast<const Npc*>(o);
+                    glm::vec3 op = seen(*h, *o);
+                    glm::vec2 to(op.x - h->position.x, op.z - h->position.z);
+                    float dist = glm::length(to);
+                    if (dist > range || dist < 1e-3f || std::fabs(op.y - h->position.y) > 12.0f) continue;
+                    float c = glm::dot(to / dist, f);
+                    if (c < combat::AIM_CONE) continue;
+                    // anyone straight ahead stops the step short (a swing
+                    // at a dummy or a villager doesn't run into it) …
+                    if (c > 0.85f && dist < bestNear) { bestNear = dist; stopBy = o; }
+                    // … but only a foe turns the swing toward it
+                    if (!hostile(n, *h) && n.target != h->uuid) continue;
+                    float score = dist * (2.0f - c);
+                    if (score < best) { best = score; target = o; }
+                }
+            }
+            a.hasAim = target != nullptr;
+            a.aimId = target ? target->uuid : 0;
+            if (target) a.aim = seen(*h, *target);
+            bool foe = target != nullptr;
+            if (!target) target = stopBy;
+            if (a.t < d.lungeFrom) {
+                if (!target) a.stepLen = -1.0f;
+                else {
+                    // a foe draws the step out (up to STEP_STRETCH); anyone
+                    // else only cuts it short
+                    glm::vec3 tp = seen(*h, *target);
+                    float dist = glm::length(glm::vec2(tp.x - h->position.x, tp.z - h->position.z));
+                    // (an NPC stops at the edge of its reach and never
+                    // stretches: in a crowd round you, they'd all pile in)
+                    const bool npc = !h->isPlayer();
+                    float stopAt = std::max(Human::RADIUS * 2.0f + 1.0f, d.reach * (npc ? combat::NPC_STOP : 0.55f));   // inside its reach
+                    a.stepLen = std::clamp(dist - stopAt, 0.0f, own * (foe && !npc ? combat::STEP_STRETCH : 1.0f));
+                }
+                // nor does it step into anyone else on the way (a friend
+                // beside it in the crowd round a target): it stops short
+                glm::vec2 way(a.dir.x, a.dir.z);
+                if (glm::length(way) > 1e-3f) {
+                    way = glm::normalize(way);
+                    float S = a.stepLen >= 0.0f ? a.stepLen : own;
+                    const float CLEAR = Human::RADIUS * 2.0f + 0.5f;
+                    for (Human* o : all) {
+                        if (o == h || o == target || o->dead() || untouchable(*o)) continue;
+                        glm::vec2 to(o->position.x - h->position.x, o->position.z - h->position.z);
+                        float along = glm::dot(to, way), across = std::fabs(to.x * way.y - to.y * way.x);
+                        if (along <= 0.0f || along > S + CLEAR || across > CLEAR || std::fabs(o->position.y - h->position.y) > 12.0f) continue;
+                        float room = std::sqrt(std::max(0.0f, CLEAR * CLEAR - across * across));    // where the two would touch
+                        S = std::min(S, std::max(0.0f, along - room));
+                    }
+                    if (a.stepLen >= 0.0f || S < own) a.stepLen = S;
+                }
+            }
+        }
+    }
+
     int pathsPlanned = 0;                 // for the debug overlay
     long pathNodes = 0;                   // … spots looked at by every search (profiling)
     int pathsFailed = 0;

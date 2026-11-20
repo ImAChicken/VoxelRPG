@@ -4,6 +4,20 @@ Living list of planned work. Sections marked **Tabled** are agreed
 ideas parked for later; add to them as new ideas come up.
 
 ## Recently done
+- Combat feel pass (2026-11-19, Eddie: "combat is a little too noodly. Players need to move more with attacks"):
+  - Root motion: every attack has a `step` (voxels over lunge_time, fast at first, stopping sharp). A player's swing at a foe ahead stretches or shortens (up to 1.6x) to stop just inside its reach; at anyone else (a dummy, a villager) it only cuts short. An NPC's step stops at the edge of its reach and never stretches (a crowd round you doesn't pile in); every step stops short of a third body in the way.
+  - Rotation window: during the wind-up the swing turns toward the target (or where you face) at `track` deg/s (720; NPCs at 0.6x), locked from the hit window on.
+  - Hit-stop: both bodies hold still (pose too) for 0.07 s a light, 0.13 a heavy, less on a block, longer charged; the parry clash 0.16. The target's outline flashes "hurt" and the attacker's "struck"; the hit sound plays at the contact point.
+  - Knockback: a hit whose poise holds shoves the target (eases out over 0.25 s); poise at zero still ragdolls.
+  - Dodge cancels a light any time but its hit window; heavies, plunges and casts are committed until cancel_from.
+  - Sprint carry: a light or heavy started at a sprint keeps some of the speed. Heavy charge: hold the heavy and its wind-up waits at `charge` for up to its time; full charge 1.6x damage and poise.
+  - Inertialization in CharacterAnimator: on a change (an attack starts, the combo's next swing, a dodge cancel, a landing) the pose starts where the body was and the difference fades over 0.2 s. No library: a few lines.
+  - Controller rumble (Windows, XInput loaded at run time; Settings > General > Controller rumble: off, light, full): a buzz when you land a hit, a thud when hit, on blocks and parries. Console `rumble`.
+  - Particles (`render/Particles.h`, `ParticleRenderer.h`, `data/registry/particles.toml`; Settings > Graphics > Particles: off, fewer, all): hit sparks and puffs at the contact, block sparks (wood chips on a shield), parry flash, guard and poise breaks, slime splats, death dust, dust from an attack's step, dodges and hard landings. Console `particle <id>`.
+  - Slower human enemies: `reaction` (the wind-up they must see before answering; a quick light lands first), `read_chance` (sized up once per swing; it used to roll every tick, so they nearly always answered), `turn_speed` (they turn to face you, so a sidestep buys a flank), longer `alert_time`.
+  - Settings split into General / Graphics / Sound pages.
+  - Next: a gap closer (a grapple tool or spell, with a weapon attack while connected), NPC charged heavies, tune by feel in game.
+- Talking with a controller (2026-11-19, Eddie: "everything in survival has to work with a controller"; options on the D-pad, never mixed up with an attack): while a talk box is open the pad drives it, not the body (input menu mode: no swing, jump or dodge; the body stands still for keys and mouse too). D-pad up / down picks a question (highlighted), A asks, B leaves. Keyboard the same way: arrow keys pick, Enter asks, {interact} leaves (not the number keys: in a fight they use a slot's item). The box's hints follow the device used last
 - Frame drops in villages, round 2 (2026-11-19, Eddie: "still heavy frame drop in villages … villagers must be doing it"). Measured with tests/village_perf.cpp (an island village, 9 villagers and 3 guards, a day): up to 10 ms a tick on average and 70 ms spikes, now 0.2 - 1.2 ms and about 6 ms at worst:
   - Path searches: a search that found nothing was retried every tick (an empty result skipped the wait); a good path was searched again every 2 s (now 8); one search a tick at most (was 2); a villager's searches look at up to 900 spots (a partial path past that); the pathfinder reads the voxels it needs once per search, by column, as bits (it asked the world for the same voxels hundreds of times), and remembers its jump checks
   - Idle NPCs: one standing still on firm ground skips its body physics (looked at every half second)

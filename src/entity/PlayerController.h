@@ -321,6 +321,7 @@ private:
         // Attacks are one-shots in the intent (kept until a
         // physics tick uses them); the guard is held
         guarding = false;
+        intent.heavyHeld = false;
         // Start held (Left Alt): the 8 quick options (Survival: the
         // kit is the player's own), drawn or not
         const bool kitQuick = now.hasBody && player.mode == GameMode::Survival &&
@@ -335,6 +336,7 @@ private:
                 note(PlayerAction::HeavyAttack);
                 intent.attackHeavy = true;
             }
+            intent.heavyHeld = gInput.isHeld(InputAction::UseRight);     // held: a heavy charges
             if (kitQuick) quickButtons(player);
             else combatKitButtons(player);
         }
@@ -399,6 +401,7 @@ private:
             else note(PlayerAction::Guard);
         }
         guarding = sp == CombatKit::Special::Guard && gInput.isHeld(InputAction::Block);
+        if (sp == CombatKit::Special::Heavy && gInput.isHeld(InputAction::Block)) intent.heavyHeld = true;   // held: it charges
         const InputAction useKeys[3] = { InputAction::UseSlotX, InputAction::UseSlotY, InputAction::UseSlotB };
         const InputAction cycleKeys[3] = { InputAction::CycleSlotX, InputAction::CycleSlotY, InputAction::CycleSlotB };
         for (int i = 0; i < 3; i++) {

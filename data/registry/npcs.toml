@@ -37,6 +37,12 @@
 #   slots           preferred places around its target in a fight,
 #                   best first (front, rear_flank, left, right,
 #                   front_left, front_right, rear_left, rear_right, ring)
+#   reaction        s of a swing's wind-up it must see before it can
+#                   answer it (roll away or guard; default 0.3: a
+#                   quick light is on it first)
+#   read_chance     0..1: the odds it answers a swing it saw in time
+#                   (half roll away, half guard; default 0.6)
+#   turn_speed      deg/s it turns to face its target (default 540)
 #   aggression      0..1: how often it attacks when it may (it
 #                   also needs an attack token: npc/Encounters.h)
 #   tracks          true: having lost you, follows your trail of
@@ -98,10 +104,13 @@ territory = { radius = 60, leash = 160 }
 patrol_points = 4
 sight = { range = 70, fov = 140 }
 hearing = 1.0
-alert_time = [0.6, 1.2]
+alert_time = [0.9, 1.6]
 battle_cry = { range = 90, cooldown = 20 }
 slots = ["front", "rear_flank", "left", "right"]
 aggression = 0.75
+reaction = 0.38
+read_chance = 0.5
+turn_speed = 360
 on_menu_attack = "interrupt"
 voice = { pitch = 0.3, range = 0.45, size = 0.6, speed = 0.55, breath = 0.15, rough = 0.35, nasal = 0.15, style = "soft" }
 voice_vary = 0.12
@@ -121,10 +130,13 @@ states = ["idle", "alert", "combat", "search", "return", "dead"]
 idle = "stand"
 sight = { range = 90, fov = 160 }
 hearing = 1.0
-alert_time = [0.4, 0.8]
+alert_time = [0.7, 1.2]
 battle_cry = { range = 90, cooldown = 20 }
 slots = ["front", "rear_flank", "left", "right"]
 aggression = 0.75
+reaction = 0.28
+read_chance = 0.65
+turn_speed = 450
 voice = { pitch = 0.25, range = 0.35, size = 0.65, speed = 0.45, breath = 0.1, rough = 0.25, nasal = 0.1, style = "soft" }
 barks = { spot = ["En garde!", "Draw your blade."], hurt = ["Hm!", "Tch."], die = ["Well... fought..."] }
 
@@ -145,10 +157,13 @@ territory = { radius = 80, leash = 200 }
 patrol_points = 5
 sight = { range = 80, fov = 140 }
 hearing = 1.2
-alert_time = [0.5, 1.0]
+alert_time = [0.8, 1.4]
 battle_cry = { range = 120, cooldown = 15 }
 slots = ["front", "left", "right", "rear_flank"]
 aggression = 0.6
+reaction = 0.32
+read_chance = 0.6
+turn_speed = 400
 on_menu_attack = "interrupt"
 voice = { pitch = 0.32, range = 0.3, size = 0.6, speed = 0.45, breath = 0.1, rough = 0.15, nasal = 0.2, style = "soft" }
 barks = { spot = ["Halt!", "Stop right there!"], hurt = ["Oof!", "Hngh!"], die = ["Tell... the captain..."], greet = ["Move along, citizen.", "Stay out of trouble."], idle = ["All quiet.", "Hm."] }

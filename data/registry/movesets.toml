@@ -46,10 +46,24 @@
 #   lift          share of the knock that goes upward
 #   knockdown     a poise break from this attack knocks down
 #                 (otherwise it staggers)
-#   lunge         vox/s forward during lunge_time [from, to]
+#   lunge         vox/s forward during lunge_time [from, to] (old: step below)
+#   step          root motion: voxels the attack carries the body over
+#                 lunge_time, fast at first, stopping sharply (step_curve:
+#                 higher is sharper, default 1.5). With a target in front
+#                 it stretches or shortens (up to 1.6x) to stop just inside
+#                 its reach; while winding up the swing turns toward the
+#                 target at up to 'track' deg/s (default 720), locked from
+#                 the hit window on
+#   hitstop       s both bodies hold still when it hits (default 0.07 a
+#                 light, 0.13 a heavy; less on a block; more charged)
+#   charge        [at, time]: held, the wind-up waits at 'at' s for up to
+#                 'time' s; a full charge does charge_damage x damage and
+#                 charge_poise x poise (default 1.6 each), stops longer
+#                 and shoves further
 #   combo_from    s: a queued light press starts the next swing
 #                 from here (left out: doesn't chain)
-#   cancel_from   s: a dodge can cancel it from here
+#   cancel_from   s: a dodge can cancel it from here (a light: also any
+#                 time outside its hit window; a heavy is committed)
 #   armor_from    s: from here to the end of the hit window the
 #                 attacker's own poise can't be broken (hyper
 #                 armour; left out: none)
@@ -76,6 +90,7 @@ knock = 16
 lift = 0.15
 lunge = 8
 lunge_time = [0.12, 0.44]
+step = 7               # root motion: voxels over lunge_time (was lunge = speed)
 combo_from = 0.60
 cancel_from = 0.58
 
@@ -95,6 +110,8 @@ lift = 0.30
 knockdown = true
 lunge = 12
 lunge_time = [0.55, 0.84]
+step = 15               # root motion: voxels over lunge_time (was lunge = speed)
+charge = [0.55, 1.0]       # held: the wind-up waits here, up to that many s
 cancel_from = 1.0
 armor_from = 0.30
 
@@ -121,6 +138,7 @@ knock = 14
 lift = 0.15
 lunge = 12
 lunge_time = [0.08, 0.32]
+step = 8               # root motion: voxels over lunge_time (was lunge = speed)
 combo_from = 0.40
 cancel_from = 0.38
 
@@ -139,6 +157,7 @@ knock = 14
 lift = 0.15
 lunge = 12
 lunge_time = [0.04, 0.28]
+step = 8               # root motion: voxels over lunge_time (was lunge = speed)
 combo_from = 0.38
 cancel_from = 0.36
 
@@ -158,6 +177,8 @@ lift = 0.30
 knockdown = true
 lunge = 16
 lunge_time = [0.40, 0.66]
+step = 16               # root motion: voxels over lunge_time (was lunge = speed)
+charge = [0.40, 1.0]       # held: the wind-up waits here, up to that many s
 cancel_from = 0.80
 armor_from = 0.25
 
@@ -216,6 +237,7 @@ knock = 20
 lift = 0.15
 lunge = 10
 lunge_time = [0.10, 0.44]
+step = 7               # root motion: voxels over lunge_time (was lunge = speed)
 combo_from = 0.56
 cancel_from = 0.54
 
@@ -234,6 +256,7 @@ knock = 20
 lift = 0.15
 lunge = 10
 lunge_time = [0.06, 0.40]
+step = 7               # root motion: voxels over lunge_time (was lunge = speed)
 combo_from = 0.54
 cancel_from = 0.52
 
@@ -253,6 +276,8 @@ lift = 0.35
 knockdown = true
 lunge = 4
 lunge_time = [0.50, 0.80]
+step = 12               # root motion: voxels over lunge_time (was lunge = speed)
+charge = [0.50, 1.2]       # held: the wind-up waits here, up to that many s
 cancel_from = 1.0
 armor_from = 0.30
 
@@ -282,6 +307,7 @@ knock = 18
 lift = 0.05
 lunge = 8
 lunge_time = [0.12, 0.30]
+step = 8               # root motion: voxels over lunge_time (was lunge = speed)
 combo_from = 0.42
 cancel_from = 0.40
 
@@ -302,6 +328,8 @@ lift = 0.10
 knockdown = true
 lunge = 34
 lunge_time = [0.50, 0.70]
+step = 22               # root motion: voxels over lunge_time (was lunge = speed)
+charge = [0.50, 0.8]       # held: the wind-up waits here, up to that many s
 cancel_from = 0.90
 armor_from = 0.35
 
@@ -330,6 +358,7 @@ knock = 14
 lift = 0.15
 lunge = 10
 lunge_time = [0.06, 0.27]
+step = 6               # root motion: voxels over lunge_time (was lunge = speed)
 combo_from = 0.32
 cancel_from = 0.30
 
@@ -348,6 +377,7 @@ knock = 14
 lift = 0.15
 lunge = 10
 lunge_time = [0.04, 0.25]
+step = 6               # root motion: voxels over lunge_time (was lunge = speed)
 combo_from = 0.32
 cancel_from = 0.30
 
@@ -366,6 +396,7 @@ knock = 20
 lift = 0.25
 lunge = 12
 lunge_time = [0.18, 0.38]
+step = 8               # root motion: voxels over lunge_time (was lunge = speed)
 cancel_from = 0.48
 
 [[attack]]
@@ -384,6 +415,8 @@ lift = 0.40
 knockdown = true
 lunge = 6
 lunge_time = [0.40, 0.64]
+step = 8               # root motion: voxels over lunge_time (was lunge = speed)
+charge = [0.40, 1.0]       # held: the wind-up waits here, up to that many s
 cancel_from = 0.82
 armor_from = 0.30
 

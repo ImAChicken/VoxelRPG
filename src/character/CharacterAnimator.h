@@ -38,6 +38,7 @@ struct AnimInput {
     bool  lying     = false;           // lying on its back (asleep in bed): the standing pose tipped over
     bool  combat    = false;
     bool  frozen    = false;           // double-jump / air-dodge freeze
+    bool  stopped   = false;           // hit-stop: the pose holds exactly as it is
     enum class Move { None, Roll, Backstep, AirDodge } move = Move::None;
     float moveProgress = 0.0f;         // 0 → 1 through the move
     float swing = -1.0f;               // axe swing: seconds into it, < 0 = none (game/AxeSwing.h)
@@ -106,6 +107,7 @@ public:
     // Advance one frame and return the pose to draw
     const Pose& update(const CharacterModel& model, const AnimInput& in, float dt) {
         dt = std::clamp(dt, 0.0f, 0.1f);
+        if (in.stopped && !firstFrame) return shown;     // a hit's stop: held still
         time += dt;
 
         // ── The animation viewer: a clip exactly as it is ──
@@ -333,6 +335,31 @@ public:
             if (!in.grounded) shown.rootOffset.y -= drop;
         }
 
+        // ── Inertialization: no snaps between motions ────
+        // When what plays changes at once (an attack starts, a combo
+        // goes to its next swing, a dodge cancels a swing, a roll
+        // ends), the new pose starts where the body actually was: the
+        // difference is kept as an offset that fades out over
+        // INERT_TIME, so the limbs carry on into the new motion
+        // instead of jumping to it
+        {
+            bool changed = in.attack != lastAttack || (in.attack && in.attackT + 1e-4f < lastAttackT) ||
+                           in.move != lastMove || in.grounded != lastGrounded;
+            if (changed && haveLast) {
+                for (int b = 0; b < BONE_COUNT; b++) inertOff[b] = angleDiff(lastOut[b], shown.rot[b]);
+                inertT = 0.0f;
+            }
+            lastAttack = in.attack; lastAttackT = in.attackT; lastMove = in.move; lastGrounded = in.grounded;
+            inertT += dt;
+            if (inertT < INERT_TIME) {
+                float u = std::clamp(inertT / INERT_TIME, 0.0f, 1.0f);
+                float f = 1.0f - u * u * u * (u * (u * 6.0f - 15.0f) + 10.0f);    // smootherstep down to 0
+                for (int b = 0; b < BONE_COUNT; b++) shown.rot[b] += inertOff[b] * f;
+            }
+            lastOut = shown.rot;
+            haveLast = true;
+        }
+
         // ── Keep the feet on the ground ──────────────────
         // Lower the body until the lower foot touches down,
         // so bent knees (crouch, stride, a swing's step) never
@@ -350,7 +377,7 @@ public:
     }
 
     const Pose& current() const { return shown; }
-    void reset() { pose = shown = Pose(); phase = 0.0f; guardW = 0.0f; firstFrame = true; }
+    void reset() { pose = shown = Pose(); phase = 0.0f; guardW = 0.0f; firstFrame = true; haveLast = false; inertT = 1.0f; }
 
     // a - b, each angle the short way round (degrees)
     static glm::vec3 angleDiff(const glm::vec3& a, const glm::vec3& b) {
@@ -455,6 +482,15 @@ private:
     }
 
     float cycleT = 0.0f, idleT = 0.0f, airT = 0.0f;
+    // inertialization (update): what was drawn last, the offset fading out
+    static constexpr float INERT_TIME = 0.2f;
+    std::array<glm::vec3, BONE_COUNT> lastOut{}, inertOff{};
+    float inertT = 1.0f;
+    bool  haveLast = false;
+    const AttackDef* lastAttack = nullptr;
+    float lastAttackT = 0.0f;
+    AnimInput::Move lastMove = AnimInput::Move::None;
+    bool  lastGrounded = true;
     Pose  pose;           // the eased base pose
     Pose  shown;          // with actions laid over it: what is drawn
     float phase = 0.0f, time = 0.0f;

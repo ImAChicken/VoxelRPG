@@ -43,6 +43,7 @@ struct HumanIntent {
     // guard, held
     bool attackLight = false;
     bool attackHeavy = false;
+    bool heavyHeld   = false;  // the heavy button held: a heavy charges (game/Combat.h charge)
     bool guard       = false;
     // Use an item (one-shot): a spell from an X / Y / B slot or the
     // off hand (game/CombatKit.h); plays the item's 'cast' attack.
@@ -220,6 +221,9 @@ public:
     }
     void weaponGuard() { guardStyle = GuardStyle(); }
     float       exposed = 0.0f;            // s left open to a riposte, after being parried
+    float       hitStop = 0.0f;            // s frozen by a hit landing (both bodies: game/CombatHits.h)
+    glm::vec3   pendingShove{0.0f};        // a hit's shove, given when the hit-stop ends
+    float       shoveTime = 0.0f;          // s still sliding from a shove
     bool        hasAirAttack = true;       // one per jump, back on landing
     AttackState attack;
     float       sinceHurt = 99.0f;         // s since last damaged (HUD)

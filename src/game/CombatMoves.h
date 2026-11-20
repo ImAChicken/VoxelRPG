@@ -27,7 +27,12 @@ inline bool beginAttack(Human& h, AttackKind k, int chain = 0) {
     if (!d) return false;
     WeightScales w = weightScales(*h.moveset, h.weaponWeight);
     if (!h.spend(d->stamina * w.stamina)) return false;
+    // sprinting into it: the run carries on into the swing (fading)
+    glm::vec2 carry(0.0f);
+    if (h.sprinting && h.grounded && (k == AttackKind::Light || k == AttackKind::Heavy))
+        carry = glm::vec2(h.velocity.x, h.velocity.z) * CARRY_KEEP;
     h.attack = AttackState();
+    h.attack.carry = carry;
     h.attack.kind = k;
     h.attack.chain = chain;
     h.attack.d = d;
@@ -92,7 +97,23 @@ inline void advanceAttack(Human& h, float dt) {
     if (a.stop > 0.0f) { a.stop -= dt; a.prevT = a.t; return; }   // hit-stop
     a.prevT = a.t;
     const AttackDef& d = a.def();
-    if (a.t < d.activeStart) a.dir = flatFacing(h);  // it tracks while winding up
+    // the rotation window: while winding up it turns toward its
+    // target (or where its body faces), no faster than 'track';
+    // from the hit window on it's locked
+    if (a.t < d.activeStart) {
+        glm::vec3 want = flatFacing(h);
+        if (a.hasAim) {
+            glm::vec3 to = a.aim - h.position; to.y = 0.0f;
+            if (glm::length(to) > 0.5f) want = glm::normalize(to);
+        }
+        float rate = glm::radians(d.track) * (h.isPlayer() ? 1.0f : NPC_TRACK) * dt;
+        float cur = std::atan2(a.dir.z, a.dir.x), tgt = std::atan2(want.z, want.x);
+        float diff = std::remainder(tgt - cur, 6.2831853f);
+        cur += std::clamp(diff, -rate, rate);
+        a.dir = glm::vec3(std::cos(cur), 0.0f, std::sin(cur));
+    }
+    // a charge: held at charge_at while the button is down
+    if (a.charging()) { a.charged += dt; return; }
     if (a.kind == AttackKind::AirHeavy && !a.landed) {
         if (a.t < PLUNGE_HANG) a.t = std::min(a.t + dt, PLUNGE_HANG);
         else if (h.grounded) { a.plunging = false; a.landed = true; a.t = a.prevT = SLAM_AT; }

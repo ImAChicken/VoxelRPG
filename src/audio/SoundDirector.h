@@ -197,7 +197,8 @@ public:
             if (e.kind == SimEvent::Kind::Hit) {
                 Human* target = sim.find(e.b);
                 if (!target) continue;
-                glm::vec3 at = target->position + glm::vec3(0.0f, target->height * 0.6f, 0.0f);
+                // where the blade met the body (the hit's contact), else its chest
+                glm::vec3 at = e.at != glm::vec3(0.0f) ? e.at : target->position + glm::vec3(0.0f, target->height * 0.6f, 0.0f);
                 PlayDesc d; d.pos = at;
                 if (e.blocked) {
                     // the guard: a shield is wood, a blade metal

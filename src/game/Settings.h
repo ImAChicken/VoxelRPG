@@ -53,6 +53,8 @@ struct GameSettings {
     // (dev worlds never do: see world/WorldSaveManager.h)
     int autosave = 1;        // 0 off, 1 on
     int controlHints = 1;    // 0 off, 1 on: what the buttons do now, bottom right (out of combat)
+    int rumble    = 2;       // 0 off, 1 light, 2 full: the controller shakes on hits (input/Rumble.h)
+    int particles = 2;       // 0 off, 1 fewer, 2 all: sparks, dust and splats (render/Particles.h)
 
     // Sound (audio/AudioEngine.h). Every in-world effect can go back
     // to plain too: soundWalls 0 = only distance and direction
@@ -75,6 +77,7 @@ struct GameSettings {
         plantStyle = 1; waterStyle = 1; roofStyle = 1; glassStyle = 1;
         autosave = 1;
         controlHints = 1;
+        rumble = 2; particles = 2;
         masterVolume = 0.8f; effectsVolume = 1.0f; voiceVolume = 1.0f; ambienceVolume = 0.7f; soundWalls = 1;
     }
 
@@ -94,6 +97,8 @@ struct GameSettings {
         glassStyle    = std::clamp(glassStyle, 0, 1);
         autosave      = std::clamp(autosave, 0, 1);
         controlHints  = std::clamp(controlHints, 0, 1);
+        rumble        = std::clamp(rumble, 0, 2);
+        particles     = std::clamp(particles, 0, 2);
         for (float* v : { &masterVolume, &effectsVolume, &voiceVolume, &ambienceVolume }) *v = std::clamp(*v, 0.0f, 1.0f);
         soundWalls    = std::clamp(soundWalls, 0, 1);
     }
@@ -117,6 +122,8 @@ struct GameSettings {
             glassStyle    = (int)t["world"]["glass"].value_or((int64_t)glassStyle);
             autosave      = (int)t["game"]["autosave"].value_or((int64_t)autosave);
             controlHints  = (int)t["game"]["control_hints"].value_or((int64_t)controlHints);
+            rumble        = (int)t["game"]["rumble"].value_or((int64_t)rumble);
+            particles     = (int)t["game"]["particles"].value_or((int64_t)particles);
             masterVolume   = (float)t["sound"]["master"].value_or((double)masterVolume);
             effectsVolume  = (float)t["sound"]["effects"].value_or((double)effectsVolume);
             voiceVolume    = (float)t["sound"]["voices"].value_or((double)voiceVolume);
@@ -154,7 +161,9 @@ struct GameSettings {
           << "roofs  = " << roofStyle << "   # 0 plain voxels, 1 smooth: sloped, with courses and overhanging eaves\n\n"
           << "[game]\n"
           << "autosave = " << autosave << "   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)\n"
-          << "control_hints = " << controlHints << "   # 0 off, 1 on: what the buttons do now, bottom right\n\n"
+          << "control_hints = " << controlHints << "   # 0 off, 1 on: what the buttons do now, bottom right\n"
+          << "rumble = " << rumble << "   # 0 off, 1 light, 2 full: the controller shakes on hits\n"
+          << "particles = " << particles << "   # 0 off, 1 fewer, 2 all: sparks, dust and splats\n\n"
           << "[sound]\n"
           << "master   = " << masterVolume << "   # 0 - 1\n"
           << "effects  = " << effectsVolume << "\n"

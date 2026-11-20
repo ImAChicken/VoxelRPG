@@ -191,6 +191,9 @@ private:
     float subTime = 0.0f, side = 1.0f;
     int comboLeft = 0;
     bool wasAttacking = false;
+    // the target's swing it last sized up (once per swing, not every tick)
+    const AttackDef* readDef = nullptr;
+    float readT = 0.0f;
 
     void to(Sub s, float time) { sub = s; subTime = time; }
 
@@ -203,7 +206,16 @@ private:
         float dist = glm::length(off);
         glm::vec2 dir = dist > 1e-3f ? off / dist : glm::vec2(0, -1);
         glm::vec2 left(dir.y, -dir.x);
-        n.facing = glm::vec3(dir.x, 0.0f, dir.y);      // faces the target (an attack locks its own way)
+        // turns to face the target, at its own speed: a quick sidestep
+        // round it gets you a moment at its flank (an attack locks its own way)
+        {
+            float turn = glm::radians((n.type ? n.type->turnSpeed : 540.0f) * dt);
+            float now = std::atan2(n.facing.z, n.facing.x), want = std::atan2(dir.y, dir.x);
+            float diff = std::remainder(want - now, 6.2831853f);
+            if (glm::length(glm::vec2(n.facing.x, n.facing.z)) < 1e-3f) { diff = want - now; turn = 10.0f; }
+            now += std::clamp(diff, -turn, turn);
+            n.facing = glm::vec3(std::cos(now), 0.0f, std::sin(now));
+        }
         subTime -= dt;
         // a hopper (a slime): no weapon, no guard, no rolls. Its
         // attack is a lunge, a long hop at the target; it hurts by
@@ -223,21 +235,28 @@ private:
         if (!attackingNow && wasAttacking) { w.releaseAttack(n); }
         wasAttacking = attackingNow;
 
-        // the target winds up close by → maybe roll away or guard
-        if (!hopper && !busy && t.attack.active() && dist < FIGHT_RANGE + 4.0f) {
+        // the target winds up close by → maybe roll away or guard.
+        // Like a person: it has to see the swing coming for a moment
+        // first (reaction: a quick light is on it before it can), and
+        // it sizes each swing up once (read_chance), not every tick
+        if (!hopper && !busy && t.attack.active() && dist < FIGHT_RANGE + 4.0f && n.seesTarget) {
             const AttackDef& d = t.attack.def();
+            bool fresh = readDef != &d || t.attack.t < readT;
             float until = d.activeStart - t.attack.t;
-            if (until > 0.0f && until < 0.25f && sub != Sub::Guard) {
-                float r = n.rand01();
-                if (r < 0.35f && n.stamina > combat::ROLL_STAMINA) {
+            float reaction = n.type ? n.type->reaction : 0.3f;
+            if (fresh && until > 0.0f && t.attack.t >= reaction && sub != Sub::Guard) {
+                readDef = &d;
+                float r = n.rand01(), chance = n.type ? n.type->readChance : 0.6f;
+                if (r < chance * 0.5f && n.stamina > combat::ROLL_STAMINA) {
                     in.move = (n.rand01() < 0.5f ? left : -left) * 0.7f - dir * 0.7f;
                     in.dodge = true;
                     to(Sub::Recover, 0.5f);
                     return;
                 }
-                if (r < 0.65f) to(Sub::Guard, n.randRange(0.6f, 1.2f));
+                if (r < chance) to(Sub::Guard, n.randRange(0.6f, 1.2f));
             }
-        }
+            if (readDef == &d) readT = t.attack.t;
+        } else if (!t.attack.active()) readDef = nullptr;
         // chain the combo: press again once the swing is active
         if (n.attack.active()) {
             const AttackDef& d = n.attack.def();
@@ -262,7 +281,6 @@ private:
                     in.speedScale = 1.0f;
                     in.sprint = false;
                 }
-                n.facing = glm::vec3(dir.x, 0.0f, dir.y);
                 break;
             }
             if (!slotted && dist > reach) {

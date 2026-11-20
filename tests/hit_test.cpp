@@ -8,6 +8,7 @@
 #include "character/AnimClips.h"
 #include "render/OutlineFx.h"
 #include "game/LockOn.h"
+#include "render/Particles.h"
 #include <cstdio>
 
 using namespace testworld;
@@ -144,7 +145,7 @@ int main() {
         check(swingAt({ 0, 0, -4 }).hit, "a light swing hits a dummy 4 voxels ahead");
         check(swingAt({ 0, 0, -6 }).hit, "and 6 ahead");
         check(!swingAt({ 0, 0, 5 }).hit, "not one behind");
-        check(!swingAt({ 0, 0, -24 }).hit, "nor one far ahead");
+        check(!swingAt({ 0, 0, -30 }).hit, "nor one far ahead (the step carries the swing ~8 voxels)");
         check(swingAt({ 0, 0, -5 }, true).hit, "a heavy swing hits ahead");
         check(!swingAt({ 0, 0, -5 }, false, true).hit, "a wall between stops it");
         // how far the blade really reaches straight ahead
@@ -152,7 +153,7 @@ int main() {
         // dummy's middle; its own arm is held out in front of it)
         float far = 0.0f;
         bool gap = false;
-        for (float z = 4.0f; z <= 26.0f; z += 0.5f) {
+        for (float z = 4.0f; z <= 34.0f; z += 0.5f) {
             bool h = swingAt({ 0, 0, -z }).hit;
             if (h) far = z;
             if (!h && far > 0.0f && z > far + 2.0f) gap = true;
@@ -167,7 +168,7 @@ int main() {
     {
         auto reachOf = [](const char* weapon, bool heavy) {
             float far = 0.0f;
-            for (float z = 3.0f; z <= 34.0f; z += 1.0f) if (swingAt({ 0, 0, -z }, heavy, false, weapon).hit) far = z;
+            for (float z = 3.0f; z <= 44.0f; z += 1.0f) if (swingAt({ 0, 0, -z }, heavy, false, weapon).hit) far = z;
             return far;
         };
         for (const char* wpn : { "wooden_club", "spear", "quarterstaff" }) {
@@ -185,6 +186,81 @@ int main() {
               "the club's overhead lands from 5 to 10 ahead");
         const AttackDef* th = gMovesets.attack("spear_thrust");
         check(th && th->thrust && gAnimMap.attackClip("spear_thrust") >= 0, "spear thrusts turn the spear and play Punch_Cross");
+    }
+
+    std::printf("feel: the step, hit-stop, charge (Simulation::aimAttacks, VoxelPhysics, CombatHits)\n");
+    {
+        // a light swing at nothing carries the body forward its step
+        auto stepped = [](bool heavy, float holdFor, glm::vec3 dummy, float* dealt) {
+            World w;
+            glm::vec3 at(64.5f, (float)GROUND, 64.5f);
+            Player& p = w.player(at);
+            p.facing = glm::vec3(0, 0, -1);
+            p.inventory.setSlot(Inventory::FIRST_MAIN, gItems.find("iron_sword"), 1);
+            p.inventory.select(Inventory::FIRST_MAIN);
+            Npc* d = dummy != glm::vec3(0.0f) ? w.sim.npcs().spawn("dummy", at + dummy, glm::vec3(0, 0, 1)) : nullptr;
+            w.run(0.4f);
+            w.sim.takeEvents();
+            glm::vec3 from = p.position;
+            float stopSeen = 0.0f, dStop = 0.0f;
+            for (int i = 0; i < 150; i++) {
+                HumanIntent in; in.attackLight = !heavy && i == 0; in.attackHeavy = heavy && i == 0;
+                in.heavyHeld = heavy && i * DT < holdFor;
+                w.sim.setIntent(p.uuid, in);
+                p.facing = glm::vec3(0, 0, -1);
+                w.sim.step(DT);
+                stopSeen = std::max(stopSeen, p.hitStop);
+                if (d) dStop = std::max(dStop, d->hitStop);
+                for (const SimEvent& e : w.sim.takeEvents())
+                    if (e.kind == SimEvent::Kind::Hit && e.a == p.uuid && dealt) *dealt = e.amount;
+            }
+            if (dealt && d && stopSeen <= 0.0f) *dealt = -1.0f;   // (no hit-stop: say so)
+            (void)dStop;
+            return glm::length(glm::vec2(p.position.x - from.x, p.position.z - from.z));
+        };
+        const AttackDef* l1 = gMovesets.attack("sword_light1");
+        const AttackDef* hv = gMovesets.attack("sword_heavy");
+        float moved = stepped(false, 0.0f, glm::vec3(0.0f), nullptr);
+        check(l1 && std::fabs(moved - l1->stepDistance()) < 1.5f,
+              "a light swing steps the body forward its step (" + std::to_string(moved) + " of " + std::to_string(l1 ? l1->stepDistance() : 0.0f) + ")");
+        float movedH = stepped(true, 0.0f, glm::vec3(0.0f), nullptr);
+        check(hv && movedH > moved + 3.0f, "a heavy steps further (" + std::to_string(movedH) + ")");
+        float near = stepped(false, 0.0f, glm::vec3(0, 0, -5), nullptr);
+        check(near < 1.0f, "a body just ahead: no step into it (" + std::to_string(near) + ")");
+        float tap = 0.0f, held = 0.0f;
+        stepped(true, 0.0f, glm::vec3(0, 0, -6), &tap);
+        stepped(true, 2.0f, glm::vec3(0, 0, -6), &held);
+        check(tap > 0.0f, "a heavy that hits holds both bodies in a hit-stop (" + std::to_string(tap) + ")");
+        check(held > tap * 1.4f, "held, the heavy charges and hits harder (" + std::to_string(tap) + " -> " + std::to_string(held) + ")");
+    }
+
+    std::printf("particles (render/Particles.h)\n");
+    {
+        fx::Particles ps;
+        bool loaded = ps.load("data/registry/particles.toml");
+        check(loaded && ps.emitterCount() >= 10, "the emitters load (" + std::to_string(ps.emitterCount()) + ")");
+        World w;
+        Player& p = w.player(glm::vec3(64.5f, (float)GROUND, 64.5f));
+        Npc& d = *w.sim.npcs().spawn("dummy", glm::vec3(64.5f, (float)GROUND, 58.5f), glm::vec3(0, 0, 1));
+        SimEvent e; e.kind = SimEvent::Kind::Hit; e.a = p.uuid; e.b = d.uuid; e.amount = 12.0f; e.attack = AttackKind::Light;
+        e.at = d.position + glm::vec3(0, 8, 0);
+        int was = gSettings.particles;
+        gSettings.particles = 2;
+        ps.onEvent(e, w.sim);
+        size_t all = ps.count();
+        check(all > 0, "a hit sprays at the contact (" + std::to_string(all) + ")");
+        bool away = true;
+        ps.update(0.05f);
+        for (const fx::Particle& q : ps.all()) if (q.additive && q.v.z > 5.0f) away = false;
+        check(away, "sparks fly away from the attacker");
+        for (int i = 0; i < 40; i++) ps.update(0.1f);     // 4 s
+        check(ps.count() == 0, "and are gone a moment later");
+        gSettings.particles = 1; ps.onEvent(e, w.sim);
+        check(ps.count() > 0 && ps.count() < all, "fewer on 'fewer' (" + std::to_string(ps.count()) + ")");
+        ps.clear();
+        gSettings.particles = 0; ps.onEvent(e, w.sim);
+        check(ps.count() == 0, "none when off");
+        gSettings.particles = was;
     }
 
     std::printf("lag compensation (BodyPoses history, Simulation::setViewDelay)\n");

@@ -72,6 +72,10 @@ struct NpcType {
     float cryRange = 0.0f, cryCooldown = 20.0f;   // cryRange 0: no battle cry
     std::vector<Slot> slots;
     float aggression = 0.7f;
+    // how quick it is in a fight (npc/States.h Combat): the wind-up it
+    // must see before it can answer an attack (s), the odds it does
+    // (rolls away or guards), and how fast it turns to follow (deg/s)
+    float reaction = 0.3f, readChance = 0.6f, turnSpeed = 540.0f;
     bool  menuProtected = false;
     float healsAfter = 0.0f;           // > 0: back to full health after this long unhurt
     bool  tracks = false;              // follows a trail of breadcrumbs past where it lost you
@@ -210,6 +214,9 @@ public:
                         for (auto& x : *s) if (auto v = x.value<std::string>()) d->slots.push_back(slotFromName(*v));
                     if (d->slots.empty()) d->slots = { Slot::Front, Slot::Left, Slot::Right, Slot::RearFlank, Slot::Ring };
                     d->aggression = (float)t["aggression"].value_or(0.7);
+                    d->reaction   = (float)t["reaction"].value_or(0.3);
+                    d->readChance = std::clamp((float)t["read_chance"].value_or(0.6), 0.0f, 1.0f);
+                    d->turnSpeed  = std::max(30.0f, (float)t["turn_speed"].value_or(540.0));
                     d->menuProtected = t["on_menu_attack"].value_or(std::string("interrupt")) == "protected";
                     d->healsAfter = (float)t["heals_after"].value_or(0.0);
                     d->tracks = t["tracks"].value_or(false);

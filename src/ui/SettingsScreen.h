@@ -27,6 +27,11 @@ public:
                   [](float v) { return outOf100(v); });
         addSlider("Mouse sensitivity", &gSettings.mouseSensitivity, 0.02f, 0.4f,
                   [](float v) { return times(v / GameSettings::DEF_SENSITIVITY); });
+        addChoice("Auto save", &gSettings.autosave, { "Off", "On" });
+        addChoice("Control hints", &gSettings.controlHints, { "Off", "On" });
+        addChoice("Controller rumble", &gSettings.rumble, { "Off", "Light", "Full" });
+        // ── Graphics ──────────────────────────────────────
+        page("Graphics");
         addSlider("Chunk distance", &gSettings.chunkDistance, 2.0f, 16.0f,
                   [](float v) { return chunks(v, false); });
         addSlider("Render distance", &gSettings.renderDistance,
@@ -39,8 +44,7 @@ public:
         addChoice("Water", &gSettings.waterStyle, { "Plain", "Moving" });
         addChoice("Roofs", &gSettings.roofStyle, { "Plain", "Smooth" });
         addChoice("Glass", &gSettings.glassStyle, { "Plain", "Panes" });
-        addChoice("Auto save", &gSettings.autosave, { "Off", "On" });
-        addChoice("Control hints", &gSettings.controlHints, { "Off", "On" });
+        addChoice("Particles", &gSettings.particles, { "Off", "Fewer", "All" });
         // ── Sound ─────────────────────────────────────────
         page("Sound");
         addSlider("Volume",   &gSettings.masterVolume,   0.0f, 1.0f, [](float v) { return outOf100(v); });

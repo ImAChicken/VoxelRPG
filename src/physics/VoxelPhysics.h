@@ -112,6 +112,23 @@ public:
         // a block placed on top of you) → pop up and out
         unstick(h);
 
+        // ── Hit-stop: a hit just landed (on it or by it) ──
+        // The body holds still, its attack's clock too, for a few
+        // hundredths of a second (game/CombatHits.h); then the
+        // hit's shove, if any, carries it
+        if (h.hitStop > 0.0f) {
+            h.hitStop -= dt;
+            if (h.attack.active()) h.attack.held = in.heavyHeld;
+            if (h.hitStop > 0.0f) return;
+            h.hitStop = 0.0f;
+        }
+        if (glm::dot(h.pendingShove, h.pendingShove) > 1e-4f) {
+            h.velocity.x = h.pendingShove.x;
+            h.velocity.z = h.pendingShove.z;
+            h.pendingShove = glm::vec3(0.0f);
+            h.shoveTime = combat::SHOVE_TIME;
+        }
+
         updateCrouch(h, in, dt);
 
         // ── Freeze: hang in the air, momentum stored ──────
@@ -130,6 +147,7 @@ public:
         // ── Attacks (game/Combat.h) ───────────────────────
         combat::startAttack(h, in);
         bool attacking = h.attack.active();
+        if (attacking) h.attack.held = in.heavyHeld;
         h.guarding = in.guard && !attacking && h.grounded && h.move == Human::Move::None &&
                      (h.weaponDamage > 0.0f || h.guardStyle.shield) && h.exposed <= 0.0f;
         h.guardTime = h.guarding ? h.guardTime + dt : 0.0f;     // a hit just after raising it is parried
@@ -146,9 +164,17 @@ public:
             }
         }
 
-        // A dodge can cancel an attack only late in its recovery
-        bool canDodge = h.move == Human::Move::None &&
-                        (!attacking || h.attack.t >= h.attack.def().cancelFrom);
+        // A dodge cancels a light attack any time but its hit window
+        // (wind-up or recovery); a heavy, a plunge, a cast only from
+        // their cancel_from (committed)
+        auto dodgeCancels = [&]() {
+            const AttackState& a = h.attack;
+            const AttackDef& d = a.def();
+            if (a.t >= d.cancelFrom) return true;
+            if (a.kind == AttackKind::Light || a.kind == AttackKind::AirLight) return a.t < d.activeStart || a.t > d.activeEnd;
+            return false;
+        };
+        bool canDodge = h.move == Human::Move::None && (!attacking || dodgeCancels());
         if (in.dodge && canDodge) {
             glm::vec2 wish = wishDir(in);
             bool moving = (wish.x != 0.0f || wish.y != 0.0f);
@@ -198,7 +224,11 @@ public:
 
         glm::vec2 vh(h.velocity.x, h.velocity.z);
 
-        if (h.hop.on && !attacking) {
+        if (h.shoveTime > 0.0f && h.grounded) {
+            // Shoved by a hit: sliding, easing out, no say in it
+            h.shoveTime -= dt;
+            vh *= std::exp(-dt * combat::SHOVE_DECAY);
+        } else if (h.hop.on && !attacking) {
             // A hopper: still on the ground, moving only in the air
             hopTick(h, in, vh, dt);
         } else if (attacking) {
@@ -211,8 +241,18 @@ public:
             } else if (h.attack.kind == AttackKind::AirHeavy) {
                 vh = glm::vec2(0.0f);                                                   // straight down
             } else if (h.grounded) {
-                bool step = h.attack.t >= d.lungeFrom && h.attack.t <= d.lungeTo;       // rooted, stepping in
-                vh = dir2 * (step ? d.lunge : 0.0f);
+                // root motion: the step, fast at first and stopping sharp
+                // (its length: the attack's own, or to the target: aimAttacks)
+                AttackState& a = h.attack;
+                float span = d.lungeTo - d.lungeFrom;
+                float S = a.stepLen >= 0.0f ? a.stepLen : d.stepDistance();
+                float v = 0.0f;
+                if (span > 1e-3f && a.t >= d.lungeFrom && a.t <= d.lungeTo && !a.charging()) {
+                    float u = (a.t - d.lungeFrom) / span, p = std::max(0.0f, d.stepCurve);
+                    v = S / span * (p + 1.0f) * std::pow(1.0f - u, p) * a.speed;
+                }
+                vh = dir2 * v + a.carry;                                                // a sprint's speed carries on
+                a.carry *= std::exp(-dt * combat::CARRY_DECAY);
             }
         } else if (h.move == Human::Move::Roll ||
             h.move == Human::Move::Backstep) {
@@ -318,6 +358,7 @@ public:
     // ── The body: hits and the ragdoll ────────────────────
     void stepRagdoll(Human& h, float dt) override {
         Ragdoll& rd = h.ragdoll;
+        if (h.hitStop > 0.0f && !rd.simulating()) return;   // hit-stop: the knock waits till it ends
         if (!world || h.flying) {           // no body to knock about
             h.hits.clear();
             rd.reset();

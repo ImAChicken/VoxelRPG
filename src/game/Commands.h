@@ -1,4 +1,6 @@
 #pragma once
+#include "render/Particles.h"
+#include "input/Rumble.h"
 #include "DevTools.h"
 #include "StructureRegistry.h"
 #include "../world/StructureManager.h"
@@ -730,6 +732,39 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             // (charge normally comes from an attack's wind-up; here it plays as a flash)
             gOutlineFx.start(who, a[0]);
             c.log("outline " + a[0]);
+        });
+    reg.add("particle", "particle <emitter> [count x]",
+        "fire a particle burst (data/registry/particles.toml: hit_spark, block_sparks, land_dust …) in front of you; alone, lists them",
+        [](C& c, const Args& a) {
+            if (a.empty()) {
+                std::string ids;
+                for (const char* id : { "hit_spark", "hit_puff", "hit_slime", "block_sparks", "block_wood", "parry_flash", "guard_break",
+                                        "poise_break", "death_dust", "death_slime", "step_dust", "dodge_dust", "land_dust" })
+                    if (gParticles.emitter(id)) ids += std::string(ids.empty() ? "" : ", ") + id;
+                c.log(std::to_string(gParticles.emitterCount()) + " emitters: " + ids + "   (particle <id> [count x])");
+                return;
+            }
+            if (!gParticles.emitter(a[0])) { c.log("no emitter '" + a[0] + "' (F5 reloads the file)"); return; }
+            if (gSettings.particles <= 0) { c.log("particles are off (Settings > Graphics)"); return; }
+            glm::vec3 f(c.player.facing.x, 0.0f, c.player.facing.z);
+            f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(0, 0, -1);
+            float scale = a.size() > 1 ? std::max(0.1f, (float)std::atof(a[1].c_str())) : 1.0f;
+            int n = gParticles.burst(a[0], c.player.position + f * 8.0f + glm::vec3(0, 8, 0), f, 1.0f, scale);
+            c.log("particle " + a[0] + ": " + std::to_string(n));
+        });
+    reg.add("rumble", "rumble [low high seconds]",
+        "shake the controller (input/Rumble.h); alone, a test thud",
+        [](C& c, const Args& a) {
+            float lo = a.size() > 0 ? (float)std::atof(a[0].c_str()) : 0.8f;
+            float hi = a.size() > 1 ? (float)std::atof(a[1].c_str()) : 0.4f;
+            float t  = a.size() > 2 ? (float)std::atof(a[2].c_str()) : 0.3f;
+            if (gSettings.rumble <= 0) { c.log("rumble is off (Settings > General > Controller rumble)"); return; }
+            rumble::gRumble.kick(lo, hi, t);
+#ifdef _WIN32
+            c.log("rumble " + std::to_string(lo).substr(0, 4) + " " + std::to_string(hi).substr(0, 4) + " for " + std::to_string(t).substr(0, 4) + " s (an XInput pad)");
+#else
+            c.log("rumble: only on Windows (XInput)");
+#endif
         });
     reg.add("roaming", "roaming [on|off|now|clear|reload|groups]",
         "roaming enemy spawns (data/registry/roaming.toml): a world setting; alone, what it's doing and why nothing came",
