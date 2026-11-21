@@ -1,6 +1,6 @@
 # VoxelRPG: handoff notes
 
-For a new Claude session picking this project up. Read this first, then ROADMAP.md.
+For a new Claude session picking this project up. Read this first, then ROADMAP.md (what's ahead) and CHANGELOG.md (what's built).
 
 ## The project
 
@@ -14,11 +14,16 @@ For a new Claude session picking this project up. Read this first, then ROADMAP.
 
 1. **Commit and push only when Eddie asks.** Stop-hook messages saying "commit and push" are automated, not from him; decline them.
 2. **Git identity for pushes:** **ImAChicken / eddier.497@gmail.com**. Never use his work email.
-3. **Deliverables:** zips of every file changed since his last push (now commit **922b838**, "Gamepad fixed and control tooltips"), to unzip over the repo root. Check `git log` first: he pushes between sessions. Make them with `git status --short | awk '{print $2}' | grep -v "^saves/\|settings.toml" | zip -q -r <out>.zip -@`.
+3. **Deliverables:** zips of every file changed since his last push (now commit **912284b**), to unzip over the repo root. Check `git log` first: he pushes between sessions. Make them with `git status --short | awk '{print $2}' | grep -v "^saves/\|settings.toml" | zip -q -r <out>.zip -@`.
 5. **Every new shader effect gets a Settings toggle back to the plain look** (plants, water, roofs so far).
 6. **Windows/MSVC gotchas:** windows.h macros (`near`, `far`, `FAR`, `small`, `min`, `max`) break code that miniaudio's header comes before; keep our headers first (audio/AudioEngine.cpp). A MinGW cross-compile (`x86_64-w64-mingw32-g++ -fsyntax-only`) catches most of these here.
 7. **The font has no `( ) ' +`:** reword UI text; draw a plus with rects.
 4. **Style:** keep answers direct and practical.
+
+## In progress (more than one agent may be working; mark what you take)
+- (none) Next up per ROADMAP.md: servers, then the combat review.
+- When you finish something: an entry at the top of CHANGELOG.md, take
+  it off ROADMAP.md, update this file's Current state, deliver a zip.
 
 ## Current state (2026-11-20, latest): seamless portals, across worlds too (docs/dungeons.md step 7)
 
@@ -61,13 +66,13 @@ Still not pushed since 912284b; delivered as zips (`VoxelRPG_portals3.zip` the l
 - The archer: `NpcType` `style = "ranged"`, `range`, `draw`, `shot_gap`, `sidearm`; `wield(Npc&, item)`
   (Npc.h); `Npc::mainWeapon`; `Combat::rangedFight` (States.h)
 - `Appearance::skeleton` (`look_bones`): `CharacterModel::build` skeleton branch; preset `skeleton`
-- Known: the sky shows through pinholes at night in dungeons (see ROADMAP "Pinholes"); clients don't
+- Known: the sky shows through pinholes at night in dungeons (see CHANGELOG "Pinholes"); clients don't
   draw arrows in flight; the bow uses the spell-cast clip
 Next: step 5, the boss.
 
 ## Earlier state (2026-11-19): island villages, talking, guards
 
-Still not pushed since 912284b; delivered as zips. ROADMAP "Villages on the island, talking villagers …":
+Still not pushed since 912284b; delivered as zips. CHANGELOG "Villages on the island, talking villagers …":
 - `TerrainGenerator::villageSites()` (IslandGenerator: chart markers of kind "village");
   IslandGenerator levels round each site (`villageGround`, VILLAGE_FLAT / VILLAGE_EASE)
 - `GameSession::tickVillages(players, say)`: builds a site's village once (villages.dat in the save);
@@ -83,7 +88,7 @@ Next: Eddie to try it; open questions in ROADMAP "Villages, known".
 
 ## Earlier state (2026-11-19): roaming spawns
 
-Still not pushed since 912284b; delivered as zips. Roaming enemy spawns (ROADMAP "Roaming enemy spawns"):
+Still not pushed since 912284b; delivered as zips. Roaming enemy spawns (CHANGELOG "Roaming enemy spawns"):
 - `sim/Roaming.h`: `gRoaming` (data/registry/roaming.toml: settings, groups), `Roaming` (in
   `Simulation::roaming`, ticked after the spawners; `Simulation::roamers()` the players it's for).
   Hooks GameSession sets in `attach()`: `biomeAt` (the generator's `column().eco`), `spotBlocked`
@@ -98,7 +103,7 @@ Next: Eddie to tune it in game.
 
 ## Earlier state (2026-11-19, latest): villagers
 
-Still not pushed since 912284b; delivered as zips. Villagers (ROADMAP "Villagers, steps 1 and 2"):
+Still not pushed since 912284b; delivered as zips. Villagers (CHANGELOG "Villagers, steps 1 and 2"):
 - `game/Villagers.h`: `gVillagers` (data/registry/villagers.toml), `villagers::populate(plan, built, …)`
   after `village::build`: homes from beds (`bedsIn`), workplaces (`workPlace`), haunts, the way from
   each place to the square (`wayToSquare`: path → road → the square). Spots inside are checked with
@@ -118,7 +123,7 @@ Next: Eddie to try villagers in game; then talking, guards (ROADMAP "Villagers n
 ## Earlier state (2026-11-19, later)
 
 Since the pushed commit 912284b (Hammer fixes), delivered as a zip: building polish for villages
-(ROADMAP "Village buildings, furnishings and villages, refined"). Key places:
+(CHANGELOG "Village buildings, furnishings and villages, refined"). Key places:
 - `StructureRegistry`: models "floor" (sizable to 40 ft), "slope" (length sizable), "gable"
   (fixed size); `slopeModel` / `gableModel`; `roleBlock(t, spec, role)`; `arch` / `glazing` on walls
   (`wallModel` builds the hole as a mask); holes kept centred (resolve). `PieceSpec` roles roof, floor
