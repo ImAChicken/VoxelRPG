@@ -71,6 +71,7 @@ public:
         glUniform1i(glGetUniformLocation(shader.id, "uLightCurve"), gSettings.lightCurve);   // block light's fade (Settings)
         v3("uFogHorizon", fl.sky.horizon); v3("uFogSunGlow", fl.sky.sunGlow); v3("uSunDir", fl.sky.sunDir);
         f1("uFogDensity", fl.fogDensity); f1("uNight", fl.sky.night);
+        terrainlight::bindFrame(p);
         atlas.bind(0);
         const float far2 = 900.0f * 900.0f;
         for (auto& [id, m] : meshes) {

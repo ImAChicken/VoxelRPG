@@ -39,9 +39,12 @@ int main() {
         auto q = press({ pad::X, pad::Down, pad::A }, pad::Layer::Quick);
         check(q[(int)A::QuickLayer] && q[(int)A::ToolbarSlot5] && q[(int)A::ToolbarSlot4] && q[(int)A::ToolbarSlot8] &&
               !q[(int)A::UseSlotX] && !q[(int)A::Jump], "Start held: the D-pad and face buttons pick quick options");
-        auto e = press({ pad::LB, pad::RB, pad::LT, pad::RT, pad::B }, pad::Layer::Explore);
-        check(e[(int)A::ToolbarPrev] && e[(int)A::ToolbarNext] && e[(int)A::UseLeft] && e[(int)A::UseRight] && e[(int)A::Roll],
-              "out of combat: LB / RB the hotbar, LT / RT left and right click, B sprint and roll");
+        auto e = press({ pad::LB, pad::Left, pad::Right, pad::Up, pad::LT, pad::RT }, pad::Layer::Explore);
+        check(e[(int)A::ToolbarPrev] && e[(int)A::ToolbarNext] && e[(int)A::CycleOffhand] && e[(int)A::UseLeft] && e[(int)A::UseRight] &&
+              e[(int)A::Sprint] && e[(int)A::Roll],
+              "out of combat: D-pad left / right the hotbar, up the off hand, LT / RT left and right click, LB sprint and roll");
+        check(!press({ pad::RB }, pad::Layer::Explore)[(int)A::ToolbarNext] && !press({ pad::B }, pad::Layer::Explore)[(int)A::Sprint],
+              "  (the shoulders aren't the hotbar any more; B doesn't sprint)");
         {
             // Select: a tap, on release, draws; with Start it's the inventory
             pad::ChordState cs;
@@ -74,15 +77,14 @@ int main() {
         check(!press({ pad::Y }, pad::Layer::Explore)[(int)A::Inventory], "Y no longer opens the inventory (Select + Start does)");
         {
             // a tool in hand: B, Y and the D-pad are the tool's, the rest stay explore's
-            auto t = press({ pad::B, pad::Up, pad::LT, pad::RB, pad::X }, pad::Layer::Tool);
-            check(t[(int)A::ToolCancel] && !t[(int)A::Sprint] && !t[(int)A::Roll] && t[(int)A::NudgeForward] &&
+            auto t = press({ pad::B, pad::Right, pad::LT, pad::X, pad::LB }, pad::Layer::Tool);
+            check(t[(int)A::ToolCancel] && t[(int)A::Sprint] && !t[(int)A::NudgeRight] &&
                   t[(int)A::UseLeft] && t[(int)A::ToolbarNext] && t[(int)A::RotatePiece],
-                  "tool: B lets go (not sprint), the D-pad moves it; LT, RB, X as out of combat");
-            check(!press({ pad::Up }, pad::Layer::Explore)[(int)A::NudgeForward] && press({ pad::B }, pad::Layer::Explore)[(int)A::Sprint],
-                  "  without one: the D-pad does nothing, B sprints");
-            auto ta = press({ pad::Y, pad::Up, pad::Left }, pad::Layer::ToolAlt);
-            check(ta[(int)A::ToolAlt] && ta[(int)A::NudgeUp] && !ta[(int)A::NudgeForward] && ta[(int)A::NudgeLeft],
-                  "  Y held: D-pad up goes up (left still left)");
+                  "tool: B lets go; the D-pad still picks the tool; LT, X as out of combat, LB sprints");
+            auto ta = press({ pad::Y, pad::Up, pad::Left, pad::RB, pad::B }, pad::Layer::ToolAlt);
+            check(ta[(int)A::ToolAlt] && ta[(int)A::NudgeForward] && ta[(int)A::NudgeLeft] && ta[(int)A::NudgeUp] && ta[(int)A::NudgeDown] &&
+                  !ta[(int)A::ToolbarPrev] && !ta[(int)A::CycleOffhand] && !ta[(int)A::ToolCancel],
+                  "  Y held: the D-pad moves the piece, RB / B up / down");
             check(pad::layerFor(false, false, true, false) == pad::Layer::Tool && pad::layerFor(false, false, true, true) == pad::Layer::ToolAlt &&
                   pad::layerFor(true, false, true, true) == pad::Layer::Combat && pad::layerFor(false, true, true, true) == pad::Layer::Quick,
                   "  the tool layers only out of combat, under the quick layer");

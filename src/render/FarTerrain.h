@@ -15,7 +15,10 @@
 #include "Shader.h"
 #include "../chunk/TerrainGenerator.h"
 #include "Sky.h"
+#include "TerrainLight.h"
 #include "../world/LightBake.h"
+#include "../world/Decorations.h"
+#include <array>
 #include <unordered_map>
 
 // ══════════════════════════════════════════════════════════
@@ -39,7 +42,13 @@
 //   colour    the top block's average atlas colour, tinted
 //             toward leaves where there is forest (and raised
 //             by the canopy), shaded by slope so steep ground
-//             reads like the voxels' darker side faces.
+//             reads like the voxels' darker side faces. Each
+//             biome's plants and trees (data/registry/
+//             decorations.toml) colour it too: the grass takes
+//             on its flowers and tufts as much as they cover
+//             it, the forest its trees' own leaves (pink
+//             blossom, autumn reds), so the colour doesn't
+//             change where the voxel chunks begin (makeLook).
 //   ocean     a world type with a sea gets a flat ocean from
 //             the edge of the world out to the horizon.
 //
@@ -67,6 +76,8 @@ public:
     FarTerrain(const TerrainGenerator& gen, int chunksX, int chunksZ,
                std::shared_ptr<const ColorTable> colors)
         : gen(gen), chunksX(chunksX), chunksZ(chunksZ), colors(std::move(colors)) {
+        makeLook(*decor::current());
+        light = std::make_unique<terrainlight::Map>(gen, chunksX, chunksZ);
         regionsX = (chunksX + REGION_CHUNKS - 1) / REGION_CHUNKS;
         regionsZ = (chunksZ + REGION_CHUNKS - 1) / REGION_CHUNKS;
         regions.resize((size_t)regionsX * regionsZ);
@@ -234,6 +245,8 @@ public:
             v3("uFogHorizon", fl.sky.horizon); v3("uFogSunGlow", fl.sky.sunGlow); v3("uSunDir", fl.sky.sunDir);
             f1("uFogDensity", fl.fogDensity); f1("uSeamStart", fl.seamStart); f1("uSeamEnd", fl.seamEnd);
             f1("uSeamHaze", fl.seamHaze); f1("uNight", fl.sky.night);
+            v3("uLightDir", fl.sky.lightDir());
+            terrainlight::bindFrame(p);
         }
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, maskTex);
@@ -326,6 +339,7 @@ private:
     };
 
     const TerrainGenerator& gen;
+    std::unique_ptr<terrainlight::Map> light;     // sun and shade from the land (its own thread)
     int chunksX, chunksZ, regionsX = 0, regionsZ = 0;
     std::shared_ptr<const ColorTable> colors;
     std::vector<Region> regions;
@@ -363,6 +377,46 @@ private:
         float dz = std::max({ z0 - cam.z, 0.0f, cam.z - (z0 + REGION) });
         float dy = std::max(0.0f, cam.y - 400.0f) * 0.5f;
         return std::sqrt(dx * dx + dz * dz + dy * dy);
+    }
+
+public:
+    // The land's sun and shade (render/TerrainLight.h): update it each frame
+    terrainlight::Map& lightMap() { return *light; }
+private:
+    // Per biome, how its plants and trees look from far away
+    struct Look {
+        glm::vec3 plant{ 0.0f }; float plantMix = 0.0f;   // the plants' average colour, how much of the ground they hide
+        std::vector<uint16_t> on;                          // the ground they grow on
+        glm::vec3 leaf{ 0.0f };  bool  hasLeaf = false;    // its trees' leaves (by their shares)
+    };
+    std::array<Look, decor::BIOMES> looks{};
+    static constexpr float PLANT_COVER = 0.9f;    // a plant per square (density 1) hides this much of it
+    static constexpr float PLANT_MAX   = 0.55f;   // the ground still shows through at least this much
+    void makeLook(const decor::Set& set) {
+        for (int b = 0; b < decor::BIOMES; b++) {
+            Look& L = looks[(size_t)b];
+            glm::vec3 sum(0.0f); float w = 0.0f;
+            for (auto [i, dens] : set.list(decor::Layer::Plant, b)) {
+                const decor::Def* d = set.get(i);
+                if (!d || d->blocks.empty() || dens <= 0.0f) continue;
+                glm::vec3 c(0.0f);
+                for (uint16_t id : d->blocks) c += glm::vec3(colorOf(id));
+                sum += c / (float)d->blocks.size() * dens; w += dens;
+                for (uint16_t g : d->on) if (std::find(L.on.begin(), L.on.end(), g) == L.on.end()) L.on.push_back(g);
+            }
+            if (w > 0.0f) { L.plant = sum / w; L.plantMix = std::min(PLANT_MAX, w * PLANT_COVER); }
+            sum = glm::vec3(0.0f); w = 0.0f;
+            for (auto [i, share] : set.list(decor::Layer::Tree, b)) {
+                const decor::Def* d = set.get(i);
+                if (!d || d->blocks.size() < 2 || share <= 0.0f) continue;
+                glm::vec3 c(0.0f);                     // (the first block is the wood)
+                for (size_t k = 1; k < d->blocks.size(); k++) c += glm::vec3(colorOf(d->blocks[k]));
+                sum += c / (float)(d->blocks.size() - 1) * share; w += share;
+            }
+            // the rest of the biome's trees are the built-in oak ("replaces")
+            if (w > 0.0f && w < 1.0f) { sum += glm::vec3(colorOf(BLOCK_LEAVES)) * (1.0f - w); w = 1.0f; }
+            if (w > 0.0f) { L.leaf = sum / w; L.hasLeaf = true; }
+        }
     }
 
     glm::u8vec3 colorOf(uint16_t id) const {
@@ -443,10 +497,13 @@ private:
             } else {
                 y = (float)c.ground;
                 rgb = glm::vec3(colorOf(c.top));
+                const Look* L = c.eco < decor::BIOMES ? &looks[c.eco] : nullptr;
+                if (L && L->plantMix > 0.0f && (L->on.empty() || std::find(L->on.begin(), L->on.end(), c.top) != L->on.end())) rgb = glm::mix(rgb, L->plant, L->plantMix);
                 float cover = gen.forestCover(wx, wz);
                 if (cover > 0.0f) {
                     // canopy: darker leaf colour, raised
-                    rgb = glm::mix(rgb, glm::vec3(leaf) * 0.85f, std::min(1.0f, cover * 1.1f));
+                    glm::vec3 lc = (L && L->hasLeaf) ? L->leaf : glm::vec3(leaf);
+                    rgb = glm::mix(rgb, lc * 0.85f, std::min(1.0f, cover * 1.1f));
                     y  += cover * 40.0f;
                 }
             }

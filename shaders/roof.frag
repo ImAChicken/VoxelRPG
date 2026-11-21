@@ -42,6 +42,7 @@ vec3 fogColor(vec3 viewDir) {
 // Graphics > Light fade: 0 classic (squared: bright close, gone well
 // before the light's reach), 1 gentle (carries out to its full reach)
 uniform int uLightCurve;
+#include "terrainlight.glsl"
 vec3 blockCurve(vec3 l) { return uLightCurve == 0 ? l * l * 1.5 : pow(l, vec3(1.1)) * 1.25; }
 
 void main() {
@@ -93,7 +94,8 @@ void main() {
     float sky = vLight.a * vLight.a;
     vec3 skyTint = mix(vec3(1.0), vec3(0.30, 0.50, 0.24), clamp(vShade, 0.0, 1.0));
     vec3 block = blockCurve(vLight.rgb);
-    float facing = 0.62 + 0.38 * max(dot(n, uLightDir), 0.0);
+    float sunVis = sunLight(vWorld + n * 0.5);
+    float facing = 0.62 * mix(0.82, 1.0, sunVis) + 0.38 * max(dot(n, uLightDir), 0.0) * sunVis;
     float up = 0.8 + 0.2 * clamp(n.y, -1.0, 1.0);
     vec3 lit = uSkyLight * skyTint * sky * facing * mix(1.0, up, 0.35) + block * mix(1.0, up, 0.5) + uAmbient;
 

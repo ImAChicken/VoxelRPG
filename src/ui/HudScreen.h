@@ -334,7 +334,7 @@ public:
         }
 
         // ── Structure under the crosshair ─────────────────
-        if (!hands.aimLabel.empty() && !combat) {
+        if (!hands.aimLabel.empty()) {                 // (in a fight too: E still opens doors, chests, gates)
             float w = keytext::width(ui, hands.aimLabel, 2);
             ui.drawRect((sw - w) * 0.5f - 6, sh * 0.5f + 22, w + 12, 21, SHADOW);
             keytext::draw(ui, hands.aimLabel, (sw - w) * 0.5f, sh * 0.5f + 25, theme.textHover, 2, theme.accent);
@@ -607,17 +607,17 @@ private:
         if (d.is(IC_TOOL) && d.tool == ToolKind::Hoe)    add(InputAction::RotatePiece, "change what it does");
         if (tool) {
             bool size = devOk && (d.devTool == DevToolKind::Brush || d.devTool == DevToolKind::Explode || d.devTool == DevToolKind::Cube);
-            if (pad) h.push_back({ InputAction::NudgeForward, pad::Up, pad::Down, size ? "bigger / smaller" : "move it, locks it there" });
+            if (pad) h.push_back({ InputAction::NudgeForward, pad::toolAltButton(), pad::Up, size ? "hold, D-pad: bigger / smaller" : "hold, D-pad: move it (RB / B: up / down)" });
             else     h.push_back({ InputAction::NudgeForward, -1, -1, size ? "bigger / smaller" : "move it, Page Up / Down: up / down", "ARROWS" });
             if (!size) {
-                if (pad) h.push_back({ InputAction::ToolAlt, pad::toolAltButton(), -1, "hold: D-pad up / down is up / down" });
                 add(InputAction::ToolCancel, devOk ? "let go / cancel" : "let go, follow the aim");
             }
         }
-        if (pad) h.push_back({ InputAction::ToolbarNext, pad::LB, pad::RB, "tool" });
+        if (pad) h.push_back({ InputAction::ToolbarNext, pad::Left, pad::Right, "tool" });
+        if (pad) h.push_back({ InputAction::CycleOffhand, pad::Up, -1, "off hand" });
         else     h.push_back({ InputAction::ToolbarNext, -1, -1, "tool", "WHEEL, 1 - 0" });
         add(InputAction::Jump, "jump");
-        if (!(tool && pad)) add(InputAction::Sprint, "sprint / roll");
+        add(InputAction::Sprint, "sprint / roll");
         if (pad) h.push_back({ InputAction::Interact, pad::quickButton(), padglyph::buttonFor(InputAction::Interact, pad::Layer::Quick), "interact" });
         else     add(InputAction::Interact, "interact");
         add(InputAction::DrawWeapon, "combat");

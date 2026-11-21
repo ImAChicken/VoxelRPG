@@ -58,6 +58,11 @@ struct GameSettings {
     int rumble    = 2;       // 0 off, 1 light, 2 full: the controller shakes on hits (input/Rumble.h)
     int lightCurve = 1;      // 0 classic, 1 gentle: how torch light fades with distance (the shaders' blockCurve)
     int particles = 2;       // 0 off, 1 fewer, 2 all: sparks, dust and splats (render/Particles.h)
+    int sunShading = 1;      // 0 plain, 1 terrain: ground lit by the land's slope toward the sun (render/TerrainLight.h)
+    int terrainShadows = 1;  // 0 off, 1 on: hills and mountains shade what's behind them from the sun
+    int cloudShadows = 0;    // 0 off, 1 on: drifting cloud shade on the ground
+    int renderScale = 0;     // 0 full, 1 auto (to hold 60 fps), 2 85%, 3 70%, 4 50% of the window's pixels each way (OpenGLRenderer::beginScene)
+    int occlusion = 1;       // 0 off, 1 on: chunk sections hidden behind others last frame aren't drawn (OpenGLRenderer)
 
     // Sound (audio/AudioEngine.h). Every in-world effect can go back
     // to plain too: soundWalls 0 = only distance and direction
@@ -80,7 +85,7 @@ struct GameSettings {
         plantStyle = 1; waterStyle = 1; roofStyle = 1; glassStyle = 1;
         autosave = 1;
         controlHints = 1;
-        rumble = 2; particles = 2; lightCurve = 1; cameraShake = 1.0f; damageNumbers = 1;
+        rumble = 2; particles = 2; lightCurve = 1; occlusion = 1; renderScale = 0; sunShading = 1; terrainShadows = 1; cloudShadows = 0; cameraShake = 1.0f; damageNumbers = 1;
         masterVolume = 0.8f; effectsVolume = 1.0f; voiceVolume = 1.0f; ambienceVolume = 0.7f; soundWalls = 1;
     }
 
@@ -105,6 +110,11 @@ struct GameSettings {
         damageNumbers = std::clamp(damageNumbers, 0, 1);
         particles     = std::clamp(particles, 0, 2);
         lightCurve    = std::clamp(lightCurve, 0, 1);
+        occlusion     = std::clamp(occlusion, 0, 1);
+        renderScale   = std::clamp(renderScale, 0, 4);
+        sunShading    = std::clamp(sunShading, 0, 1);
+        terrainShadows = std::clamp(terrainShadows, 0, 1);
+        cloudShadows  = std::clamp(cloudShadows, 0, 1);
         for (float* v : { &masterVolume, &effectsVolume, &voiceVolume, &ambienceVolume }) *v = std::clamp(*v, 0.0f, 1.0f);
         soundWalls    = std::clamp(soundWalls, 0, 1);
     }
@@ -133,6 +143,11 @@ struct GameSettings {
             damageNumbers = (int)t["game"]["damage_numbers"].value_or((int64_t)damageNumbers);
             particles     = (int)t["game"]["particles"].value_or((int64_t)particles);
             lightCurve    = (int)t["game"]["light_fade"].value_or((int64_t)lightCurve);
+            occlusion     = (int)t["view"]["occlusion"].value_or((int64_t)occlusion);
+            renderScale   = (int)t["view"]["render_scale"].value_or((int64_t)renderScale);
+            sunShading    = (int)t["world"]["sun_shading"].value_or((int64_t)sunShading);
+            terrainShadows = (int)t["world"]["terrain_shadows"].value_or((int64_t)terrainShadows);
+            cloudShadows  = (int)t["world"]["cloud_shadows"].value_or((int64_t)cloudShadows);
             masterVolume   = (float)t["sound"]["master"].value_or((double)masterVolume);
             effectsVolume  = (float)t["sound"]["effects"].value_or((double)effectsVolume);
             voiceVolume    = (float)t["sound"]["voices"].value_or((double)voiceVolume);
@@ -158,7 +173,9 @@ struct GameSettings {
           << "[view]\n"
           << "chunk_distance  = " << chunkDistanceInt() << "   # chunks drawn as voxels, 2 - 16\n"
           << "render_distance = " << (int)std::lround(renderDistance) << "   # distant terrain, chunks, 16 - 160 (160 = whole world)\n"
-          << "eye_height      = " << eyeHeight << "   # first-person eye height, voxels (4 in each), 13 - 17.5\n\n"
+          << "eye_height      = " << eyeHeight << "   # first-person eye height, voxels (4 in each), 13 - 17.5\n"
+          << "occlusion       = " << occlusion << "   # 0 off, 1 on: sections hidden behind others aren't drawn\n"
+          << "render_scale    = " << renderScale << "   # 0 full, 1 auto, 2 85%, 3 70%, 4 50%: the 3D view drawn smaller and stretched\n\n"
           << "[characters]\n"
           << "edges      = " << charEdges     << "   # 0 off, 1 lines, 2 lines + colour echo\n"
           << "line_color = " << charLineColor << "   # 0 black, 1 tinted\n"
@@ -167,7 +184,10 @@ struct GameSettings {
           << "plants = " << plantStyle << "   # 0 plain pictures, 1 natural: off-grid, rounded light, wind\n"
           << "water  = " << waterStyle << "   # 0 plain, 1 moving: rivers run downstream\n"
           << "glass  = " << glassStyle << "   # 0 plain cubes, 1 panes: see-through sheets that tint what's behind\n"
-          << "roofs  = " << roofStyle << "   # 0 plain voxels, 1 smooth: sloped, with courses and overhanging eaves\n\n"
+          << "roofs  = " << roofStyle << "   # 0 plain voxels, 1 smooth: sloped, with courses and overhanging eaves\n"
+          << "sun_shading = " << sunShading << "   # 0 plain, 1 terrain: hillsides lit by their slope to the sun\n"
+          << "terrain_shadows = " << terrainShadows << "   # 0 off, 1 on: hills shade what's behind them from the sun\n"
+          << "cloud_shadows = " << cloudShadows << "   # 0 off, 1 on: drifting cloud shade on the ground\n\n"
           << "[game]\n"
           << "autosave = " << autosave << "   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)\n"
           << "control_hints = " << controlHints << "   # 0 off, 1 on: what the buttons do now, bottom right\n"

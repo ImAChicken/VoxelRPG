@@ -14,10 +14,10 @@ jump            = "A"   # Jump
 crouch          = "L3"   # Crouch
 lock_on         = "R3"   # Lock on
 draw_weapon     = "Select"   # Draw weapon
-
-[combat]
 sprint          = "LB"   # Sprint (hold)
 roll            = "LB"   # Roll (tap)
+
+[combat]
 use_left        = "RB"   # Use / place / attack
 use_right       = "RT"   # Break / heavy attack
 block           = "LT"   # Special: guard / off hand
@@ -42,22 +42,21 @@ toolbar_slot_8  = "A"   # Hotbar slot 8
 interact        = "LB"   # Interact
 
 [explore]
-toolbar_prev    = "LB"   # Previous tool
-toolbar_next    = "RB"   # Next tool
+toolbar_prev    = "Left"   # Previous tool
+toolbar_next    = "Right"   # Next tool
+cycle_offhand   = "Up"   # Off hand: next / none
 use_left        = "LT"   # Use / place / attack
 use_right       = "RT"   # Break / heavy attack
-sprint          = "B"   # Sprint (hold)
-roll            = "B"   # Roll (tap)
 rotate_piece    = "X"   # Turn structure (hammer)
 
 [tool]
 tool_cancel     = "B"   # Release paste / cancel
-tool_alt        = "Y"   # Nudge up / down instead (hold)
+tool_alt        = "Y"   # Move the piece instead (hold)
+
+[tool_alt]
 nudge_forward   = "Up"   # Nudge paste away / size up
 nudge_back      = "Down"   # Nudge paste closer / size down
 nudge_left      = "Left"   # Nudge paste left
 nudge_right     = "Right"   # Nudge paste right
-
-[tool_alt]
-nudge_up        = "Up"   # Nudge paste up
-nudge_down      = "Down"   # Nudge paste down
+nudge_up        = "RB"   # Nudge paste up
+nudge_down      = "B"   # Nudge paste down

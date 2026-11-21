@@ -44,7 +44,14 @@ public:
         bool  streamed = false;                       // the game streams it too (a portal's far side): no keeper
         // a server's host (RealmServer): round each step of this world
         std::function<void()> beforeStep, afterStep;
+        int owed = 0;                                 // steps not run yet (an unseen world steps half as often)
     };
+    // A world nobody is in and nothing sees (not through a portal, no
+    // player there) steps at a lower rate: SLOW_STEPS ticks of the game's
+    // step run as one longer one. Its NPCs go on at the same speed; the
+    // physics divides a long move up anyway (VoxelPhysics::MAX_SUBSTEP).
+    // Not on a server (its hosts step every world fully).
+    static constexpr int SLOW_STEPS = 2;
     // A player went through a portal from one world into another (on a
     // server: its client follows it; RealmServer)
     std::function<void(Player& p, GameSession& from, GameSession& to)> onPlayerMoved;
@@ -216,9 +223,13 @@ public:
                 for (auto& p : s.sim.players()) at.push_back(p->position);
                 s.tickVillages(at);
             }
-            for (int k = 0; k < steps; k++) {
+            const bool unseen = s.sim.players().empty() && e.watched.empty() && !e.beforeStep && !e.afterStep;
+            int run = steps, mult = 1;
+            if (unseen) { e.owed += steps; run = e.owed / SLOW_STEPS; e.owed %= SLOW_STEPS; mult = SLOW_STEPS; }
+            else e.owed = 0;
+            for (int k = 0; k < run; k++) {
                 if (e.beforeStep) e.beforeStep();
-                s.sim.step(step); s.tickWorld(step);
+                s.sim.step(step * (float)mult); s.tickWorld(step * (float)mult);
                 if (e.afterStep) e.afterStep();
                 moveNpcs(s, s.sim.takeTransfers());
             }

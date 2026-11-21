@@ -105,6 +105,7 @@ public:
             {InputAction::ToolbarSlot8, "actions", "toolbar_slot_8", "Hotbar slot 8",  "8"},
             {InputAction::ToolbarSlot9, "actions", "toolbar_slot_9", "Hotbar slot 9",  "9"},
             {InputAction::ToolbarSlot10,"actions", "toolbar_slot_10","Hotbar slot 10", "0"},
+            {InputAction::CycleOffhand, "actions", "cycle_offhand",  "Off hand: next / none", "NONE"},
             // camera
             {InputAction::CameraToggle, "camera", "camera_toggle",   "1st / 3rd person", "F5"},
             // dev
@@ -127,7 +128,7 @@ public:
             {InputAction::NudgeDown,    "dev", "nudge_down",         "Nudge paste down", "PAGE_DOWN"},
             {InputAction::ToolCancel,   "dev", "tool_cancel",        "Release paste / cancel", "BACKSPACE"},
             {InputAction::RotatePiece,  "actions", "rotate_piece",   "Turn structure (hammer)", "T"},
-            {InputAction::ToolAlt,      "dev", "tool_alt",           "Nudge up / down instead (hold)", "RIGHT_ALT"},
+            {InputAction::ToolAlt,      "dev", "tool_alt",           "Move the piece instead (hold)", "RIGHT_ALT"},
             // system
             {InputAction::Pause,        "system", "pause",           "Pause menu",       "ESCAPE"},
             {InputAction::Screenshot,   "system", "screenshot",      "Screenshot",       "F2"},

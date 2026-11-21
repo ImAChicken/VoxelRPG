@@ -81,6 +81,7 @@ float fogAmount(float d) {
 // Graphics > Light fade: 0 classic (squared: bright close, gone well
 // before the light's reach), 1 gentle (carries out to its full reach)
 uniform int uLightCurve;
+#include "terrainlight.glsl"
 vec3 blockCurve(vec3 l) { return uLightCurve == 0 ? l * l * 1.5 : pow(l, vec3(1.1)) * 1.25; }
 
 void main() {
@@ -142,7 +143,13 @@ void main() {
     // sun / moon side brighter, the rest lit by the sky dome
     vec3 nrm = vNormal;
     if (vSprite > 0.5 && uPlantStyle == 1) nrm = normalize(vSpriteNormal);    // a rounded clump
-    float facing = 0.62 + 0.38 * max(dot(nrm, uLightDir), 0.0);
+    // Sun shading: tops of the ground (and plants on it) turn with the hillside
+    if (vNormal.y > 0.5 || vSprite > 0.5) {
+        float nt = nearTerrain(vWorld);
+        if (nt > 0.0) nrm = normalize(mix(nrm, terrainNormal(vWorld.xz), nt * (vSprite > 0.5 ? 0.5 : 0.8)));
+    }
+    float sunVis = sunLight(vWorld + vNormal * 0.5);
+    float facing = 0.62 * mix(0.82, 1.0, sunVis) + 0.38 * max(dot(nrm, uLightDir), 0.0) * sunVis;
     facing *= mix(1.0, vShade, 0.35);
     if (vSprite > 0.5 && uPlantStyle == 1) facing *= mix(0.72, 1.0, clamp(vSpriteLow * 1.4, 0.0, 1.0));   // darker in among the stems
     vec3 lit = uSkyLight * skyTint * sky * facing + block * mix(1.0, vShade, 0.5) + uAmbient;

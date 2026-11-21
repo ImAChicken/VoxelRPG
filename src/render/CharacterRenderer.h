@@ -60,13 +60,16 @@ public:
 
     const Pose& animate(const AnimInput& in, float dt) {
         blinkClock += dt;
+        animatedOnce = true;
         return animator.update(model, in, dt);
     }
+    bool posed() const { return animatedOnce; }
 
     const Appearance&     appearance() const { return look; }
     const CharacterModel& getModel()   const { return model; }
     const Pose&           pose()       const { return animator.current(); }
     bool                  ready()      const { return built && vao != 0; }
+    bool                  animatedOnce = false;
     void                  resetAnimation()   { animator.reset(); }
 
     // What the right hand holds (character/HeldItemModel.h).

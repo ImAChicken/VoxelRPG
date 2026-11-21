@@ -14,6 +14,8 @@ out vec4 outColor;
 uniform vec3  uCamPos;
 uniform vec3  uSkyLight, uAmbient, uFogHorizon, uFogSunGlow, uSunDir;
 uniform float uFogDensity, uSeamStart, uSeamEnd, uSeamHaze, uNight;
+uniform vec3  uLightDir;
+#include "terrainlight.glsl"
 
 // Haze at the voxel / far-terrain seam: measured along the square
 // of voxel chunks (the larger of the X and Z distances), thickest
@@ -31,7 +33,14 @@ void main() {
     vec3 fogCol = mix(uFogHorizon, uFogSunGlow, s * 0.5 * (1.0 - uNight));
     float fog = max(1.0 - exp(-vDist * uFogDensity), seamFog(vWorld));
     // open ground under the sky (the colour has slope shading in it)
-    vec3 lit = vColor * (uSkyLight * 0.82 + uAmbient);
+    // the same light as the voxels' top faces (shaders/chunk.frag): the
+    // plain look keeps its old flat 0.82
+    float sunVis = sunLight(vWorld);
+    vec3 n = uSunShading != 0 ? terrainNormal(vWorld.xz) : vec3(0.0, 1.0, 0.0);
+    float facing = (uSunShading != 0 || uTerrainShadows != 0 || uCloudShadows != 0)
+                 ? 0.62 * mix(0.82, 1.0, sunVis) + 0.38 * max(dot(n, uLightDir), 0.0) * sunVis
+                 : 0.82;
+    vec3 lit = vColor * (uSkyLight * facing + uAmbient);
     if (vGlow > 0.5) { lit = vColor * 1.1; fog *= 0.3; }
     outColor = vec4(mix(lit, fogCol, fog), 1.0);
 }

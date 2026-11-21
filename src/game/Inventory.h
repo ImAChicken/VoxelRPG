@@ -108,6 +108,12 @@ struct Inventory {
     void selectPrev() { selected = FIRST_MAIN + (selected - FIRST_MAIN + HOTBAR - FIRST_MAIN - 1) % (HOTBAR - FIRST_MAIN); }
     // Off-hand slot k on (the other goes off), or off again;
     // an empty slot can't be taken in hand
+    // The left hand: off-hand 1, then 2, then nothing (empty slots skipped)
+    void cycleOffhand() {
+        for (int k = offhand + 1; k < OFFHAND; k++)
+            if (!slots[k].empty()) { offhand = k; return; }
+        offhand = -1;
+    }
     void toggleOffhand(int k) {
         if (k < 0 || k >= OFFHAND) return;
         if (offhand == k) offhand = -1;

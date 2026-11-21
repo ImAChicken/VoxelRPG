@@ -42,6 +42,7 @@ enum class InputAction {
     ToolbarSlot8,
     ToolbarSlot9,
     ToolbarSlot10,
+    CycleOffhand,   // the left hand: off-hand 1, off-hand 2, empty (the pad's D-pad up)
     SwapWeapon,     // combat: the next weapon set (game/CombatKit.h)
     LockOn,         // hold the camera on an enemy (game/LockOn.h)
 

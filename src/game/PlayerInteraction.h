@@ -27,7 +27,7 @@
 // ══════════════════════════════════════════════════════════
 // Runs each frame while the player has a body and the mode
 // allows world interaction (Survival stance, Test Play).
-// Combat stance never gets here: weapons stay in combat.
+// Combat stance only gets interactOnly (E: doors, chests): weapons stay in combat.
 //
 // Buttons (from keyboard.toml):
 //   right click   break (use_right "remove")
@@ -139,6 +139,27 @@ public:
         breakProgress = 0.0f;
     }
 
+    // ── E: doors, chests, stations ────────────────────────
+    // (also in a fight: interactOnly, the hands' other uses off)
+    void interactAimed(Player& player, WorldEditor& editor, StructureManager& structs, StructureInstance* aimed) {
+        if (!gInput.isPressed(InputAction::Interact) || !aimed) return;
+        const StructureType* t = structs.typeOf(*aimed);
+        if (t && t->kind == StructureKind::Door) submit(request(WorldRequest::Op::Door, 0), player, editor, structs);
+        if (t && t->slots > 0) openChest = aimed->id;                // a chest, or anything with storage (on a server: main.cpp asks it)
+        else if (t && t->kind == StructureKind::Station) openStation = aimed->id;
+    }
+    // In a fight (combat stance, a weapon drawn): only what E does, and the
+    // label of what it would do, so doors, chests and gates still work
+    void interactOnly(Player& player, WorldEditor& editor, StructureManager& structs) {
+        hammerActive = false;
+        cubeBreakShown = cubePlaceShown = false;
+        aimLabel.clear();
+        breakProgress = 0.0f;
+        StructureInstance* aimed = target.hit ? structs.instanceAt(target.blockPos) : nullptr;
+        describeAim(structs, aimed);
+        interactAimed(player, editor, structs, aimed);
+    }
+
     void update(Player& player, WorldEditor& editor, DevTools& dev,
                 StructureManager& structs, BuildTool& build, float dt) {
         noticeAge += dt;
@@ -158,16 +179,7 @@ public:
         StructureInstance* aimed = target.hit ? structs.instanceAt(target.blockPos) : nullptr;
         describeAim(structs, aimed);
 
-        // ── E: doors ──────────────────────────────────────
-        if (gInput.isPressed(InputAction::Interact) && aimed) {
-            const StructureType* t = structs.typeOf(*aimed);
-            if (t && t->kind == StructureKind::Door) submit(request(WorldRequest::Op::Door, 0), player, editor, structs);
-            if (t && t->slots > 0) {                                  // a chest, or anything with storage
-                if (remote) say("chests on a server: not yet");
-                else openChest = aimed->id;
-            }
-            else if (t && t->kind == StructureKind::Station) openStation = aimed->id;
-        }
+        interactAimed(player, editor, structs, aimed);
 
         // ── Middle click: pick block ──────────────────────
         if (gInput.isPressed(InputAction::PickBlock) && target.hit) {

@@ -374,6 +374,8 @@ private:
             for (int i = 0; i < Inventory::HOTBAR && !slotKeysBlocked && !kitQuick; i++)   // (held: the slot keys pick quick options)
                 if (gInput.isPressed(slots[i]))
                     inv.pressHotbarKey(i);
+            if (gInput.isPressed(InputAction::CycleOffhand))
+                inv.cycleOffhand();
             if (gInput.isPressed(InputAction::ToolbarNext))
                 inv.selectNext();
             if (gInput.isPressed(InputAction::ToolbarPrev))

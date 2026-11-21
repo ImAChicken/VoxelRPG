@@ -48,6 +48,11 @@ public:
         addChoice("Glass", &gSettings.glassStyle, { "Plain", "Panes" });
         addChoice("Particles", &gSettings.particles, { "Off", "Fewer", "All" });
         addChoice("Light fade", &gSettings.lightCurve, { "Classic", "Gentle" });
+        addChoice("Sun shading", &gSettings.sunShading, { "Plain", "Terrain" });
+        addChoice("Terrain shadows", &gSettings.terrainShadows, { "Off", "On" });
+        addChoice("Cloud shadows", &gSettings.cloudShadows, { "Off", "On" });
+        addChoice("Hidden chunk culling", &gSettings.occlusion, { "Off", "On" });
+        addChoice("Render scale", &gSettings.renderScale, { "Full", "Auto", "85%", "70%", "50%" });
         // ── Sound ─────────────────────────────────────────
         page("Sound");
         addSlider("Volume",   &gSettings.masterVolume,   0.0f, 1.0f, [](float v) { return outOf100(v); });

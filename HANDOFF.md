@@ -24,6 +24,9 @@ For a new Claude session picking this project up. Read this first, then ROADMAP.
 - Servers (Claude, 2026-11-21): slices 1-3 done (realm; gate menu; seamless gates) and phase 3's chests, parries at the
   defender's time, ragdoll target from the sim, axe swing. Left: Open to LAN; then the combat review.
   Then the combat review (hit reactions in the simulation).
+- Rendering (Claude, 2026-11-21): second pass done (occlusion, render scale, far foliage, unseen worlds at half rate)
+  and light from the land (`render/TerrainLight.h`, `shaders/terrainlight.glsl`: sun shading, terrain shadows, cloud
+  shadows). Not started: clouds in the sky; player builds in the height map; a far world's map for portal views.
 - When you finish something: an entry at the top of CHANGELOG.md, take
   it off ROADMAP.md, update this file's Current state, deliver a zip.
 
@@ -62,7 +65,8 @@ Still not pushed since 912284b; delivered as zips (`VoxelRPG_portals3.zip` the l
   Bodies at portals: `CharacterRenderer::xform/clip/resetPortal` (and `Placed::xform/clip`), main.cpp `bodyCut`/`addCopies`/
   `drawCopies`, `Human::lastExitCentre/lastExitNormal/lastPortalFrom` (cleared in `crossPortals`). Culling:
   `portalview::openingPlanes` → `OpenGLRenderer::narrowFrustum`. The main pass was already frustum-culled in `drawMesh`;
-  there's no occlusion culling or batching yet.
+  occlusion queries for the main pass (`OpenGLRenderer::occludedSection` etc., gSettings.occlusion); render scale
+  (`beginScene`/`endScene`, gSettings.renderScale) wraps main.cpp's `drawWorldScene`; no batching yet.
 - `world/PortalLinks.h` (GameSession::portals), `Simulation::crossPortals`, `VoxelPhysics::setPassable`,
   `render/PortalView.h` + the portal pass in main.cpp's drawWorld (after the enemies), `WorldStreamer::setExtraCentres`,
   `game/PortalGun.h` (DevToolKind::Portal), `PlayerController::portalTurnDeg`, `OpenGLRenderer::overrideProjection`.

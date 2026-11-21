@@ -20,7 +20,9 @@
 //             target), Select (tapped): combat mode on / off,
 //             Select + Start together: the inventory (its left
 //             panel has the pause menu's buttons)
-//   combat    LB sprint (hold) / dodge (tap), RB light, RT heavy,
+//   both      A jump, L3 crouch, R3 lock on, Select draw / sheathe,
+//             LB sprint (hold) / dodge (tap): the same in every layout
+//   combat    RB light, RT heavy,
 //             LT special (the off hand's, or the weapon's: guard),
 //             X / Y / B use the item in that slot, D-pad left /
 //             up / right the next item in that slot, down the next
@@ -30,16 +32,17 @@
 //             every weapon set), so the slotted spells work
 //             without drawing a weapon; LB interacts (talk, open,
 //             pick up: E on the keyboard)
-//   explore   out of combat: LB / RB the hotbar, LT / RT like the
-//             left / right mouse buttons, B sprint / roll, X the
+//   explore   out of combat: D-pad left / right the hotbar (the
+//             right hand), up the left hand (off-hand 1, 2, none),
+//             LT / RT like the left / right mouse buttons, X the
 //             held tool's option (turn the hammer's piece, the
 //             hoe's mode). The inventory and the pause menu's
-//             buttons: Select + Start
+//             buttons: Select + Start (Eddie, 2026-11-21: the
+//             shoulders stay the same in and out of combat)
 //   tool      a tool that needs more buttons is in hand (the
 //             hammer; dev tools): explore, but B lets go / cancels,
-//             the D-pad moves the piece (or sizes the tool), and Y
-//             held turns the D-pad's up / down into up / down
-//             (tool alt). Each layer only overrides the buttons it
+//             and with Y held (tool alt) the D-pad moves the piece
+//             (or sizes the tool), RB / B up / down. Each layer only overrides the buttons it
 //             uses: the rest come from the one under it (chain())
 //
 // The table below is the default layout. data/controls/pad.toml
@@ -72,14 +75,14 @@ struct Map { Button button; Layer layer; InputAction action; };
 
 inline const std::vector<Map>& defaults() {
     static const std::vector<Map> M = {
-        // both
+        // both (LB sprints and rolls in every layout)
         { A,     Layer::Both,    InputAction::Jump },
         { L3,    Layer::Both,    InputAction::Crouch },
         { R3,    Layer::Both,    InputAction::LockOn },
         { Back,  Layer::Both,    InputAction::DrawWeapon },
+        { LB,    Layer::Both,    InputAction::Sprint },
+        { LB,    Layer::Both,    InputAction::Roll },
         // combat
-        { LB,    Layer::Combat,  InputAction::Sprint },
-        { LB,    Layer::Combat,  InputAction::Roll },
         { RB,    Layer::Combat,  InputAction::UseLeft },
         { RT,    Layer::Combat,  InputAction::UseRight },
         { LT,    Layer::Combat,  InputAction::Block },
@@ -102,24 +105,24 @@ inline const std::vector<Map>& defaults() {
         { B,     Layer::Quick,   InputAction::ToolbarSlot7 },
         { A,     Layer::Quick,   InputAction::ToolbarSlot8 },
         { LB,    Layer::Quick,   InputAction::Interact },
-        // explore
-        { LB,    Layer::Explore, InputAction::ToolbarPrev },
-        { RB,    Layer::Explore, InputAction::ToolbarNext },
+        // explore: the D-pad picks what's in hand
+        { Left,  Layer::Explore, InputAction::ToolbarPrev },
+        { Right, Layer::Explore, InputAction::ToolbarNext },
+        { Up,    Layer::Explore, InputAction::CycleOffhand },
         { LT,    Layer::Explore, InputAction::UseLeft },
         { RT,    Layer::Explore, InputAction::UseRight },
-        { B,     Layer::Explore, InputAction::Sprint },
-        { B,     Layer::Explore, InputAction::Roll },
         { X,     Layer::Explore, InputAction::RotatePiece },
         // tool: over explore (a hammer or dev tool in hand)
         { B,     Layer::Tool,    InputAction::ToolCancel },
         { Y,     Layer::Tool,    InputAction::ToolAlt },
-        { Up,    Layer::Tool,    InputAction::NudgeForward },
-        { Down,  Layer::Tool,    InputAction::NudgeBack },
-        { Left,  Layer::Tool,    InputAction::NudgeLeft },
-        { Right, Layer::Tool,    InputAction::NudgeRight },
-        // tool alt: over tool, while its Y is held
-        { Up,    Layer::ToolAlt, InputAction::NudgeUp },
-        { Down,  Layer::ToolAlt, InputAction::NudgeDown },
+        // tool alt: over tool, while its Y is held: the D-pad moves the
+        // piece (or sizes the tool), RB / B up / down
+        { Up,    Layer::ToolAlt, InputAction::NudgeForward },
+        { Down,  Layer::ToolAlt, InputAction::NudgeBack },
+        { Left,  Layer::ToolAlt, InputAction::NudgeLeft },
+        { Right, Layer::ToolAlt, InputAction::NudgeRight },
+        { RB,    Layer::ToolAlt, InputAction::NudgeUp },
+        { B,     Layer::ToolAlt, InputAction::NudgeDown },
     };
     return M;
 }

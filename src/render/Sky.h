@@ -156,8 +156,10 @@ private:
     }
 };
 
+namespace terrainlight { class Map; }
 // Lighting values shared by every shader this frame
 struct FrameLight {
+    const terrainlight::Map* terrain = nullptr;   // the land's sun and shade (render/TerrainLight.h), or none
     SkyState sky;
     float fogDensity = 0.0f;       // the thin, clear haze
     float seamStart  = 0.0f;       // voxels: where the haze at the voxel / far-terrain border begins

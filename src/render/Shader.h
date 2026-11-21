@@ -63,15 +63,28 @@ public:
     }
 
 private:
+    // A line '#include "name"' is replaced by that file from the same
+    // folder (shared pieces: shaders/terrainlight.glsl)
     std::string readFile(const char* path) {
         std::ifstream f(path);
         if (!f.is_open()) {
             std::cerr << "Cannot open: " << path << "\n";
             return "";
         }
-        std::stringstream ss;
-        ss << f.rdbuf();
-        return ss.str();
+        std::string dir = path;
+        size_t slash = dir.find_last_of("/\\");
+        dir = slash == std::string::npos ? std::string() : dir.substr(0, slash + 1);
+        std::stringstream out;
+        for (std::string line; std::getline(f, line);) {
+            size_t a = line.find("#include \"");
+            if (a != std::string::npos && line.find_first_not_of(" \t") == a) {
+                size_t b = line.find('"', a + 10);
+                std::string inc = readFile((dir + line.substr(a + 10, b - a - 10)).c_str());
+                if (inc.empty()) return "";
+                out << inc << "\n";
+            } else out << line << "\n";
+        }
+        return out.str();
     }
 
     bool checkCompile(GLuint shader, const char* type) {

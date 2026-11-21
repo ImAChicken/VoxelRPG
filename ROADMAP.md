@@ -27,16 +27,10 @@ mark yours there.
      axe swing are done (CHANGELOG 2026-11-21). See "Server split".
    With it, keeping everyone (server and clients) as light as
    possible (Eddie, 2026-11-20):
-   - Occlusion culling for the main world's chunk sections (sections
-     buried in rock, hidden behind hills), and batching (multi-draw
-     instead of a call per section; 4 texture binds per section now).
-     The main pass is already frustum-culled per section (drawMesh);
-     the portal views now cull to their opening.
-   - Coloured foliage in the distance: the far terrain (FarTerrain,
-     lowres.dat summaries) shows trees and grass in their biome and
-     tint colours, not one flat green, so the seam to near chunks
-     doesn't change colour.
-   - Far worlds you only look into (portals) ticked at 10-20 Hz.
+   - Batching (multi-draw instead of a call per section; 4 texture
+     binds per section now). Occlusion culling, render scale, far
+     foliage colours, unseen worlds at half rate: done (CHANGELOG
+     2026-11-21, second pass).
    - (Done, CHANGELOG 2026-11-21: GPU times on F3, per-direction
      faces, near to far, one draw per body, far bodies without
      outlines, cached uniform locations.)
@@ -46,11 +40,16 @@ mark yours there.
      no GPU queries). Our sections are 128 cubed, too coarse for it to
      drop much: it wants sub-sections (32 cubed), which go with
      batching (one buffer, many small ranges).
-   - Far NPCs animate at a lower rate.
    - Portal views of far-off openings at lower resolution, refreshed
-     every few frames.
-   - Dynamic resolution as a setting for weak GPUs.
+     every few frames: needs each view drawn offscreen and pasted in
+     (the views are drawn straight into the frame through the
+     stencil now); render scale covers them meanwhile.
    (Chunk vertices are already 8 bytes; meshing is greedy.)
+   - Light from the land: done (CHANGELOG 2026-11-21). Next for it:
+     clouds drawn in the sky to go with the cloud shadows; edits and
+     buildings in the height map (from the chunk summaries); a
+     world looked into before you've been there has no map yet (lit
+     plain).
 
 ## Portals, still open (docs/dungeons.md step 7)
 - **Bug, fix untested in game:** at a grazing angle the far side
@@ -61,10 +60,10 @@ mark yours there.
   so confirm in game.
 - Gun portal flicker: the shallow-box fix may have cured it; unconfirmed.
 - Arrows and spells through portals; portals on floors and ceilings;
-  portals seen through portals (one level); occlusion culling and
-  batching for chunk draws (world and portal views).
-- Far worlds tick in full every frame: tick worlds you only look into
-  at 10-20 Hz if frames drop near gates.
+  portals seen through portals (one level); occlusion culling in
+  portal views and batching for chunk draws.
+- Far worlds you look into still tick in full (unseen ones step at
+  half rate): tick them at 10-20 Hz if frames drop near gates.
 
 ## Eddie's list (2026-11-20): worlds, portals and what they open up
 Wanted down the road (not started unless marked). Portals first: the
