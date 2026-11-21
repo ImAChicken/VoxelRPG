@@ -72,7 +72,7 @@ public:
 
     // ── Ground movement ───────────────────────────────────
     static constexpr float WALK_SPEED     = 30.0f;
-    static constexpr float SPRINT_SPEED   = 50.0f;
+    static constexpr float SPRINT_SPEED   = 60.0f;  // twice a walk (Eddie, 2026-11-20: was 50, not felt enough)
     static constexpr float CROUCH_SPEED   = 15.0f;
     static constexpr float GROUND_ACCEL   = 900.0f; // how fast you reach speed / stop
     static constexpr float AIR_ACCEL      = 30.0f;  // steering while airborne
@@ -175,6 +175,8 @@ public:
     // and the world it went in from ("": the same one): its trailing
     // half is still drawn going in there (main.cpp's portal bodies)
     glm::vec3 lastExitCentre{ 0.0f }, lastExitNormal{ 0.0f };
+    // a puppet's axe swing as the server says (seconds in, < 0 none): its pose
+    float puppetSwing = -1.0f;
     std::string lastPortalFrom;
     float radius() const { return RADIUS * scale; }
     void setScale(float s) {

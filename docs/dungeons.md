@@ -579,6 +579,9 @@ they're the core of the gameplay loop. Drops and loot come later.
      - A portal view only draws sections seen through its opening
        (`portalview::openingPlanes`, `OpenGLRenderer::narrowFrustum`).
        Script `dbg` prints draw counts.
+   - **Done (2026-11-20): a realm on the dedicated server** (servers,
+     slice 1): `server/RealmServer.h`; through the gate on a server the
+     client joins again in the crypt (not seamless on the client yet).
    - **Next:** floors and ceilings; projectiles; portals seen through portals;
      occlusion culling and batching (world and portal views);
      the server running several worlds; the hub world; doors and windows

@@ -4,6 +4,7 @@
 //
 // Run from the repo root (it reads data/registry, data/models and
 // data/animations).
+#include <tuple>
 #include "TestWorld.h"
 #include "character/AnimClips.h"
 #include "render/OutlineFx.h"
@@ -371,6 +372,46 @@ int main() {
         check(!swingAfterMove(0), "with no view delay, a target that moved away is missed");
         check(swingAfterMove(25), "seen 25 ticks late (lag + interpolation), the swing meets it where it was on screen");
         check(!swingAfterMove(3), "but only that far back: 3 ticks of delay doesn't reach before the move");
+    }
+
+    std::printf("parries at the defender's time (Simulation::landPending)\n");
+    {
+        // a player on a server (its view delay set) is hit before its
+        // guard's input has come in: the hit waits; the guard going up
+        // a moment later parries it, as it did on that player's screen
+        auto duel = [](int delayTicks, int guardAfter) {
+            World w;
+            glm::vec3 at(64.5f, (float)GROUND, 64.5f);
+            Player& a = w.player(at);
+            Player& b = w.player(at + glm::vec3(0, 0, -6));
+            a.facing = glm::vec3(0, 0, -1); b.facing = glm::vec3(0, 0, 1);
+            for (Player* p : { &a, &b }) {
+                p->inventory.setSlot(Inventory::FIRST_MAIN, gItems.find("iron_sword"), 1);
+                p->inventory.select(Inventory::FIRST_MAIN);
+            }
+            w.run(0.6f);
+            w.sim.takeEvents();
+            w.sim.setViewDelay(b.uuid, delayTicks);
+            HumanIntent in; in.attackLight = true;
+            w.sim.setIntent(a.uuid, in);
+            int contact = -1, landed = -1; bool parried = false;
+            const float hp = b.health;
+            for (int i = 0; i < 120 && landed < 0; i++) {
+                a.facing = glm::vec3(0, 0, -1); b.facing = glm::vec3(0, 0, 1);
+                if (contact < 0 && !w.sim.pendingHitsEmpty()) contact = i;
+                if (contact >= 0 && i == contact + guardAfter) { HumanIntent g; g.guard = true; w.sim.setIntent(b.uuid, g); }
+                w.sim.step(DT);
+                for (const SimEvent& e : w.sim.takeEvents())
+                    if (e.kind == SimEvent::Kind::Hit && e.a == a.uuid) { landed = i; parried = e.parried; }
+            }
+            return std::make_tuple(contact, landed, parried, b.health < hp);
+        };
+        auto [c0, l0, p0, hurt0] = duel(0, 2);
+        check(c0 < 0 && l0 >= 0 && !p0 && hurt0, "no delay: the hit lands at once (the guard after it is too late)");
+        auto [c1, l1, p1, hurt1] = duel(8, 3);
+        check(c1 >= 0 && l1 >= 0 && p1 && !hurt1, "8 ticks behind: the guard 3 ticks after the contact parries it");
+        auto [c2, l2, p2, hurt2] = duel(8, 100);
+        check(c2 >= 0 && l2 >= c2 + 6 && !p2 && hurt2, "  no guard: it lands once that time's up (" + std::to_string(l2 - c2) + " ticks)");
     }
 
     std::printf("lock-on (game/LockOn.h)\n");

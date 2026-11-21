@@ -48,7 +48,9 @@ public:
     //   look     its appearance
     //   heldId   held model in the right hand ("" = none)
     //   combat   fighting stance
-    void update(const Human& h, const Appearance& look, const std::string& heldId, bool combat, float dt) {
+    // (also the ragdoll's target: the pose the body would have, so the
+    // simulation drives its ragdoll, a server's with no renderer too)
+    void update(Human& h, const Appearance& look, const std::string& heldId, bool combat, float dt) {
         BodyPose& p = poses[h.uuid];
         seen.insert(h.uuid);
         if (!p.built || !(p.look == look)) {
@@ -70,6 +72,8 @@ public:
         p.turnPrev = p.turnNow;
         p.turnNow = pose.heldTurn;
         worldBoneMatrices(*p.model, pose, h.position, p.now);
+        h.ragdoll.setModel(*p.model);
+        h.ragdoll.setTarget(p.now);
         BoneMats rag;
         if (h.ragdoll.renderBones(1.0f, p.now, rag)) p.now = rag;     // knocked down: where it lies
         p.hasNow = true;

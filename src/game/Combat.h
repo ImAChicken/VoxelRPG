@@ -207,10 +207,14 @@ constexpr float PARRY_KNOCK     = 20.0f;   // vox/s the parried attacker is thro
 constexpr float EXPOSED_TIME    = 1.1f;    // s the parried attacker is open (no attacks, no guard)
 constexpr float RIPOSTE_DAMAGE  = 2.5f;    // × damage of a hit on an exposed body (and it falls)
 // poise
-constexpr float POISE_BASE      = 30.0f;   // a body's poise with nothing worn
-constexpr float POISE_PER_KG    = 1.5f;    // … plus this per kg of worn gear
+// (Eddie, 2026-11-20: poise broke too often; every pool is 3x what it
+// was, npcs.toml's too: POISE_SCALE at spawn. Hits' poise damage is
+// unchanged, so it takes 3x the hits; refills in the same time)
+constexpr float POISE_SCALE     = 3.0f;
+constexpr float POISE_BASE      = 30.0f * POISE_SCALE;   // a body's poise with nothing worn
+constexpr float POISE_PER_KG    = 1.5f * POISE_SCALE;    // … plus this per kg of worn gear
 constexpr float POISE_DELAY     = 3.0f;    // s without hits before it refills
-constexpr float POISE_REFILL    = 40.0f;   // per second, once refilling
+constexpr float POISE_REFILL    = 40.0f * POISE_SCALE;   // per second, once refilling
 constexpr float FLINCH_KNOCK    = 5.0f;    // vox/s a hit gives a body whose poise holds
 constexpr float STAGGER_MIN     = 14.0f;   // a poise break moves the body at least this much…
 constexpr float KNOCKDOWN_KNOCK = 42.0f;   // …and a knockdown at least this (above Ragdoll::KNOCKDOWN_DV)

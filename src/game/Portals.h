@@ -257,6 +257,67 @@ public:
         realm.save();
     }
 
+    // ── On a server's client (server/RealmServer.h) ──────
+    // The realm as the server tells it (Msg::RealmState): the gates in
+    // the world you're in, the open instance, its clock, whether you're
+    // in it. The menu opens from it the same way; what's picked goes to
+    // the server (ClientWorld::gate), not choose()
+    //   here <instance id | ->
+    //   inst <id> <kind> <seconds left> <cleared> <closing>
+    //   gate <x> <y> <z> <axis> <side>
+    bool remote = false;
+    std::vector<Gate> remoteGates;
+    void readRemote(const std::string& text) {
+        remote = true;
+        realm.main = "server"; realm.instances.clear(); realm.here.clear();
+        realm.hasGate = realm.gateBuilt = false;
+        remoteGates.clear();
+        remoteLinks.clear();
+        std::istringstream in(text);
+        for (std::string line; std::getline(in, line);) {
+            std::istringstream ls(line);
+            std::string k; ls >> k;
+            if (k == "here") { std::string h; ls >> h; realm.here = h == "-" ? std::string() : h; }
+            else if (k == "world") { ls >> remoteWorld; }
+            else if (k == "inst") {
+                realm::Instance i; int c = 0, cl = 0;
+                if (ls >> i.id >> i.kind >> i.left >> c >> cl) { i.cleared = c; i.closing = cl; i.warned10 = i.warned1 = true; realm.instances.push_back(i); }
+            } else if (k == "link") {
+                PortalLink l; int ba = 0, bb = 0;
+                auto end = [&](PortalEnd& e, int& back) {
+                    return (bool)(ls >> e.centre.x >> e.centre.y >> e.centre.z >> e.normal.x >> e.normal.y >> e.normal.z >> e.half.x >> e.half.y >> back);
+                };
+                if (ls >> l.kind >> l.b.world && end(l.a, ba) && end(l.b, bb)) {
+                    l.a.back = (PortalEnd::Back)std::clamp(ba, 0, 2); l.b.back = (PortalEnd::Back)std::clamp(bb, 0, 2);
+                    remoteLinks.push_back(l);
+                }
+            } else if (k == "gate") {
+                Gate g;
+                if (ls >> g.base.x >> g.base.y >> g.base.z >> g.axis >> g.side) remoteGates.push_back(g);
+            }
+        }
+    }
+    static std::string remoteLine(const Gate& g) {
+        return "gate " + std::to_string(g.base.x) + " " + std::to_string(g.base.y) + " " + std::to_string(g.base.z) + " " +
+               std::to_string(g.axis) + " " + std::to_string(g.side) + "\n";
+    }
+    //   link <kind> <far world> <a: centre normal half back> <b: the same>
+    static std::string remoteLink(const PortalLink& l) {
+        std::ostringstream o;
+        auto end = [&](const PortalEnd& e) {
+            o << " " << e.centre.x << " " << e.centre.y << " " << e.centre.z << " " << e.normal.x << " " << e.normal.y << " " << e.normal.z
+              << " " << e.half.x << " " << e.half.y << " " << (int)e.back;
+        };
+        o << "link " << l.kind << " " << l.b.world;
+        end(l.a); end(l.b);
+        o << "\n";
+        return o.str();
+    }
+    // the links read (b.world: the server's name for the far world)
+    std::vector<PortalLink> remoteLinks;
+    std::string remoteWorld;                    // the server's name for the world you're in
+    void leaveRemote() { remoteLinks.clear(); remote = false; remoteGates.clear(); realm = realm::Realm(); menuOpen = false; }
+
     // ── The menu ──────────────────────────────────────────
     // Interact pressed: true if a gate is close enough (the menu opens)
     //   look  where the camera looks (a gate further off counts when you look at it)
@@ -267,6 +328,10 @@ public:
     }
     bool gateInReach(GameSession& s, const Player& p, glm::vec3 look = glm::vec3(0.0f)) const {
         if (!realm.loaded() || travel.pending) return false;
+        if (remote) {
+            for (const Gate& g : remoteGates) if (g.near(p.position, look)) return true;
+            return false;
+        }
         if (!inInstance()) return realm.hasGate && realm.gateBuilt && mainGate().near(p.position, look);
         if (const dungeon::Run* r = s.dungeon())
             return (r->hasEntryGate() && r->entryGate().near(p.position, look)) || (r->exitOpen() && r->exitGateRef().near(p.position, look));

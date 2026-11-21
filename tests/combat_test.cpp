@@ -153,14 +153,15 @@ int main() {
         stand(a, {0, 0, 0}, F); stand(b, {0, 0, -8}, -F);
         a.infiniteStamina = true;
         int hits = 0; bool broke = false;
-        for (int n = 0; n < 6 && !broke; n++) {
+        const int need = (int)std::ceil(combat::POISE_BASE / atk(AttackKind::Light).poise - 1e-4f);
+        for (int n = 0; n < need + 3 && !broke; n++) {
             auto ev = runFor(0.7f, {&a, &b}, {press(true)});
             for (auto& e : ev) { hits++; if (e.poiseBroken) broke = true; }
             if (!broke) check(hitSpeed(b) < Ragdoll::KNOCKDOWN_DV && b.react == React::Flinch, "hit " + std::to_string(hits) + ": a flinch");
             b.hitstun = 0.0f; b.react = React::None;
             b.hits.clear();
         }
-        check(broke && hits == 3, "the third light hit breaks 30 poise (" + std::to_string(hits) + ")");
+        check(broke && hits == need, "light hits break a body's poise on the " + std::to_string(need) + "th (" + std::to_string(hits) + ")");
         check(b.poise == b.maxPoise, "which refills once broken");
         // after a while without hits it refills on its own
         b.poise = 5.0f; b.sincePoiseHit = 0.0f;

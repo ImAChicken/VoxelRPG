@@ -8,7 +8,7 @@ toolbar_opacity = 1   # 0.1 - 1.0
 mouse_sensitivity = 0.1   # 0.02 - 0.4
 
 [view]
-chunk_distance  = 6   # chunks drawn as voxels, 2 - 16
+chunk_distance  = 7   # chunks drawn as voxels, 2 - 16
 render_distance = 160   # distant terrain, chunks, 16 - 160 (160 = whole world)
 eye_height      = 16   # first-person eye height, voxels (4 in each), 13 - 17.5
 
@@ -26,6 +26,11 @@ roofs  = 1   # 0 plain voxels, 1 smooth: sloped, with courses and overhanging ea
 [game]
 autosave = 1   # 0 off, 1 on: worlds save every few minutes (dev worlds never do)
 control_hints = 1   # 0 off, 1 on: what the buttons do now, bottom right
+rumble = 2   # 0 off, 1 light, 2 full: the controller shakes on hits
+camera_shake = 1   # 0 off .. 2 double: hits shake the camera
+damage_numbers = 1   # 0 off, 1 on: damage pops up where a hit lands
+particles = 2   # 0 off, 1 fewer, 2 all: sparks, dust and splats
+light_fade = 1   # 0 classic (squared), 1 gentle: how torch light fades
 
 [sound]
 master   = 0.75   # 0 - 1

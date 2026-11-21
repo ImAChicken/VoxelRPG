@@ -485,9 +485,13 @@ using CanHitFn = std::function<bool(const Human&, const Human&)>;
 // limbs for this attacker (lag compensation: as the attacker saw
 // it); null: as it is now (poseOf)
 using TargetPoseFn = std::function<bool(const Human&, const Human&, hitshape::Posed&)>;
+// defer: a hit a moment from being judged (true: it's taken, not landed
+// now; Simulation's pending hits: a player on a server, whose guard
+// may already be up on their screen)
+using DeferFn = std::function<bool(Human& a, Human& b, const Contact* c)>;
 inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear, std::vector<HitEvent>& out,
                         const CanHitFn& canHit = nullptr, const PoseFn& poseOf = nullptr,
-                        const TargetPoseFn& targetPose = nullptr) {
+                        const TargetPoseFn& targetPose = nullptr, const DeferFn& defer = nullptr) {
     std::vector<std::pair<int, hitshape::OBB>> limbs;
     for (Human* a : bodies) {
         if (!a || !a->attack.active() || a->dead()) continue;
@@ -532,6 +536,7 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
                 if (invulnerable(*b)) { dodged(*a, *b, out); continue; }
                 if (clear && !clear(a->bodyPoint(0.6f), c.point)) continue;   // no hits through walls
                 st.hitIds.push_back(b->uuid);
+                if (defer && defer(*a, *b, &c)) continue;
                 out.push_back(land(*a, *b, &c));
                 if (!a->attack.active()) break;         // parried: the swing is over
                 continue;
@@ -540,6 +545,7 @@ inline void resolveHits(const std::vector<Human*>& bodies, const ClearFn& clear,
             if (invulnerable(*b)) { dodged(*a, *b, out); continue; }   // stays live: can still hit when the roll ends
             if (clear && !clear(a->bodyPoint(0.6f), b->bodyPoint(0.6f))) continue;
             st.hitIds.push_back(b->uuid);
+            if (defer && defer(*a, *b, nullptr)) continue;
             out.push_back(land(*a, *b));
             if (!a->attack.active()) break;             // parried: the swing is over
         }

@@ -1,6 +1,8 @@
 #pragma once
 #include <glad/glad.h>
 #include <cstddef>
+#include <algorithm>
+#include <glm/glm.hpp>
 #include "render/Mesher.h"
 
 // ── ChunkMesh — one chunk's triangles on the GPU ──────────
@@ -20,7 +22,7 @@ public:
         : vao(o.vao), vbo(o.vbo)
         , opaqueCount(o.opaqueCount)
         , cutoutCount(o.cutoutCount), paneCount(o.paneCount)
-    { o.vao = 0; o.vbo = 0; o.opaqueCount = 0; o.cutoutCount = 0; o.paneCount = 0; }
+    { std::copy(o.faceStart, o.faceStart + 7, faceStart); o.vao = 0; o.vbo = 0; o.opaqueCount = 0; o.cutoutCount = 0; o.paneCount = 0; }
 
     ChunkMesh& operator=(ChunkMesh&& o) noexcept {
         if (this != &o) {
@@ -29,6 +31,7 @@ public:
             opaqueCount = o.opaqueCount;
             cutoutCount = o.cutoutCount;
             paneCount = o.paneCount;
+            std::copy(o.faceStart, o.faceStart + 7, faceStart);
             o.vao = 0; o.vbo = 0;
             o.opaqueCount = 0; o.cutoutCount = 0; o.paneCount = 0;
         }
@@ -37,6 +40,8 @@ public:
 
     void upload(const ChunkMeshData& data) {
         opaqueCount = (GLsizei)data.opaqueCount;
+        for (int f = 0; f < 7; f++) faceStart[f] = (GLint)data.faceStart[f];
+        if (faceStart[6] != opaqueCount) { for (int f = 0; f < 6; f++) faceStart[f] = 0; faceStart[6] = opaqueCount; }   // (no ranges: all one)
         paneCount = (GLsizei)data.paneCount;
         cutoutCount = (GLsizei)(data.vertices.size()
                                 - data.opaqueCount - data.paneCount);
@@ -74,11 +79,27 @@ public:
         glBindVertexArray(0);
     }
 
-    // Solid blocks — draw with back-face culling on
-    void drawOpaque() const {
-        if (vao == 0 || opaqueCount == 0) return;
+    // Solid blocks — draw with back-face culling on. cam: the camera
+    // from the section's corner (vox): a direction whose faces all
+    // face away from it is skipped (Face order: +y -y +z -z -x +x).
+    // Returns the vertices drawn.
+    GLsizei drawOpaque(glm::vec3 cam = glm::vec3(64.0f)) const {
+        if (vao == 0 || opaqueCount == 0) return 0;
+        const float S = 128.0f;                                 // (VOXEL_DIM: a section's size)
+        const bool see[6] = { cam.y > 0.0f, cam.y < S, cam.z > 0.0f, cam.z < S, cam.x < S, cam.x > 0.0f };
+        GLint first[6]; GLsizei count[6]; int n = 0; GLsizei drawn = 0;
+        for (int f = 0; f < 6; f++) {
+            GLsizei c = faceStart[f + 1] - faceStart[f];
+            if (!see[f] || c <= 0) continue;
+            if (n > 0 && first[n - 1] + count[n - 1] == faceStart[f]) count[n - 1] += c;     // (next to the last: one run)
+            else { first[n] = faceStart[f]; count[n] = c; n++; }
+            drawn += c;
+        }
+        if (n == 0) return 0;
         glBindVertexArray(vao);
-        glDrawArrays(GL_TRIANGLES, 0, opaqueCount);
+        if (n == 1) glDrawArrays(GL_TRIANGLES, first[0], count[0]);
+        else glMultiDrawArrays(GL_TRIANGLES, first, count, n);
+        return drawn;
     }
 
     // Leaves and other cut-out blocks — draw two-sided
@@ -106,12 +127,14 @@ public:
     bool    hasCutout()   const { return cutoutCount > 0; }
     bool    hasPanes()    const { return paneCount > 0; }
     GLsizei vertexCount() const { return opaqueCount + cutoutCount + paneCount; }
+    GLsizei opaqueVertices() const { return opaqueCount; }
 
 private:
     GLuint  vao = 0, vbo = 0;
     GLsizei opaqueCount = 0;
     GLsizei cutoutCount = 0;
     GLsizei paneCount = 0;
+    GLint   faceStart[7] = { 0, 0, 0, 0, 0, 0, 0 };
 
     void releaseBuffers() {
         if (vao) { glDeleteVertexArrays(1, &vao); vao = 0; }

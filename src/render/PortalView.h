@@ -22,6 +22,7 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <cmath>
+#include <cstdlib>
 
 namespace portalview {
 
@@ -92,7 +93,21 @@ inline int openingPlanes(const PortalEnd& O, glm::vec3 eye, glm::vec4 out[5]) {
 }
 constexpr float OPENING_OUT = 0.05f, OPENING_BEHIND = 1.2f;
 
-inline void begin(BoxRenderer& boxes, const glm::mat4& vp, const PortalEnd& E) {
+// The deep box behind the surface is only for the camera passing
+// through it (its near plane cutting the opening): from further off its
+// sides would show the far side past the edges of the frame, where no
+// line of sight goes through the opening (a sliver beside a gate's arch)
+inline bool passingThrough(const PortalEnd& E, glm::vec3 eye) {
+    glm::vec3 l = E.local(eye);
+    return l.z < 1.0f && l.z > -OPENING_BEHIND && E.inside(l, 0.0f);
+}
+// The camera can be a little past an opening before the body is (the
+// eye ahead of the body's middle, which is what crosses): until the body
+// goes through, the view through the opening fills that tunnel behind it
+// (main.cpp: a 'tunnel' view; begin's behind)
+constexpr float TUNNEL = 4.0f;
+inline void begin(BoxRenderer& boxes, const glm::mat4& vp, const PortalEnd& E, glm::vec3 eye, float behindOverride = -1.0f) {
+    const float behind = behindOverride >= 0.0f ? behindOverride : passingThrough(E, eye) ? OPENING_BEHIND : 0.0f;
     glEnable(GL_STENCIL_TEST);
     glStencilMask(0xFF);
     glClearStencil(0);
@@ -108,8 +123,7 @@ inline void begin(BoxRenderer& boxes, const glm::mat4& vp, const PortalEnd& E) {
     glPolygonOffset(-1.0f, -8.0f);          // (in front of the wall it's on, even far off)
     // (only its face where you're in front; the box behind the surface
     // only once you're close, walking through)
-    drawOpening(boxes, vp, E, OPENING_OUT, 0.0f);
-    drawOpening(boxes, vp, E, OPENING_OUT, OPENING_BEHIND);
+    drawOpening(boxes, vp, E, OPENING_OUT, behind);
     glDisable(GL_POLYGON_OFFSET_FILL);
     // 2. there, the depth goes to the far plane
     glStencilFunc(GL_EQUAL, 1, 0xFF);
@@ -117,7 +131,7 @@ inline void begin(BoxRenderer& boxes, const glm::mat4& vp, const PortalEnd& E) {
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_ALWAYS);
     glDepthRange(1.0, 1.0);
-    drawOpening(boxes, vp, E, OPENING_OUT, OPENING_BEHIND);
+    drawOpening(boxes, vp, E, OPENING_OUT, behind);
     glDepthRange(0.0, 1.0);
     glDepthFunc(GL_LESS);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);

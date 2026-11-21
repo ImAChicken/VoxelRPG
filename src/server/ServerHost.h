@@ -40,6 +40,15 @@
 // the session's staging (GameSession::save's extra), and when they
 // leave. A new name starts at the spawn in the world's default mode.
 //
+// Several worlds (server/RealmServer.h): one host per world. Only the
+// main world's host takes new connections (listener); a player whose
+// file says it's in another world (realm_world=) is handed to that
+// world's host (route, then takeHandoffs). A player that goes through
+// a portal into another world is moved there by the router (release
+// here, expect there) and its client told to join again (Msg::Travel).
+// Player files are kept in one folder for every world (playerFolder:
+// the main world's).
+//
 // What a client generates itself: every chunk the seed makes. What
 // it's sent: the chunks that differ (MODIFIED: saved in the world,
 // or edited since), as whole columns once, then voxel by voxel.
@@ -61,6 +70,13 @@ public:
         float       requestBudget = REQUEST_BURST;      // requests it may still make now
         uint32_t    lastRequestTick = 0;
         uint32_t    lastHoe = 0, lastBlast = 0;         // ticks (their cooldowns)
+        std::string look;                               // (from its Hello: kept for a hand-over)
+        ServerHost* handTo = nullptr;                   // belongs in that world: handed over after this poll
+        std::string realmSent;                          // the realm state it last had
+        uint32_t    openBox = 0;                        // the chest it has open (Msg::Container)
+        bool        watching = false;                   // a watch connection: no body, sees round watchAt (Hello's watch)
+        glm::vec3   watchAt{ 0.0f };
+        uint32_t    lastGateTick = 0;
     };
 
     // Requests: at most REQUESTS_PER_SECOND, in bursts of
@@ -79,7 +95,25 @@ public:
     std::string hostName = "host";         // a player not from a connection (the game hosting)
     std::function<void(const std::string&)> log = [](const std::string& s) { std::cout << s << "\n"; };
 
-    ServerHost(GameSession& s, net::IListener& l) : session(s), listener(l) {
+    // Several worlds (RealmServer): where a joining player belongs
+    // (nullptr: here). fileWorld is its file's realm_world ("" none)
+    std::function<ServerHost*(const std::string& name, const std::string& fileWorld)> route;
+    std::function<ServerHost*(const std::string& world)> routeWatch;   // a watch connection's world's host
+    std::string playerFolder;              // players/<name>.dat under here (default: this world's folder)
+    // Where a player whose file is from another world (gone: an instance
+    // that closed) stands here (RealmServer: by the main gate)
+    std::function<glm::vec3()> arrivalFromElsewhere;
+    // The realm (RealmServer): what this world's players are told of it
+    // (sent when it changes), and an option one picked at a gate (what
+    // happened, said back to them)
+    std::string realmText;
+    std::function<std::string(Player&, const std::string& action)> onGate;
+    std::string worldName() const { return session.name(); }
+    GameSession& world() { return session; }
+
+    ServerHost(GameSession& s, net::IListener& l) : ServerHost(s, &l) {}
+    ServerHost(GameSession& s, net::IListener* l) : session(s), listener(l) {
+        playerFolder = s.folder();
         // every changed voxel: remembered, and sent on
         session.editor->onVoxel = [this](glm::ivec3 p, uint16_t id) {
             int cx = ChunkManager::chunkCoord(p.x), cz = ChunkManager::chunkCoord(p.z);
@@ -100,23 +134,117 @@ public:
 
     const std::vector<std::unique_ptr<Client>>& clients() const { return list; }
     uint32_t tick() const { return serverTick; }
-    size_t players() const { size_t n = 0; for (auto& c : list) n += c->joined; return n; }
+    size_t players() const { size_t n = 0; for (auto& c : list) n += c->joined && !c->watching; return n; }
 
     // ── Incoming ──────────────────────────────────────────
     void poll() {
-        listener.poll();
-        while (auto c = listener.accept()) {
-            auto cl = std::make_unique<Client>();
-            cl->conn = c;
-            list.push_back(std::move(cl));
+        if (listener) {
+            listener->poll();
+            while (auto c = listener->accept()) {
+                auto cl = std::make_unique<Client>();
+                cl->conn = c;
+                list.push_back(std::move(cl));
+            }
         }
         for (size_t i = 0; i < list.size();) {
             Client& c = *list[i];
             net::Packet pk;
-            while (c.conn->connected() && c.conn->receive(pk)) handle(c, pk);
+            while (c.conn->connected() && !c.handTo && c.conn->receive(pk)) handle(c, pk);
+            if (c.handTo) { handoffs.push_back({ std::move(list[i]), c.handTo }); list.erase(list.begin() + i); continue; }
             if (!c.conn->connected()) { leave(c); list.erase(list.begin() + i); continue; }
             i++;
         }
+        // players expected from another world that never came back
+        for (auto it = expected.begin(); it != expected.end();) {
+            if (serverTick > it->second.until) {
+                Client ghost; ghost.name = it->first; ghost.player = it->second.player; ghost.joined = true;
+                log(it->first + " didn't come through: saved");
+                leave(ghost);
+                it = expected.erase(it);
+            } else ++it;
+        }
+    }
+
+    // ── Hand-overs between worlds (RealmServer) ───────────
+    struct Handoff { std::unique_ptr<Client> client; ServerHost* to = nullptr; };
+    std::vector<Handoff> takeHandoffs() { std::vector<Handoff> h; h.swap(handoffs); return h; }
+    // A connection that said Hello here but belongs in this world: it joins
+    void adopt(std::unique_ptr<Client> c) {
+        c->handTo = nullptr;
+        Client& cl = *c;
+        list.push_back(std::move(c));
+        join(cl, cl.name, cl.look);
+    }
+    // This player went through a portal out of this world (its body is
+    // already in the other world's simulation): the client is told to
+    // join again, and dropped here without a leave (no despawn of the
+    // body, no save: it lives on over there)
+    bool release(const Player* p) {
+        for (size_t i = 0; i < list.size(); i++) {
+            Client& c = *list[i];
+            if (c.player != p) continue;
+            c.conn->send(proto::text(proto::Msg::Travel, ""), net::Channel::Reliable);
+            auto gone = proto::despawn(p->uuid);
+            for (auto& o : list) if (o.get() != &c && o->joined && o->known.erase(p->uuid)) o->conn->send(gone, net::Channel::Reliable);
+            list.erase(list.begin() + (long)i);
+            return true;
+        }
+        return false;
+    }
+    // Seamless (the client watches the far side already): this player's
+    // connection stays, watching this world round 'at' (the portal it went
+    // through), told so (Msg::Swap: the world it's in now, the way through)
+    bool demote(const Player* p, glm::vec3 at, const std::string& nowIn, const glm::mat4& through) {
+        for (auto& cp : list) {
+            Client& c = *cp;
+            if (c.player != p) continue;
+            c.conn->send(proto::swapMsg(nowIn, through), net::Channel::Reliable);
+            auto gone = proto::despawn(p->uuid);
+            for (auto& o : list) if (o.get() != &c && o->joined && o->known.erase(p->uuid)) o->conn->send(gone, net::Channel::Reliable);
+            c.player = nullptr;
+            c.watching = true; c.watchAt = at;
+            c.inputs.clear(); c.held = HumanIntent(); c.lastUsed = 0;
+            return true;
+        }
+        return false;
+    }
+    // ... and its watch connection here becomes its player connection
+    Client* watcherNamed(const std::string& name) {
+        for (auto& c : list) if (c->watching && c->joined && c->name == name) return c.get();
+        return nullptr;
+    }
+    void promote(Client& c, Player& p) {
+        c.watching = false;
+        c.player = &p;
+        c.held = HumanIntent(); c.lastUsed = 0;          // (its inputs sent while it watched: used now)
+        c.invSent.clear();                          // (its inventory goes with the next snapshot)
+        c.hands.chests = &session.chests;
+        c.hands.wood = nullptr;
+        auto conn = c.conn;
+        c.hands.onSay = [conn](const std::string& s) { conn->send(proto::text(proto::Msg::Notice, s), net::Channel::Reliable); };
+        c.known.erase(p.uuid);
+        log(c.name + " came through to " + session.name() + " (seamless)");
+    }
+    // ... and here's where it went: its body (already in this world's
+    // simulation) waits for its client to join again (a few seconds)
+    static constexpr uint32_t EXPECT_TICKS = 60 * 30;
+    void expect(const std::string& name, Player* p) { expected[name] = { p, serverTick + EXPECT_TICKS }; }
+    bool expecting(const std::string& name) const { return expected.count(name) > 0; }
+    // A body expected here that's going on somewhere else: its name ("" none)
+    std::string forget(const Player* p) {
+        for (auto it = expected.begin(); it != expected.end(); ++it)
+            if (it->second.player == p) { std::string n = it->first; expected.erase(it); return n; }
+        return "";
+    }
+    // A line for everyone playing in this world
+    void tell(const std::string& s) {
+        for (auto& c : list) if (c->joined) c->conn->send(proto::text(proto::Msg::Notice, s), net::Channel::Reliable);
+    }
+    // Is this body one of this host's players (joined or on its way)?
+    bool hasPlayer(const Player* p) const {
+        for (auto& c : list) if (c->player == p) return true;
+        for (auto& e : expected) if (e.second.player == p) return true;
+        return false;
     }
 
     // Each joined player's inputs for this tick. One body step per
@@ -207,6 +335,9 @@ public:
         }
         if (serverTick % proto::SNAPSHOT_EVERY == 0)
             for (auto& c : list) if (c->joined) sendSnapshot(*c);
+        // the realm, when it's changed (its clock: once a second)
+        for (auto& c : list)
+            if (c->joined && c->realmSent != realmText) { c->conn->send(proto::text(proto::Msg::RealmState, realmText), net::Channel::Reliable); c->realmSent = realmText; }
     }
 
     // What happened this tick (after afterStep), for a host that
@@ -232,8 +363,11 @@ public:
 
 private:
     GameSession& session;
-    net::IListener& listener;
+    net::IListener* listener = nullptr;
     std::vector<std::unique_ptr<Client>> list;
+    std::vector<Handoff> handoffs;
+    struct Expected { Player* player = nullptr; uint32_t until = 0; };
+    std::map<std::string, Expected> expected;
     std::set<std::pair<int, int>> modified;
     std::vector<proto::VoxelEdit> pendingEdits;
     std::vector<SimEvent> events;
@@ -248,6 +382,10 @@ private:
     void handle(Client& c, const net::Packet& pk) {
         wire::Reader r(pk.data);
         auto kind = (proto::Msg)r.u8();
+        // (a watcher only listens; its inputs are kept: a client that saw itself
+        // go through a portal sends them here before this becomes its player
+        // connection, and they're used from then on: promote)
+        if (c.watching && kind != proto::Msg::Bye && kind != proto::Msg::Input) return;
         switch (kind) {
         case proto::Msg::Hello: {
             if (c.joined) return;
@@ -257,8 +395,23 @@ private:
                 return refuse(c, "version mismatch (server " + std::to_string(proto::VERSION) + ", you " + std::to_string(h.version) + ")");
             std::string name = safeName(h.name);
             if (name.empty()) return refuse(c, "a name is needed (letters, digits, - and _)");
+            if (!h.watch.empty()) {                      // a watch connection (the far side of a portal)
+                std::istringstream ws(h.watch);
+                std::string world; glm::vec3 at;
+                if (!(ws >> world >> at.x >> at.y >> at.z)) return refuse(c, "garbled watch");
+                ServerHost* to = routeWatch ? routeWatch(world) : (world == session.name() ? this : nullptr);
+                if (!to) return refuse(c, "no world " + world + " here");
+                c.name = name; c.watching = true; c.watchAt = at;
+                if (to != this) { c.handTo = to; return; }
+                join(c, name, "");
+                return;
+            }
             for (auto& o : list) if (o.get() != &c && o->joined && o->name == name) return refuse(c, name + " is already playing");
             if ((int)players() >= maxPlayers) return refuse(c, "the server is full");
+            c.name = name; c.look = h.look;
+            if (route) {
+                if (ServerHost* to = route(name, fileWorld(name)); to && to != this) { c.handTo = to; return; }
+            }
             join(c, name, h.look);
             break;
         }
@@ -298,6 +451,20 @@ private:
             }
             requestsDone++;
             c.hands.act(q, *c.player, *session.editor, *session.structs);
+            break;
+        }
+        case proto::Msg::Gate: {
+            if (!c.joined || !c.player || !onGate) return;
+            std::string action = r.str(128);
+            if (!r.ok() || (c.lastGateTick && serverTick - c.lastGateTick < 20)) return;     // (twice in a third of a second: dropped)
+            c.lastGateTick = serverTick;
+            std::string said = onGate(*c.player, action);
+            if (!said.empty()) c.conn->send(proto::text(proto::Msg::Notice, said), net::Channel::Reliable);
+            break;
+        }
+        case proto::Msg::Container: {
+            if (!c.joined || !c.player) return;
+            container(c, r.str(1 << 16));
             break;
         }
         case proto::Msg::Bye: c.conn->close(); break;
@@ -356,16 +523,33 @@ private:
     std::string playerPath(const Client& c, bool forWrite, const std::string& stage = "") const {
         std::filesystem::path rel = std::filesystem::path("players") / (c.name + ".dat");
         if (forWrite) return (std::filesystem::path(stage) / rel).string();
-        return savestage::readPath(session.folder(), rel).string();
+        return savestage::readPath(playerFolder, rel).string();
     }
     void writePlayer(const std::string& stage, const Client& c) {
         std::filesystem::create_directories(std::filesystem::path(stage) / "players");
         std::ofstream f(playerPath(c, true, stage));
         c.player->write(f);
+        f << "realm_world=" << session.name() << "\n";       // (which world its position is in: RealmServer)
+    }
+    // the world a player's file says it's in ("" none)
+    std::string fileWorld(const std::string& name) const {
+        std::ifstream f(savestage::readPath(playerFolder, std::filesystem::path("players") / (name + ".dat")));
+        std::string l, w;
+        while (std::getline(f, l)) if (l.rfind("realm_world=", 0) == 0) w = l.substr(12);
+        return w;
     }
 
     void join(Client& c, const std::string& name, const std::string& look) {
         c.name = name;
+        if (c.watching) { welcomeWatcher(c); return; }
+        // back from a portal: its body is here already
+        if (auto ex = expected.find(name); ex != expected.end()) {
+            c.player = ex->second.player;
+            expected.erase(ex);
+            welcome(c, *c.player);
+            log(name + " came through to " + session.name());
+            return;
+        }
         Player& p = session.sim.addPlayer();
         c.player = &p;
         glm::vec3 spawn = glm::vec3(session.gen->spawnPoint(session.world->sizeX(), session.world->sizeZ()));
@@ -374,11 +558,16 @@ private:
         p.position = spawn + glm::vec3(0.0f, 2.0f, 0.0f);
         std::ifstream f(playerPath(c, false));
         bool returning = (bool)f;
+        const std::string was = returning ? fileWorld(name) : std::string();
         if (returning) {
             std::stringstream ss; ss << f.rdbuf();
             proto::kvRead(ss.str(), [&](const std::string& k, const std::string& v) { p.read(k, v); });
             p.inventory.finishLoad();
             p.devInventory.finishLoad();
+            if (!was.empty() && was != session.name()) {     // its position was in a world that's gone
+                p.position = arrivalFromElsewhere ? arrivalFromElsewhere() : spawn + glm::vec3(0.0f, 2.0f, 0.0f);
+                p.velocity = glm::vec3(0.0f);
+            }
         } else {
             proto::kvRead(look, [&](const std::string& k, const std::string& v) { p.appearance.read(k, v); });
             // server.toml's starter_kit, or the game's kit (kits.toml)
@@ -386,6 +575,23 @@ private:
             for (const std::string& item : starterKit) kit.push_back({ item, 1 });
             Kits::give(p.inventory, kit.empty() ? gKits.player : kit, true);
         }
+        welcome(c, p);
+        log(name + (returning ? " joined (welcome back)" : " joined (new)") + ", " + std::to_string(players()) + " playing");
+    }
+    // A watch connection: the world (no body of its own), what's modified
+    void welcomeWatcher(Client& c) {
+        c.joined = true;
+        proto::Welcome w;
+        w.you = 0;
+        w.worldName = session.info.getName();
+        { std::ifstream wf(session.folder() + "/world.vxrp"); std::stringstream ss; ss << wf.rdbuf(); w.worldInfo = ss.str(); }
+        w.serverTick = serverTick;
+        w.names = proto::localNames();
+        c.conn->send(proto::welcome(w), net::Channel::Reliable);
+        c.conn->send(proto::modified(std::vector<std::pair<int, int>>(modified.begin(), modified.end())), net::Channel::Reliable);
+        log(c.name + " watching " + session.name());
+    }
+    void welcome(Client& c, Player& p) {
         c.invSent = invText(p);
         c.joined = true;
         // its requests: done for it, what's said sent back
@@ -403,12 +609,11 @@ private:
         c.conn->send(proto::welcome(w), net::Channel::Reliable);
         // the columns that differ from the seed: the client waits for these
         c.conn->send(proto::modified(std::vector<std::pair<int, int>>(modified.begin(), modified.end())), net::Channel::Reliable);
-        log(name + (returning ? " joined (welcome back)" : " joined (new)") + ", " + std::to_string(players()) + " playing");
     }
 
     void leave(Client& c) {
         if (!c.joined || !c.player) return;
-        std::string stage = savestage::stageDir(session.folder()).string();
+        std::string stage = savestage::stageDir(playerFolder).string();
         writePlayer(stage, c);                       // staged, committed with the world's next commit
         auto gone = proto::despawn(c.player->uuid);
         for (auto& o : list) if (o.get() != &c && o->joined && o->known.erase(c.player->uuid)) o->conn->send(gone, net::Channel::Reliable);
@@ -418,10 +623,84 @@ private:
         c.joined = false;
     }
 
+    // ── Chests (Msg::Container) ───────────────────────────
+    // open: in reach, it's sent (ContainerState); set: the chest's and the
+    // player's items as the client arranged them, taken if nothing was
+    // made or lost (the same items between the two) and it isn't a
+    // showcase, else the truth is sent back; close
+    static constexpr float BOX_REACH = 48.0f;          // vox from the chest
+    const StructureInstance* boxAt(uint32_t id, const StructureType** type) {
+        const StructureInstance* found = nullptr;
+        session.structs->forEachInstance([&](const StructureInstance& si) { if (si.id == id) found = &si; });
+        if (!found) return nullptr;
+        const StructureType* t = gStructures.get(found->type);
+        if (!t || t->slots <= 0) return nullptr;
+        if (type) *type = t;
+        return found;
+    }
+    void sendBox(Client& c, uint32_t id, Container& cc) {
+        std::ostringstream o;
+        o << id << "\n";
+        cc.write(o, "c");
+        c.conn->send(proto::text(proto::Msg::ContainerState, o.str()), net::Channel::Reliable);
+    }
+    static void countInto(const Inventory& inv, std::map<uint16_t, long>& n, int sign) {
+        for (const ItemStack& s : inv.slots) if (!s.empty()) n[s.itemID] += sign * (long)s.count;
+    }
+    void container(Client& c, const std::string& text) {
+        std::istringstream in(text);
+        std::string op; uint32_t id = 0;
+        in >> op >> id;
+        if (op == "close") { c.openBox = 0; return; }
+        const StructureType* t = nullptr;
+        const StructureInstance* si = boxAt(id, &t);
+        if (!si || glm::length(glm::vec3(si->origin) - c.player->position) > BOX_REACH) { c.openBox = 0; return; }
+        Container& cc = session.chests.get(id, *t);
+        if (op == "open") { cc.read(); c.openBox = id; sendBox(c, id, cc); return; }
+        if (op != "set" || id != c.openBox) return;
+        // the two as the client has them
+        Inventory box; box.storage = true; box.capacity = cc.read().capacity;
+        Inventory mine;
+        std::string line;
+        std::getline(in, line);
+        bool second = false;
+        while (std::getline(in, line)) {
+            if (line == "--") { second = true; continue; }
+            size_t eq = line.find('=');
+            if (eq == std::string::npos) continue;
+            if (second) mine.read(line.substr(0, eq), line.substr(eq + 1), "inv");
+            else box.read(line.substr(0, eq), line.substr(eq + 1), "c");
+        }
+        box.finishLoad(); mine.finishLoad();
+        std::map<uint16_t, long> n;
+        countInto(cc.read(), n, 1); countInto(c.player->inventory, n, 1);
+        countInto(box, n, -1); countInto(mine, n, -1);
+        bool same = !cc.showcase;
+        for (auto& [item, k] : n) same = same && k == 0;
+        for (int i = box.capacity; i < Inventory::SLOTS && same; i++) same = box.slots[i].empty();
+        if (!same) { sendBox(c, id, cc); c.invSent.clear(); return; }      // (the truth back: its next snapshot has the inventory)
+        for (int i = 0; i < Inventory::SLOTS; i++) cc.read().slots[i] = box.slots[i];
+        // the items where the client put them; what's worn and held stays,
+        // where its slot still has the same item (its Loadout follows)
+        Inventory& pi = c.player->inventory;
+        Inventory was = pi;
+        for (int i = 0; i < Inventory::SLOTS; i++) pi.slots[i] = mine.slots[i];
+        for (int e = 0; e < EQUIP_SLOTS; e++) {
+            int s = pi.equip[e];
+            if (s >= 0 && (s >= Inventory::SLOTS || pi.slots[s].itemID != was.slots[s].itemID)) pi.equip[e] = -1;
+        }
+        c.invSent.clear();                                       // (the inventory as taken goes back with its next snapshot)
+        for (auto& o : list)                                     // others with it open: what's in it now
+            if (o.get() != &c && o->joined && o->openBox == id) sendBox(*o, id, cc);
+    }
+
+    // where a client sees from: its body, or a watcher's point
+    static glm::vec3 viewOf(const Client& c) { return c.player ? c.player->position : c.watchAt; }
     void sendChunks(Client& c) {
-        if (!c.player) return;
-        int pcx = ChunkManager::chunkCoord((int)std::floor(c.player->position.x));
-        int pcz = ChunkManager::chunkCoord((int)std::floor(c.player->position.z));
+        if (!c.player && !c.watching) return;
+        const glm::vec3 at = viewOf(c);
+        int pcx = ChunkManager::chunkCoord((int)std::floor(at.x));
+        int pcz = ChunkManager::chunkCoord((int)std::floor(at.z));
         std::vector<std::pair<int, std::pair<int, int>>> want;
         for (auto& col : modified) {
             int d = std::max(std::abs(col.first - pcx), std::abs(col.second - pcz));
@@ -455,6 +734,8 @@ private:
                   (combat ? proto::BodyState::F_COMBAT : 0) | (h.ragdoll.controlsLocked() ? proto::BodyState::F_LIMP : 0);
         b.move = (uint8_t)h.move; b.moveTimer = h.moveTimer;
         if (h.attack.active()) { b.attack = h.attack.def().id; b.attackT = h.attack.t; b.attackDir = h.attack.dir; }
+        if (h.isPlayer())                           // the axe swing, for others to see
+            if (const Player& p = static_cast<const Player&>(h); p.swing.active()) { b.flags |= proto::BodyState::F_SWING; b.swingT = p.swing.t; }
         return b;
     }
 
@@ -463,9 +744,10 @@ private:
     }
 
     void sendSnapshot(Client& c) {
-        if (!c.player) return;
+        if (!c.player && !c.watching) return;
+        const glm::vec3 at = viewOf(c);
         // its inventory, when it's not what the client has (a pickup, a refused arrangement)
-        if (std::string now = invText(*c.player); now != c.invSent) {
+        if (c.player) if (std::string now = invText(*c.player); now != c.invSent) {
             c.conn->send(proto::text(proto::Msg::PlayerState, now), net::Channel::Reliable);
             c.invSent = now;
         }
@@ -473,12 +755,12 @@ private:
         s.serverTick = serverTick;
         s.ackTick = c.lastUsed;
         s.clock = session.sim.day.time;
-        s.you = stateOf(*c.player);
+        if (c.player) s.you = stateOf(*c.player);
         std::unordered_set<uint64_t> seen;
         auto consider = [&](const Human& h, uint8_t kind, const std::string& name, const std::string& type, const Appearance& look,
                             const std::string& gear) {
-            if (h.uuid == c.player->uuid) return;
-            if (glm::length(h.position - c.player->position) > proto::VIEW_RANGE) return;
+            if (c.player && h.uuid == c.player->uuid) return;
+            if (glm::length(h.position - at) > proto::VIEW_RANGE) return;
             seen.insert(h.uuid);
             auto kn = c.known.find(h.uuid);
             if (kn == c.known.end() || kn->second != gear) {       // new in view, or dressed differently

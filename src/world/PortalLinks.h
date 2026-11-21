@@ -80,6 +80,9 @@ struct PortalEnd {
 };
 
 struct PortalLink {
+    // only drawn, not gone through (a client's copy of a server's link:
+    // the server moves the body, the client follows; server/RealmServer.h)
+    bool viewOnly = false;
     uint32_t  id = 0;
     PortalEnd a, b;
     bool      twoWay = true;
@@ -143,6 +146,7 @@ public:
         PortalLink::Face f[2];
         for (const PortalLink& l : links)
             for (int e = 0; e < 2; e++) {
+                if (l.viewOnly) break;
                 if (!l.end(e).world.empty()) continue;          // (an end in another world: crossed there)
                 for (int i = 0, n = l.faces(e, f); i < n; i++) {
                     const PortalEnd& E = f[i].in;
@@ -167,6 +171,7 @@ public:
         PortalLink::Face f[2];
         for (const PortalLink& l : links)
             for (int e = 0; e < 2; e++) {
+                if (l.viewOnly) break;
                 if (!l.end(e).world.empty()) continue;
                 for (int i = 0, n = l.faces(e, f); i < n; i++) {
                     glm::vec3 q = f[i].in.local(p);

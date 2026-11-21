@@ -18,6 +18,7 @@ inline AnimInput animInputFor(const Human& h, bool combat, float pitch) {
     glm::vec3 f     = h.attack.active() ? h.attack.dir : h.facing;   // an attack faces its swing
     in.facingYawDeg = glm::degrees(std::atan2(f.z, f.x));
     in.lookPitchDeg = pitch;
+    if (h.puppetSwing >= 0.0f) in.swing = h.puppetSwing;       // (another player's axe swing, on a server)
     in.grounded     = h.grounded;
     in.crouching    = h.crouching;
     in.sprinting    = h.sprinting;

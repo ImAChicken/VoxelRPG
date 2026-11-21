@@ -65,8 +65,8 @@
 //                 waits for their ChunkData instead of generating them
 namespace proto {
 
-constexpr uint32_t VERSION = 5;       // 2: Request, the names in Welcome; 3: off hands (Loadout, BodyState); 4: a piece's spec in Request;
-                                      // 5: a hit's point in Event, a held heavy in Input
+constexpr uint32_t VERSION = 11;       // 2: Request, the names in Welcome; 3: off hands (Loadout, BodyState); 4: a piece's spec in Request;
+                                      // 5: a hit's point in Event, a held heavy in Input; 6: Travel (several worlds); 7: Gate, RealmState; 8: Hello's watch; 9: Swap; 10: the axe swing in BodyState; 11: Container, ContainerState
 constexpr int TICK_HZ = 60;            // the simulation
 constexpr int SNAPSHOT_EVERY = 3;      // ticks between snapshots (20 Hz)
 constexpr int INPUT_REDUNDANCY = 4;    // inputs repeated in each Input packet (loss)
@@ -74,8 +74,15 @@ constexpr float VIEW_RANGE = 220.0f;   // voxels: bodies further away aren't sen
 
 enum class Msg : uint8_t {
     Hello = 1, Input = 2, Bye = 3, Loadout = 4, Request = 5,
+    Gate = 6,
+    Container = 7,        // text: a chest ("open <id>", "set <id>" then its items, "--", your inventory; "close")             // text: an option picked at a gate's menu ("open:<dungeon>", "close") (server/RealmServer.h)
     Welcome = 20, Refused = 21, ChunkData = 22, Edits = 23, Structures = 24,
     Spawn = 25, Despawn = 26, Snapshot = 27, Event = 28, Notice = 29, Modified = 30, PlayerState = 31,
+    Travel = 32,
+    RealmState = 33,
+    ContainerState = 35,  // text: the chest you have open as the server has it ("<id>" then Container::write "c" lines)
+    Swap = 34,            // you went through a portal into the world your watch connection sees: that one's yours now, this
+                          // one watches (str: the world you're in now, 16 floats: the way through; server/RealmServer.h)      // text: the realm as this player sees it (its gates, the open instance, its clock): PortalDirector::readRemote          // you went through a portal into another of this server's worlds: join again (same address, same name)
 };
 
 // key=value text (player files, looks) ↔ a string
@@ -226,11 +233,23 @@ inline std::vector<InputFrame> readInput(wire::Reader& r) {
 }
 
 // ── Hello / Welcome ───────────────────────────────────────
-struct Hello { uint32_t version = VERSION; std::string name, look; };
+// watch: "" to play; "<world> <x> <y> <z>" for a second connection that
+// only watches another of the server's worlds round that point (the far
+// side of a portal: no body, nothing it sends is acted on)
+struct Hello { uint32_t version = VERSION; std::string name, look, watch; };
 inline std::vector<uint8_t> hello(const Hello& h) {
-    wire::Writer w; w.u8((uint8_t)Msg::Hello); w.u32(h.version); w.str(h.name); w.str(h.look); return w.buf;
+    wire::Writer w; w.u8((uint8_t)Msg::Hello); w.u32(h.version); w.str(h.name); w.str(h.look); w.str(h.watch); return w.buf;
 }
-inline Hello readHello(wire::Reader& r) { Hello h; h.version = r.u32(); h.name = r.str(64); h.look = r.str(4096); return h; }
+inline std::vector<uint8_t> swapMsg(const std::string& world, const glm::mat4& through) {
+    wire::Writer w; w.u8((uint8_t)Msg::Swap); w.str(world);
+    for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) w.f32(through[c][r]);
+    return w.buf;
+}
+inline Hello readHello(wire::Reader& r) {
+    Hello h; h.version = r.u32(); h.name = r.str(64); h.look = r.str(4096);
+    if (h.version == VERSION) h.watch = r.str(512);
+    return h;
+}
 
 struct Welcome {
     uint64_t    you = 0;
@@ -377,7 +396,9 @@ struct BodyState {
     std::string off;                 // the left hand's model id (a shield …)
     float       attackT = 0;
     glm::vec3   attackDir{0, 0, -1};
-    enum : uint16_t { F_GROUNDED = 1, F_CROUCH = 2, F_SPRINT = 4, F_FLY = 8, F_GUARD = 16, F_DEAD = 32, F_COMBAT = 64, F_LIMP = 128 };
+    float       swingT = -1;          // the axe swing (game/AxeSwing.h): seconds in, < 0 none (sent with F_SWING)
+    enum : uint16_t { F_GROUNDED = 1, F_CROUCH = 2, F_SPRINT = 4, F_FLY = 8, F_GUARD = 16, F_DEAD = 32, F_COMBAT = 64, F_LIMP = 128,
+                      F_SWING = 256 };
 };
 inline void putBody(wire::Writer& w, const BodyState& b) {
     w.u64(b.id); w.vec3(b.pos); w.vec3(b.vel); w.vec3(b.facing);
@@ -385,6 +406,7 @@ inline void putBody(wire::Writer& w, const BodyState& b) {
     w.u16(b.flags); w.u8(b.move); w.f32(b.moveTimer);
     w.str(b.held); w.str(b.attack); w.str(b.off);
     if (!b.attack.empty()) { w.f32(b.attackT); w.vec3(b.attackDir); }
+    if (b.flags & BodyState::F_SWING) w.f32(b.swingT);
 }
 inline BodyState getBody(wire::Reader& r) {
     BodyState b; b.id = r.u64(); b.pos = r.vec3(); b.vel = r.vec3(); b.facing = r.vec3();
@@ -392,6 +414,7 @@ inline BodyState getBody(wire::Reader& r) {
     b.flags = r.u16(); b.move = r.u8(); b.moveTimer = r.f32();
     b.held = r.str(64); b.attack = r.str(64); b.off = r.str(64);
     if (!b.attack.empty()) { b.attackT = r.f32(); b.attackDir = r.vec3(); }
+    if (b.flags & BodyState::F_SWING) b.swingT = r.f32();
     return b;
 }
 

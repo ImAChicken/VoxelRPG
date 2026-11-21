@@ -158,6 +158,7 @@ int main() {
         check(hit && !e.blocked && d->health < hp, "  from behind it doesn't");
         d->guarding = false;
         d->health = d->maxHealth;
+        tick(90);                       // (over the flinch: its ragdoll moves in the simulation now, BodyPoses)
         // a roll lets it through
         p.attack = AttackState();
         p.aimPitch = 0.0f;

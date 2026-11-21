@@ -50,6 +50,17 @@
 class ClientWorld {
 public:
     enum class State { Connecting, Joined, Refused, Closed };
+    // the server moved this player into another of its worlds (through a
+    // portal): the game joins again (same address, same name), and the
+    // server puts it there (server/RealmServer.h)
+    bool travel = false;
+    // the realm as the server says (gates, instance, clock), new since read
+    std::string realmText;
+    bool realmChanged = false;
+    // an option picked at a gate's menu
+    void gate(const std::string& action) {
+        if (state == State::Joined) conn->send(proto::text(proto::Msg::Gate, action), net::Channel::Reliable);
+    }
     static constexpr int INTERP_TICKS = 6;        // 100 ms behind the newest snapshot
     static constexpr float SNAP_ERROR = 0.05f;    // voxels of misprediction worth correcting
     static constexpr float BIG_ERROR  = 6.0f;     // past this a correction is a jump (a teleport), not eased
@@ -78,6 +89,38 @@ public:
         h.look = proto::kvText([&](std::ostream& o) { look.write(o); });
         conn->send(proto::hello(h), net::Channel::Reliable);
     }
+    // A watch connection instead (the far side of a portal, from
+    // RealmState's links): the world round 'at', its bodies; no body of
+    // its own, nothing sent but this. advance() moves its clock on.
+    void watch(const std::string& name, const std::string& worldName, glm::vec3 at) {
+        proto::Hello h;
+        h.name = name;
+        std::ostringstream w; w << worldName << " " << at.x << " " << at.y << " " << at.z;
+        h.watch = w.str();
+        watching = true;
+        conn->send(proto::hello(h), net::Channel::Reliable);
+    }
+    bool watching = false;
+    // Swap (on the main connection): the body's gone through into the
+    // world a watch connection sees; the game swaps the two (becomeWatcher
+    // on this one, becomePlayer on that)
+    // A chest (Msg::Container): its items as the server has them
+    std::string boxText;
+    bool boxChanged = false;
+    void container(const std::string& text) {
+        if (state == State::Joined) conn->send(proto::text(proto::Msg::Container, text), net::Channel::Reliable);
+    }
+    bool swapped = false;
+    std::string swapTo;
+    glm::mat4 swapThrough{ 1.0f };
+    void becomeWatcher() { watching = true; myId = 0; placed = false; predicted.clear(); predictedVel.clear(); sentFrames.clear(); }
+    // (placed: the game knows where you are already: you went through here)
+    void becomePlayer(uint64_t id, bool alreadyPlaced = false) {
+        watching = false; myId = id; placed = alreadyPlaced;
+        predicted.clear(); predictedVel.clear(); sentFrames.clear();
+        loadoutSent.clear();                       // (the server's new side gets the arrangement again)
+    }
+    void advance(float ticks) { if (state == State::Joined) renderTick += ticks; }
     void leave() { conn->send(std::vector<uint8_t>{ (uint8_t)proto::Msg::Bye }, net::Channel::Reliable); }
     // Keep the connection alive without reading anything (while
     // the generator is being built on another thread)
@@ -248,6 +291,17 @@ private:
         case proto::Msg::Welcome: {
             proto::Welcome w = proto::readWelcome(r);
             if (!r.ok()) return;
+            if (watching) {                       // (a watch connection: the world only, you're the main connection's)
+                ids.build(w.names);
+                folder = cache + "/" + ServerSafe(w.worldName);
+                std::filesystem::create_directories(folder);
+                { std::ofstream f(folder + "/world.vxrp"); f << w.worldInfo; }
+                info.loadFolder(folder);
+                serverTick = w.serverTick;
+                renderTick = (float)serverTick;
+                state = State::Joined;
+                break;
+            }
             myId = w.you;
             me.uuid = w.you;
             // its numbers for blocks and items → ours; what we lack, said once
@@ -281,7 +335,17 @@ private:
             conn->close();
             break;
         case proto::Msg::Notice: notices.push_back(r.str(4096)); break;
+        case proto::Msg::Travel: travel = true; break;
+        case proto::Msg::RealmState: realmText = r.str(4096); realmChanged = true; break;
+        case proto::Msg::ContainerState: boxText = r.str(1 << 16); boxChanged = true; break;
+        case proto::Msg::Swap: {
+            swapTo = r.str(512);
+            for (int c = 0; c < 4; c++) for (int k = 0; k < 4; k++) swapThrough[c][k] = r.f32();
+            if (r.ok()) swapped = true;
+            break;
+        }
         case proto::Msg::PlayerState: {
+            if (watching) break;
             // the inventory as the server has it
             std::string text = r.str(1 << 16);
             if (!r.ok()) return;
@@ -363,6 +427,7 @@ private:
     // The server's word on you: health and the rest as given; where
     // you are corrected by how far the prediction was off
     void reconcile(const proto::Snapshot& s) {
+        if (watching || s.you.id == 0) return;        // (a watch connection's snapshot, or one sent as this one became one)
         me.health = s.you.health;
         me.maxHealth = s.you.maxHealth;
         me.stamina = s.you.stamina;

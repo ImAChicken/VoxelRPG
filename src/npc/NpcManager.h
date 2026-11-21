@@ -70,7 +70,7 @@ public:
         }
         applyBody(*n, *t);
         n->climb = t->climb;
-        n->maxPoise = n->poise = t->poise;
+        n->maxPoise = n->poise = t->poise * combat::POISE_SCALE;     // (npcs.toml values are before the scale)
         n->armor = t->armor;
         n->healthSeen = n->health;
         n->senseTimer = (float)(list.size() % 8) / (8.0f * brain::SENSE_HZ);   // staggered

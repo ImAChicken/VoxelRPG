@@ -1,9 +1,10 @@
 // ══════════════════════════════════════════════════════════
 // VoxelRPG-Server — a world with no window
 // ══════════════════════════════════════════════════════════
-// Runs one world headless: the same GameSession the game uses
-// (server/GameSession.h), ticked at 60 Hz, with chunks kept
-// loaded around everyone in it (ChunkKeeper).
+// Runs a realm headless (server/RealmServer.h): its main world and the
+// instances its gate opens, each the same GameSession the game uses
+// (server/GameSession.h), ticked at 60 Hz, with chunks kept loaded
+// around everyone in them (Worlds: a ChunkKeeper per world).
 //
 //   VoxelRPG-Server [world] [--dev] [--port N] [--ticks N]
 //
@@ -28,6 +29,7 @@
 #include "GameSession.h"
 #include "ChunkKeeper.h"
 #include "ServerHost.h"
+#include "RealmServer.h"
 #include "../net/EnetTransport.h"
 #include "../worldgen/WorldType.h"
 #include <toml++/toml.hpp>
@@ -40,6 +42,7 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 
@@ -152,10 +155,13 @@ int main(int argc, char** argv) {
     }
     if (!loadData()) { std::cerr << "Couldn't load data/ (run from the game folder)\n"; return 1; }
 
-    Simulation sim;
-    GameSession session(sim);
-    session.log = [](const std::string& s) { std::cout << s << "\n"; };
-    if (!session.begin(cfg.world, cfg.dev)) {
+    RealmServer server;
+    server.log = [](const std::string& s) { std::cout << s << "\n"; };
+    server.worlds.log = server.log;
+    server.maxPlayers = cfg.maxPlayers;
+    server.starterKit = cfg.starterKit;
+    GameSession* mainWorld = server.worlds.begin(cfg.world, cfg.dev);
+    if (!mainWorld) {
         // not there: make one (server.toml new_world), so a machine
         // with only the server can start from nothing
         WorldType type = cfg.newWorld == "island" ? WorldType::Island : cfg.newWorld == "classic" ? WorldType::Classic :
@@ -168,28 +174,27 @@ int main(int argc, char** argv) {
         uint64_t seed = cfg.newSeed ? cfg.newSeed : (uint64_t)std::chrono::system_clock::now().time_since_epoch().count();
         std::cout << "No world '" << cfg.world << "' yet: making a " << cfg.newWorld << " one (seed " << seed << ")"
                   << (type == WorldType::Island ? " - shaping the land takes a minute\n" : "\n");
-        if (!session.beginNew(cfg.world, seed, GameMode::Survival, type, worldSizeFor(type, 96), -1,
-                              type == WorldType::Island ? TerrainStyle::GuidedRivers : TerrainStyle::NoErosion,
-                              WorldGenParams(), FlatOptions(), cfg.dev)) {
-            std::cerr << "Couldn't make the world folder\n";
-            return 1;
-        }
+        mainWorld = server.worlds.create(cfg.world, seed, GameMode::Survival, type, worldSizeFor(type, 96), -1,
+                                         type == WorldType::Island ? TerrainStyle::GuidedRivers : TerrainStyle::NoErosion,
+                                         WorldGenParams(), FlatOptions(), cfg.dev);
+        if (!mainWorld) { std::cerr << "Couldn't make the world folder\n"; return 1; }
     }
-    std::cout << "Opening " << session.folder() << " (" << worldTypeName(session.info.getWorldType()) << ", "
-              << session.world->sizeX() << " x " << session.world->sizeZ() << " chunks)\n";
+    GameSession& session = *mainWorld;
+    std::cout << "Opening " << session.folder() << " (" << worldTypeName(session.info.getWorldType()) << ")\n";
     session.buildGenerator();
     session.attach();
-    ChunkKeeper keeper(*session.world, session.chunkSource());
-    glm::vec3 spawn = glm::vec3(session.gen->spawnPoint(session.world->sizeX(), session.world->sizeZ()));
-    keeper.loadNow({ spawn });
+    std::cout << session.world->sizeX() << " x " << session.world->sizeZ() << " chunks\n";
+    {
+        glm::vec3 spawn = glm::vec3(session.gen->spawnPoint(session.world->sizeX(), session.world->sizeZ()));
+        ChunkKeeper first(*session.world, session.chunkSource());
+        first.loadNow({ spawn });
+        first.stop();
+    }
     auto listener = net::enetListen(cfg.port, cfg.maxPlayers);
     if (!listener) { std::cerr << "Couldn't listen on port " << cfg.port << " (is another server running?)\n"; return 1; }
-    ServerHost host(session, *listener);
-    host.maxPlayers = cfg.maxPlayers;
-    host.starterKit = cfg.starterKit;
-    auto saveAll = [&](bool commit) { return session.save(commit, [&](const std::string& st) { host.savePlayers(st); }); };
+    server.start(session, cfg.dev, *listener);
     std::cout << "Ready: port " << cfg.port << " (UDP), up to " << cfg.maxPlayers << " players\n"
-              << "Type status, save, stop or quit-nosave\n";
+              << "Type status, save, portal, stop or quit-nosave\n";
 
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
@@ -203,39 +208,30 @@ int main(int argc, char** argv) {
     long ticks = 0;
     bool save = true;
     while (!gStop) {
-        // ground around the spawn and every player
-        std::vector<glm::vec3> points{ spawn };
-        for (const auto& p : sim.players()) points.push_back(p->position);
-        host.poll();
-        keeper.update(points);
-        host.beforeStep();
-        session.syncSpawners();
-        {
-            std::vector<glm::vec3> at;
-            for (const auto& p : sim.players()) at.push_back(p->position);
-            session.tickVillages(at);
-            std::vector<Human*> ps;
-            for (const auto& p : sim.players()) ps.push_back(p.get());
-            session.tickDungeon(ps, DT);              // a Dungeon world's markers
-        }
-        session.updateEdits(2.0f);
-        sim.step(DT);
-        session.tickWorld(DT);
-        sim.day.update(DT);
-        host.afterStep();
-        host.takeEvents();
+        server.tick(DT);
+        Simulation& sim = session.sim;
 
         sinceCheckpoint += DT;
-        if (sinceCheckpoint >= cfg.checkpointSeconds) { saveAll(false); sinceCheckpoint = 0.0f; }
+        if (sinceCheckpoint >= cfg.checkpointSeconds) { server.save(false); sinceCheckpoint = 0.0f; }
 
         std::string cmd;
         while (console.next(cmd)) {
             if (cmd == "status") {
-                std::printf("players %zu  npcs %zu  chunks %d (loading %zu)  time %.2f\n", sim.players().size(),
-                            sim.npcs().all().size(), session.world->loadedCount(), keeper.loading(), sim.day.time);
-                for (auto& c : host.clients()) if (c->joined) std::printf("  %s  %.0f ms\n", c->name.c_str(), c->conn->pingMs());
+                std::printf("players %zu  worlds %zu  time %.2f\n", server.players(), server.worlds.count(), sim.day.time);
+                for (GameSession* w : server.worlds.all()) {
+                    std::printf("  %s: players %zu  npcs %zu  chunks %d\n", w->name().c_str(), w->sim.players().size(),
+                                w->sim.npcs().all().size(), w->world ? w->world->loadedCount() : 0);
+                    if (ServerHost* h = server.hostOf(w))
+                        for (auto& c : h->clients()) if (c->joined) std::printf("    %s  %.0f ms\n", c->name.c_str(), c->conn->pingMs());
+                }
             }
-            else if (cmd == "save") saveAll(true);
+            else if (cmd == "save") server.save(true);
+            else if (cmd == "portal" || cmd.rfind("portal ", 0) == 0) {     // the realm's gate and instances (game/Portals.h)
+                std::vector<std::string> a;
+                std::istringstream ss(cmd.substr(6));
+                for (std::string w; ss >> w;) a.push_back(w);
+                std::cout << server.portalCommand(a) << "\n";
+            }
             else if (cmd == "roaming on" || cmd == "roaming off") {         // roaming enemy spawns (sim/Roaming.h)
                 sim.roaming.enabled = cmd == "roaming on";
                 sim.roaming.resetTimers();
@@ -251,7 +247,7 @@ int main(int argc, char** argv) {
             }
             else if (cmd == "stop") gStop = true;
             else if (cmd == "quit-nosave") { save = false; gStop = true; }
-            else if (!cmd.empty()) std::cout << "commands: status, save, roaming [on|off|reload], stop, quit-nosave\n";
+            else if (!cmd.empty()) std::cout << "commands: status, save, portal [open <dungeon>|close|time <min>], roaming [on|off|reload], stop, quit-nosave\n";
         }
         if (maxTicks >= 0 && ++ticks >= maxTicks) break;
 
@@ -260,11 +256,10 @@ int main(int argc, char** argv) {
         if (next > now) std::this_thread::sleep_until(next);
         else if (now - next > std::chrono::milliseconds(250)) next = now;      // fell behind: don't spiral
     }
-    keeper.stop();                            // its workers use the generator
-    host.kickAll("the server is stopping");   // their player files go into the save
+    server.shutdown("the server is stopping");   // their player files go into the save
     listener->poll();
-    if (save) { std::cout << "Saving...\n"; saveAll(true); }
-    session.close();
+    if (save) { std::cout << "Saving...\n"; server.save(true); }
+    server.worlds.closeAll(false);
     std::cout << "Server stopped\n";
     return 0;
 }

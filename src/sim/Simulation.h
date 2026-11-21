@@ -227,6 +227,7 @@ public:
     // player sees the world (its lag + its interpolation delay).
     // Its weapon hits bodies where they were that long ago, up to
     // BodyPoses::HISTORY. 0: as they are now (the host's own player).
+    bool pendingHitsEmpty() const { return pendingHits.empty(); }
     void setViewDelay(EntityId player, int ticks) {
         if (ticks <= 0) viewDelay.erase(player);
         else viewDelay[player] = std::min(ticks, BodyPoses::HISTORY - 1);
@@ -323,7 +324,21 @@ public:
             // its screen (its view delay: set by the server host)
             auto it = viewDelay.find(a.uuid);
             return it != viewDelay.end() && it->second > 0 && poses.posedAgo(b.uuid, it->second, out);
+        }, [this, dt](Human& a, Human& b, const combat::Contact* c) {
+            // parries judged at the defender's time: a hit on a player on a
+            // server (its view delay set) whose guard isn't up waits as long
+            // as that player is behind, in case it was raised in time on
+            // their screen (the guard's input is on its way)
+            auto it = viewDelay.find(b.uuid);
+            if (it == viewDelay.end() || it->second <= 0 || b.guarding || a.attack.kind == AttackKind::AirHeavy) return false;
+            PendingHit p;
+            p.attacker = a.uuid; p.target = b.uuid; p.attack = a.attack;
+            p.hasContact = c != nullptr; if (c) p.contact = *c;
+            p.left = std::min((float)it->second * dt, PARRY_GRACE_MAX);
+            pendingHits.push_back(p);
+            return true;
         });
+        landPending(dt, all, hits);
         contactDamage(all);
         // knocked into walls (physics marks them)
         for (Human* h : all)
@@ -443,6 +458,36 @@ public:
     // The skeletons the hits use (debug overlay, tests)
     const BodyPoses& bodyPoses() const { return poses; }
     std::unordered_map<EntityId, int> viewDelay;   // lag compensation (setViewDelay)
+
+    // Hits waiting on a defender's guard (resolveHits' defer): landed
+    // when its time's up, or at once if the guard goes up (a parry)
+    static constexpr float PARRY_GRACE_MAX = 0.15f;   // s, at most
+    struct PendingHit {
+        EntityId attacker = 0, target = 0;
+        AttackState attack;                         // the swing as it was then
+        bool hasContact = false;
+        combat::Contact contact;
+        float left = 0.0f;
+    };
+    std::vector<PendingHit> pendingHits;
+    void landPending(float dt, const std::vector<Human*>& all, std::vector<combat::HitEvent>& out) {
+        if (pendingHits.empty()) return;
+        auto find = [&](EntityId id) -> Human* { for (Human* h : all) if (h && h->uuid == id) return h; return nullptr; };
+        for (size_t i = 0; i < pendingHits.size();) {
+            PendingHit& p = pendingHits[i];
+            p.left -= dt;
+            Human* a = find(p.attacker);
+            Human* b = find(p.target);
+            if (!a || !b || b->dead()) { pendingHits.erase(pendingHits.begin() + (long)i); continue; }
+            if (!b->guarding && p.left > 0.0f) { i++; continue; }
+            // the swing as it was when it met them; a parry ends the one it's in now
+            AttackState now = a->attack;
+            a->attack = p.attack;
+            out.push_back(combat::land(*a, *b, p.hasContact ? &p.contact : nullptr));
+            if (!out.back().parried) a->attack = now;
+            pendingHits.erase(pendingHits.begin() + (long)i);
+        }
+    }
 
     // What a body holds in its right hand (held model id) and
     // whether it stands ready to fight, for its pose

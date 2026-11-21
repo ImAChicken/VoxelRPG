@@ -53,6 +53,10 @@ struct ChunkMeshData {
     std::vector<ChunkVertex> vertices;   // solid, then cut-out, then panes
     uint32_t opaqueCount = 0;
     uint32_t paneCount = 0;              // the last ones: see-through sheets (window glass)
+    // the solid range by face direction (Face order): faceStart[f] to
+    // faceStart[f + 1]; a camera wholly on the back side of a section's
+    // faces of one direction skips them (ChunkMesh::drawOpaque)
+    uint32_t faceStart[7] = { 0, 0, 0, 0, 0, 0, 0 };
 
     uint32_t quadCount() const {
         return (uint32_t)vertices.size() / 6;
@@ -144,6 +148,7 @@ public:
     static void build(const MeshInput& in, ChunkMeshData& out) {
         out.vertices.clear();
         out.opaqueCount = 0;
+        for (uint32_t& f : out.faceStart) f = 0;
         if (!in.center || !in.table) return;
 
         // A chunk that is one single run is all one block.
@@ -169,13 +174,21 @@ public:
         const BlockRenderTable& table = *in.table;
         s.cutout.clear();
 
+        // (in Face order, each direction's start kept: faceStart)
         //            normal  u  v   sign  face
+        out.faceStart[FACE_TOP] = (uint32_t)out.vertices.size();
         sweep(s, table, 1,    2, 0,  +1,   FACE_TOP,    out.vertices);
+        out.faceStart[FACE_BOTTOM] = (uint32_t)out.vertices.size();
         sweep(s, table, 1,    2, 0,  -1,   FACE_BOTTOM, out.vertices);
+        out.faceStart[FACE_NORTH] = (uint32_t)out.vertices.size();
         sweep(s, table, 2,    0, 1,  +1,   FACE_NORTH,  out.vertices);
+        out.faceStart[FACE_SOUTH] = (uint32_t)out.vertices.size();
         sweep(s, table, 2,    0, 1,  -1,   FACE_SOUTH,  out.vertices);
+        out.faceStart[FACE_WEST] = (uint32_t)out.vertices.size();
         sweep(s, table, 0,    1, 2,  -1,   FACE_WEST,   out.vertices);
+        out.faceStart[FACE_EAST] = (uint32_t)out.vertices.size();
         sweep(s, table, 0,    1, 2,  +1,   FACE_EAST,   out.vertices);
+        out.faceStart[6] = (uint32_t)out.vertices.size();
 
         sprites(in, s, table);
         s.panes.clear();

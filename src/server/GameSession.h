@@ -108,6 +108,8 @@ public:
     }
     // the name it was opened by ("<world>" or "<world>/instances/<id>")
     const std::string& name() const { return worldName; }
+    // a client's copy of a server's world (filled by a ClientWorld)
+    void nameRemote(const std::string& n) { worldName = n; }
     void attach() {
         world = std::make_unique<ChunkManager>(info.getWorldSize(), info.getWorldSize());
         sim.sizeXChunks = world->sizeX(); sim.sizeZChunks = world->sizeZ();
@@ -207,6 +209,10 @@ public:
         wood = std::make_unique<Woodcutting>();
         physics->setLooseSolids([this](int x, int y, int z) { return wood && wood->solidAt(x, y, z); });
         sim.attachWorld(physics.get(), wood.get());
+        // a server's portals (its RealmState links): you cross here as you
+        // do there, the same moment (main.cpp's remoteTick)
+        sim.portals = &portals;
+        if (auto* vp = dynamic_cast<VoxelPhysics*>(physics.get())) vp->setPassable([this](int x, int y, int z) { return portals.passable(x, y, z); });
         sim.roaming.enabled = false;            // the server spawns them
         sim.roaming.biomeAt = nullptr;
         sim.roaming.spotBlocked = nullptr;

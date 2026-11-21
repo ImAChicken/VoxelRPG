@@ -87,6 +87,7 @@ public:
     void beginFrame() override {
         drawCallCount  = 0;
         vertexCount    = 0;
+        facesSkipped   = 0;
 
         glClearColor(FOG_COLOR.r, FOG_COLOR.g, FOG_COLOR.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT |
@@ -194,7 +195,8 @@ public:
         if (!boxInFrustum(origin, origin + size)) return;
         bindSection(origin, lightTex, canopyTex, flowTex, tintTex);
 
-        mesh.drawOpaque();
+        const int skipped = (int)mesh.opaqueVertices() - (int)mesh.drawOpaque(cameraPos - origin);
+        facesSkipped += skipped;
 
         // Leaves: two-sided, so the far side of a canopy
         // shows through the gaps in the near side
@@ -205,7 +207,7 @@ public:
         }
 
         drawCallCount++;
-        vertexCount += (int)mesh.vertexCount();
+        vertexCount += (int)mesh.vertexCount() - skipped;
     }
 
     // ── Window glass ──────────────────────────────────────
@@ -298,6 +300,7 @@ public:
 
     int getDrawCalls()   const override { return drawCallCount; }
     int getVertexCount() const override { return vertexCount; }
+    int getFacesSkipped() const { return facesSkipped; }
     int getScreenWidth() const override { return width; }
     int getScreenHeight()const override { return height; }
 
@@ -439,6 +442,7 @@ private:
     int  height        = 720;
     int  drawCallCount = 0;
     int  vertexCount   = 0;
+    int  facesSkipped  = 0;       // solid vertices not drawn this frame: their faces all faced away (ChunkMesh::drawOpaque)
     bool atlasLoaded   = false;
     bool wireframe     = false;
     bool fogEnabled    = false;

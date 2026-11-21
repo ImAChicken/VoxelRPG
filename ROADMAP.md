@@ -7,26 +7,58 @@ once: before starting an item, check HANDOFF.md "In progress" and
 mark yours there.
 
 ## Next, in order (Eddie, 2026-11-20)
-1. **Servers.** Get dedicated and LAN play running on today's game:
-   several worlds per server (`server/Worlds.h` is single player so
-   far), instances and the dungeon gate on a server, portals and body
-   transfers between a server's worlds, the far side of a gate streamed
-   to clients. Then the rest of phase 3 below (Open to LAN, chests,
-   parries judged at the defender's time, the ragdoll's target from the
-   simulation, the axe swing seen by others). See "Server split".
-2. **Combat review.** Eddie: "combat still feels a bit off, probably
+1. **Combat review.** Eddie: "combat still feels a bit off, probably
    because of ragdoll jank". A hit-reaction animation set in place of
    the ragdoll wobble, then the open items under the 2026-11-20
    character-action entry in CHANGELOG.md (air combos, feints, an
    aggression budget, recorded hit sounds, reactions over the network).
    The boss uses player animations for now (fine).
+   Do it in the simulation, not the renderer (the ragdoll's target and
+   reactions decided by the sim, "Server split" > "Under lag"), so the
+   server work after it doesn't redo it.
+2. **Servers.** Slices 1-3 done (CHANGELOG: a realm on the dedicated
+   server; the gate from the game; seamless gates). Next:
+   - Seamless on a server: done (CHANGELOG 2026-11-21; pop-in fixed).
+     Near a gate the client meshes two worlds in full (memory, CPU):
+     if that drops frames, mesh only what's seen through the opening.
+   - The game hosting a realm (single player is a local server: Open
+     to LAN uses RealmServer too). Phase 3's chests, parries at the
+     defender's time, the ragdoll's target from the simulation and the
+     axe swing are done (CHANGELOG 2026-11-21). See "Server split".
+   With it, keeping everyone (server and clients) as light as
+   possible (Eddie, 2026-11-20):
+   - Occlusion culling for the main world's chunk sections (sections
+     buried in rock, hidden behind hills), and batching (multi-draw
+     instead of a call per section; 4 texture binds per section now).
+     The main pass is already frustum-culled per section (drawMesh);
+     the portal views now cull to their opening.
+   - Coloured foliage in the distance: the far terrain (FarTerrain,
+     lowres.dat summaries) shows trees and grass in their biome and
+     tint colours, not one flat green, so the seam to near chunks
+     doesn't change colour.
+   - Far worlds you only look into (portals) ticked at 10-20 Hz.
+   - (Done, CHANGELOG 2026-11-21: GPU times on F3, per-direction
+     faces, near to far, one draw per body, far bodies without
+     outlines, cached uniform locations.)
+   - Cave culling: when a section is meshed, record which of its 6
+     faces connect through open space; each frame flood out from the
+     camera's section through connected faces (Minecraft's approach,
+     no GPU queries). Our sections are 128 cubed, too coarse for it to
+     drop much: it wants sub-sections (32 cubed), which go with
+     batching (one buffer, many small ranges).
+   - Far NPCs animate at a lower rate.
+   - Portal views of far-off openings at lower resolution, refreshed
+     every few frames.
+   - Dynamic resolution as a setting for weak GPUs.
+   (Chunk vertices are already 8 bytes; meshing is greedy.)
 
 ## Portals, still open (docs/dungeons.md step 7)
-- **Bug:** at a grazing angle the far side shows in a sliver beside a
-  gate's arch (Eddie's screenshot from the crypt). Likely the stencil
-  box behind the opening (`portalview::drawOpening`, `OPENING_BEHIND`)
-  showing its side past the frame; keep it inside the frame's
-  thickness, or only draw the deep box while the camera is within it.
+- **Bug, fix untested in game:** at a grazing angle the far side
+  showed in a sliver beside a gate's arch (Eddie's screenshot from the
+  crypt, third-person camera). The deep stencil box behind the opening
+  now only draws while the camera is passing through the opening
+  (`portalview::passingThrough`); couldn't reproduce the sliver here,
+  so confirm in game.
 - Gun portal flicker: the shallow-box fix may have cured it; unconfirmed.
 - Arrows and spells through portals; portals on floors and ceilings;
   portals seen through portals (one level); occlusion culling and
@@ -71,7 +103,7 @@ Target: at least 20 players per server for now.
   - thin / insecure: the server does the maths for them (movement, hits) and can send chunk data instead of having them generate it. Set by config, chosen by a weak client, or forced on a connection that fails checks.
 - **GPU bakes.** The erosion and light bakes are CPU code today: they need compute-shader ports, with results rounded (quantized) so different GPUs agree. A server with no GPU keeps the CPU path as its fallback (slow, cached).
 - **Saving safely.** A running server never overwrites the world's files: changes go to modified copies (a staging set beside the committed files). They replace the real files only on an intentional shutdown with save, or a forced save, and then atomically (write all, mark the set complete, swap; a crash mid-swap finishes or rolls back on the next start). A hostile session or a crash leaves the last committed world untouched. Keep a few committed generations as backups. Autosave writes checkpoints into the staging set, not the committed files.
-- **Phases.** (1, done) core and server targets, the server loading a world headless; (2, done) the networking core; (3, first part done: ENet, the server serving players, Join Server; still to do: Open to LAN from a single-player world, chests (building, tools and the axe are requests now), parries judged at the defender's time, the ragdoll's target set by the simulation, what the axe swing looks like to others) the game on its in-process server (intents in, snapshots and events out); (3) the axe swing and block editing as requests; (4) ENet: joining, chunk edits, entity snapshots, staged saves; (5) trust tags, NPC hand-over, uploads with random audits, GPU bake ports.
+- **Phases.** (1, done) core and server targets, the server loading a world headless; (2, done) the networking core; (3, done but Open to LAN from a single-player world: ENet, the server serving players, Join Server, chests, parries at the defender's time, the ragdoll's target from the simulation, the axe swing seen by others) the game on its in-process server (intents in, snapshots and events out); (3) the axe swing and block editing as requests; (4) ENet: joining, chunk edits, entity snapshots, staged saves; (5) trust tags, NPC hand-over, uploads with random audits, GPU bake ports.
 - **Under lag** (combat review, 2026-11-16): keep about half a second of pose history (BodyPoses as a ring buffer) and check a hit against where the target was when the attacker saw it (lag compensation; it also makes checking a client's reported hit cheap). Inputs carry the client's tick, and a parry is judged at the time the defender pressed guard. The server owns ragdolls (the ragdoll's target pose moves out of the renderer). Hit-stop becomes a client prediction. The in-process server gets an artificial lag setting (0-300 ms) to tune parries and hits on one machine. These go in phase 2.
 - **Downloads** (Eddie): one build makes VoxelRPG (with its single-player server) and VoxelRPG-Server; a packaging step makes zips friends can download and run. Phase 5.
 
@@ -177,6 +209,23 @@ Ordered roughly by when; see the notes under each.
 - A sprite plant standing across a section boundary (every 128 voxels up) draws only its lower part
 
 ## Lighting ideas (later)
+- Sun light from the terrain map by time of day (Eddie, 2026-11-20;
+  client only, each with a Settings toggle back to plain):
+  - Smooth normals from the height map: shading by the sun's angle
+    across rolling ground instead of per block face (near chunks
+    blended with the face normal; far terrain fully). Goes with
+    "terrain that feels less blocky".
+  - Horizon map: per column (in the lowres summaries), how high the
+    land rises toward 8-16 compass directions; the sun is hidden when
+    it's below that. Mountains shade valleys at dawn and dusk, any
+    time of day, one texture read; re-made only where edits change
+    heights.
+  - Ray march a low-res height texture toward the sun in the shader:
+    the same without the bake, more cost per pixel.
+  - Shadow map (near, cascades) for buildings, trees and characters:
+    the real thing up close, the costly one; the horizon map covers
+    the distance.
+  - Cloud shadows drifting with the wind (render/Wind.h): cheap mood.
 - Sun shadows (shadow map) for near terrain
 - Light-aware water and glass (tinted light through coloured glass)
 - Flicker for torches and fire

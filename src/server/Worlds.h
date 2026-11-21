@@ -42,7 +42,12 @@ public:
         bool  pinned = false;                         // never unloaded by sleeping
         bool  focused = false;
         bool  streamed = false;                       // the game streams it too (a portal's far side): no keeper
+        // a server's host (RealmServer): round each step of this world
+        std::function<void()> beforeStep, afterStep;
     };
+    // A player went through a portal from one world into another (on a
+    // server: its client follows it; RealmServer)
+    std::function<void(Player& p, GameSession& from, GameSession& to)> onPlayerMoved;
 
     std::function<void(const std::string&)> log = [](const std::string&) {};
 
@@ -88,7 +93,21 @@ public:
         return s;
     }
 
+    // A client's copy of another of a server's worlds (the far side of a
+    // portal, filled by a watching ClientWorld): never ticked here
+    GameSession* addRemote(const std::string& name) {
+        if (GameSession* s = get(name)) return s;
+        auto e = std::make_unique<Entry>();
+        e->session = std::make_unique<GameSession>();
+        e->session->log = log;
+        e->session->nameRemote(name);
+        e->streamed = true; e->pinned = true;
+        GameSession* s = e->session.get();
+        list.push_back(std::move(e));
+        return s;
+    }
     GameSession* get(const std::string& name) {
+        if (!name.empty() && lobbySession.name() == name) return &lobbySession;   // (a client's copy of a server's world: ClientWorld)
         for (auto& e : list) if (e->session->name() == name) return e->session.get();
         return nullptr;
     }
@@ -168,7 +187,8 @@ public:
         for (const Simulation::Transfer& t : ts) {
             GameSession* to = get(t.world);
             if (!to || !to->world) continue;
-            transfer(from, *to, t);
+            Human* h = transfer(from, *to, t);
+            if (h && h->isPlayer() && onPlayerMoved) onPlayerMoved(static_cast<Player&>(*h), from, *to);
         }
     }
 
@@ -191,7 +211,17 @@ public:
             std::vector<Human*> ps;
             for (auto& p : s.sim.players()) ps.push_back(p.get());
             s.tickDungeon(ps, dt);
-            for (int k = 0; k < steps; k++) { s.sim.step(step); s.tickWorld(step); moveNpcs(s, s.sim.takeTransfers()); }
+            if (e.beforeStep || e.afterStep) {                 // (a server: its villages too)
+                std::vector<glm::vec3> at;
+                for (auto& p : s.sim.players()) at.push_back(p->position);
+                s.tickVillages(at);
+            }
+            for (int k = 0; k < steps; k++) {
+                if (e.beforeStep) e.beforeStep();
+                s.sim.step(step); s.tickWorld(step);
+                if (e.afterStep) e.afterStep();
+                moveNpcs(s, s.sim.takeTransfers());
+            }
             s.sim.day.update(dt);
             s.updateEdits(2.0f);
             e.watched.clear();

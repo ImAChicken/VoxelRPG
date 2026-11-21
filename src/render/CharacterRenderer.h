@@ -4,6 +4,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <array>
+#include <map>
 #include <cmath>
 #include <cstddef>
 #include <iostream>
@@ -227,11 +228,21 @@ layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec3 aColor;
 uniform mat4 uViewProj; uniform mat4 uModel; uniform vec3 uCamPos; uniform vec4 uClip;
+// the whole body in one draw: its bones' matrices, and where each
+// bone's vertices start (they're one after another, in bone order)
+uniform int uSkinned; uniform mat4 uBones[15]; uniform int uFirst[15];
 out vec3 vColor; out vec3 vNormal; out float vDist;
+mat4 modelOf() {
+    if (uSkinned == 0) return uModel;
+    int b = 0;
+    for (int i = 1; i < 15; i++) if (gl_VertexID >= uFirst[i]) b = i;
+    return uBones[b];
+}
 void main() {
-    vec4 world = uModel * vec4(aPos, 1.0);
+    mat4 M = modelOf();
+    vec4 world = M * vec4(aPos, 1.0);
     gl_ClipDistance[0] = dot(vec4(world.xyz, 1.0), uClip);
-    vNormal = mat3(uModel) * aNormal;
+    vNormal = mat3(M) * aNormal;
     vColor = aColor; vDist = length(world.xyz - uCamPos);
     gl_Position = uViewProj * world;
 })", R"(#version 460 core
@@ -275,11 +286,19 @@ layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec3 aColor;
 layout(location = 3) in float aPart;
 uniform mat4 uViewProj; uniform mat4 uModel; uniform mat4 uView; uniform vec4 uClip;
+uniform int uSkinned; uniform mat4 uBones[15]; uniform int uFirst[15];   // (as the body pass)
 out vec3 vN; out vec3 vColor; flat out float vPart;
+mat4 modelOf() {
+    if (uSkinned == 0) return uModel;
+    int b = 0;
+    for (int i = 1; i < 15; i++) if (gl_VertexID >= uFirst[i]) b = i;
+    return uBones[b];
+}
 void main() {
-    vN = mat3(uView) * (mat3(uModel) * aNormal);
+    mat4 M = modelOf();
+    vN = mat3(uView) * (mat3(M) * aNormal);
     vColor = aColor; vPart = aPart;
-    vec4 world = uModel * vec4(aPos, 1.0);
+    vec4 world = M * vec4(aPos, 1.0);
     gl_ClipDistance[0] = dot(vec4(world.xyz, 1.0), uClip);
     gl_Position = uViewProj * world;
 })", R"(#version 460 core
@@ -428,11 +447,7 @@ void main() {
         glUniform4fv(loc(body, "uClip"), 1, glm::value_ptr(clip));
         GLint lm = loc(body, "uModel");
         glBindVertexArray(ch.vao);
-        for (int b = 0; b < BONE_COUNT; b++) {
-            if (!ch.count[b]) continue;
-            glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[b]));
-            glDrawArrays(GL_TRIANGLES, ch.first[b], ch.count[b]);
-        }
+        drawBones(body, ch, mats, lm);
         if (ch.heldCount) {                       // the tool in the right hand
             glBindVertexArray(ch.heldVao);
             glm::mat4 hm = mats[B_WRIST_R] * ch.heldTurn();                 // a thrust turns the item
@@ -513,11 +528,7 @@ void main() {
             bodyMatrices(*p.ch, p.feet, mats);
             for (glm::mat4& m : mats) m = p.xform * m;
             glBindVertexArray(p.ch->vao);
-            for (int b = 0; b < BONE_COUNT; b++) {
-                if (!p.ch->count[b]) continue;
-                glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[b]));
-                glDrawArrays(GL_TRIANGLES, p.ch->first[b], p.ch->count[b]);
-            }
+            drawBones(normals, *p.ch, mats, lm);
             if (p.ch->heldCount) {
                 glBindVertexArray(p.ch->heldVao);
                 glm::mat4 hm = mats[B_WRIST_R] * p.ch->heldTurn();
@@ -593,7 +604,37 @@ private:
     GLuint fbo = 0, texNormal = 0, texAlbedo = 0, texDepth = 0, texGlow = 0;
     int    fbW = 0, fbH = 0;
 
-    static GLint loc(GLuint p, const char* n) { return glGetUniformLocation(p, n); }
+    // (looked up once each: the names are string literals, one address each)
+    std::map<std::pair<GLuint, const char*>, GLint> locs;
+    GLint loc(GLuint p, const char* n) {
+        auto k = std::make_pair(p, n);
+        auto it = locs.find(k);
+        if (it != locs.end()) return it->second;
+        return locs[k] = glGetUniformLocation(p, n);
+    }
+    // A body's bones in one draw (prog's uSkinned path), or a draw a
+    // bone if its parts aren't one run in bone order; then uSkinned off
+    // again for the held items (uModel)
+    void drawBones(GLuint prog, const Character& ch, const std::array<glm::mat4, BONE_COUNT>& mats, GLint lm) {
+        bool run = BONE_COUNT == 15;
+        for (int b = 1; b < BONE_COUNT && run; b++) run = ch.first[b] == ch.first[b - 1] + ch.count[b - 1];
+        if (run) {
+            GLint f[BONE_COUNT];
+            for (int b = 0; b < BONE_COUNT; b++) f[b] = ch.first[b];
+            glUniform1i(loc(prog, "uSkinned"), 1);
+            glUniformMatrix4fv(loc(prog, "uBones"), BONE_COUNT, GL_FALSE, glm::value_ptr(mats[0]));
+            glUniform1iv(loc(prog, "uFirst"), BONE_COUNT, f);
+            const GLsizei total = ch.first[BONE_COUNT - 1] + ch.count[BONE_COUNT - 1] - ch.first[0];
+            if (total > 0) glDrawArrays(GL_TRIANGLES, ch.first[0], total);
+            glUniform1i(loc(prog, "uSkinned"), 0);
+            return;
+        }
+        for (int b = 0; b < BONE_COUNT; b++) {
+            if (!ch.count[b]) continue;
+            glUniformMatrix4fv(lm, 1, GL_FALSE, glm::value_ptr(mats[b]));
+            glDrawArrays(GL_TRIANGLES, ch.first[b], ch.count[b]);
+        }
+    }
 
     void ensureTargets(int w, int h) {
         if (fbo && w == fbW && h == fbH) return;

@@ -82,6 +82,7 @@
 #include "server/Worlds.h"
 #include "game/PortalGun.h"
 #include "render/PortalView.h"
+#include "render/GpuTimers.h"
 #include "ui/InventoryScreen.h"
 #include "world/StructureManager.h"
 #include "world/Chests.h"
@@ -190,7 +191,9 @@ void keyCallback(GLFWwindow* window, int key,
 // the crosshair is on (a point well down the camera's line), so a
 // third-person camera above and behind still shoots where it looks
 // Sections drawn in portal views (this frame; the last one's, for dbg)
-static int portalSectionDraws = 0, portalSectionDrawsShown = 0, lastFrameDraws = 0;
+// Bodies further than this (vox) get no outline pass (it draws each body again)
+static constexpr float EDGE_RANGE = 240.0f;
+static int portalSectionDraws = 0, portalSectionDrawsShown = 0, lastFrameDraws = 0, lastFrameVerts = 0, lastFrameSkipped = 0;
 
 static float aimPitchOf(const Human& p, const Camera& cam) {
     glm::vec3 chest = p.position + glm::vec3(0.0f, p.height * 0.78f, 0.0f);
@@ -351,6 +354,7 @@ int main() {
     RoofRenderer roofs;                       // roofs drawn smooth, eaves overhanging (Settings → Roofs)
     if (!roofs.init()) std::cerr << "Roof renderer failed to start\n";
     DebugDraw debugDraw;                      // the debug overlay's lines (F3, game/DebugView.h)
+    GpuTimers gpuTimers;                      // the GPU's time per pass, on the debug overlay (render/GpuTimers.h)
     if (!debugDraw.init()) std::cerr << "Debug lines failed to start\n";
     std::vector<std::array<glm::vec3, 3>> axeTrail;   // the last axe swing's blade, for the overlay
     bool wasSwinging = false;
@@ -516,7 +520,12 @@ int main() {
     // through swaps one with 'streamer' (seamless: nothing reloads)
     std::map<std::string, std::unique_ptr<WorldStreamer>> farStreamers;
     static constexpr int FAR_MESH_RADIUS = 2;
+    // ... and each such world's distant terrain and what's been seen of it
+    // (kept, not made again, when you cross back: no horizon popping in)
+    struct FarKept { std::unique_ptr<FarTerrain> view; WorldMemory memory; int seen = 0; };
+    std::map<std::string, FarKept> farKept;
     dropFarStreamer = [&](const std::string& name) {
+        farKept.erase(name);
         auto it = farStreamers.find(name);
         if (it == farStreamers.end()) return;
         if (GameSession* w = worlds.get(name)) worlds.setStreamed(w, false);
@@ -533,21 +542,26 @@ int main() {
     // the other players and NPCs, as Npcs that never think, moved
     // from the server's snapshots.
     std::unique_ptr<ClientWorld> remote;
+    std::string joinedAddress, joinedName;     // the server joined (to join again after a portal: ClientWorld::travel)
+    uint32_t remoteBox = 0;                   // a chest open on a server (Msg::Container), its items as last sent
+    bool remoteBoxOpen = false;
+    std::string remoteBoxSent;
+    bool travelRejoin = false;
     uint64_t localUuid = player.uuid;         // this player's id off line
     float remoteTime = 0.0f;                  // ticks owed while a menu is open
     std::unordered_map<uint64_t, bool> puppetDown;
     std::unordered_map<std::string, std::string> itemForModel;   // held model → an item that shows it
-    auto syncPuppets = [&](float dtFrame) {
-        if (!remote) return;
+    auto syncPuppetsOf = [&](ClientWorld& cw, GameSession& into, float dtFrame) {
         if (itemForModel.empty())
             for (uint16_t id : gItems.inCategory(IC_TOOL | IC_WEAPON | IC_SPELLBOOK | IC_SHIELD | IC_DEV)) {
                 const ItemDef& d = gItems.get(id);
                 if (!d.heldModel.empty() && !itemForModel.count(d.heldModel)) itemForModel[d.heldModel] = d.name;
             }
-        auto& list = here->sim.npcs().all();
-        list.erase(std::remove_if(list.begin(), list.end(), [&](auto& n) { return n->puppet && !remote->bodies.count(n->uuid); }), list.end());
-        for (auto& [id, body] : remote->bodies) {
-            Npc* n = here->sim.npcs().find(id);
+        auto& list = into.sim.npcs().all();
+        list.erase(std::remove_if(list.begin(), list.end(), [&](auto& n) { return n->puppet && (!cw.bodies.count(n->uuid) || n->uuid == player.uuid); }), list.end());
+        for (auto& [id, body] : cw.bodies) {
+            if (id == player.uuid) continue;         // (you, seen by a watch connection: you're the body)
+            Npc* n = into.sim.npcs().find(id);
             if (!n) {
                 auto made = std::make_unique<Npc>();
                 made->uuid = id;
@@ -568,7 +582,7 @@ int main() {
                 for (std::string w; gs >> w;) n->wearing.push_back(w);
             }
             proto::BodyState st;
-            if (!remote->sample(id, st)) continue;
+            if (!cw.sample(id, st)) continue;
             using B = proto::BodyState;
             n->position = n->prevPosition = st.pos;
             n->velocity = st.vel;
@@ -587,6 +601,7 @@ int main() {
                 n->guardStyle.shield = om != itemForModel.end() && gItems.get(gItems.find(om->second)).shield;
             }
             const AttackDef* ad = st.attack.empty() ? nullptr : gMovesets.attack(st.attack);
+            n->puppetSwing = (st.flags & B::F_SWING) ? st.swingT : -1.0f;
             n->attack = AttackState();
             if (ad) { n->attack.kind = AttackKind::Light; n->attack.d = ad; n->attack.t = st.attackT; n->attack.dir = st.attackDir; }
             // knocked down or dead: it falls here too (for looks; the server decides what's hit)
@@ -601,6 +616,45 @@ int main() {
             puppetDown[id] = down;
         }
     };
+    auto syncPuppets = [&](float dtFrame) { if (remote) syncPuppetsOf(*remote, *here, dtFrame); };
+
+    // ── The far sides of a server's portals ───────────────
+    // Each seamless link out of this world (RealmState's links) has its
+    // far world watched by a second connection (ClientWorld::watch) into
+    // a copy of that world here ("srv:<its name>", in worlds), streamed
+    // round the far end like single player's far sides, its bodies as
+    // puppets. The links themselves are only drawn (viewOnly): the server
+    // moves the body through.
+    struct Watch {
+        std::unique_ptr<ClientWorld> cw;
+        GameSession* s = nullptr;
+        std::thread worker;                       // (its generator, built off the main thread)
+        std::atomic<bool> building{ false };
+    };
+    std::map<std::string, std::unique_ptr<Watch>> watches;    // by the server's world name
+    auto dropWatch = [&](const std::string& world) {
+        auto it = watches.find(world);
+        if (it == watches.end()) return;
+        Watch& w = *it->second;
+        if (w.worker.joinable()) w.worker.join();
+        if (w.cw) { w.cw->leave(); w.cw->receive(); }
+        if (dropFarStreamer) dropFarStreamer("srv:" + world);
+        if (w.s) {
+            for (auto& n : w.s->sim.npcs().all()) puppetDown.erase(n->uuid);
+            if (w.s == &worlds.lobby()) w.s->close();          // (the world you came from, after a seamless swap)
+            else worlds.close(w.s, false);
+        }
+        watches.erase(it);
+    };
+    auto dropWatches = [&]() { while (!watches.empty()) dropWatch(watches.begin()->first); };
+    // Through a portal into a watched world (the server's name for it):
+    // the body moves into our copy of it, and the two connections swap
+    // (the watch one is yours now, this one watches the world left).
+    // fromServer: the server's Swap came first (the camera moves too);
+    // else the game saw you cross itself and the server's word follows
+    // (pendingCross: if it doesn't come, join again)
+    struct PendingCross { bool active = false; float waited = 0.0f; } pendingCross;
+    std::function<bool(const std::string&, const Simulation::Transfer&, bool)> crossIntoWatched;
     // One tick on a server: this tick's input goes out, the local
     // simulation predicts it, the fallen bodies' ragdolls move
     auto remoteTick = [&](const HumanIntent& in) {
@@ -611,6 +665,11 @@ int main() {
         here->sim.step(PHYSICS_STEP);
         remote->afterPrediction();
         for (auto& n : here->sim.npcs().all()) if (n->puppet && here->physics) here->physics->stepRagdoll(*n, PHYSICS_STEP);
+        // through a server's portal, as the game sees it: crossed at once (no
+        // flash of the world behind the gate while the server's word comes);
+        // the server, with the same inputs, moves the body the same way
+        for (const Simulation::Transfer& t : here->sim.takeTransfers())
+            if (t.id == player.uuid && t.world.rfind("srv:", 0) == 0) crossIntoWatched(t.world.substr(4), t, false);
     };
 
     // ── Save everything ───────────────────────────────────
@@ -657,6 +716,7 @@ int main() {
     auto dropFarStreamers = [&]() {
         for (auto& [name, fs] : farStreamers) if (GameSession* w = worlds.get(name)) worlds.setStreamed(w, false);
         farStreamers.clear();
+        farKept.clear();
     };
 
     // Leave the world: save (unless told not to: a dev world
@@ -681,6 +741,8 @@ int main() {
         dropWoodMeshes();
         npcBodies.clear();
         if (remote) {
+            dropWatches();
+            worlds.lobby().nameRemote("");
             remote->receive();               // lets the goodbye out
             remote.reset();
             puppetDown.clear();
@@ -773,7 +835,7 @@ int main() {
         hud.devWorld = here->info.isDevWorld();
         // opened from the menu: it's a main world, the realm's root
         if (!travelling) {
-            portals.realm.load(name, devWorld); portals.travel = PortalDirector::Travel(); portals.menuOpen = false;
+            portals.leaveRemote(); portals.realm.load(name, devWorld); portals.travel = PortalDirector::Travel(); portals.menuOpen = false;
             worlds.pin(here);                  // the realm's main world stays open
         }
 
@@ -955,19 +1017,29 @@ int main() {
         }
         next->meshRadius = -1;
         if (streamer) {
-            streamer->meshRadius = FAR_MESH_RADIUS;
+            streamer->meshRadius = remote ? -1 : FAR_MESH_RADIUS;    // (a server's: the whole of it, ready to cross back)
             streamer->setExtraCentres({});
             farStreamers[from->name()] = std::move(streamer);
             worlds.setStreamed(from, true);
         }
         streamer = std::move(next);
+        // the distant terrain: this world's kept, the other's made (or kept from before)
+        {
+            FarKept& k = farKept[from->name()];
+            k.view = std::move(farView); k.memory = std::move(memory); k.seen = memorySeen;
+        }
         here = to;
         worlds.setStreamed(here, false);
         worlds.setFocus(here);
-        memory = WorldMemory();
-        memory.load(here->info.getWorldPath() + "/lowres.dat");
-        memorySeen = 0;
-        makeFarView();
+        if (auto fk = farKept.find(here->name()); fk != farKept.end() && fk->second.view) {
+            farView = std::move(fk->second.view); memory = std::move(fk->second.memory); memorySeen = fk->second.seen;
+            farKept.erase(fk);
+        } else {
+            memory = WorldMemory();
+            memory.load(here->info.getWorldPath() + "/lowres.dat");
+            memorySeen = 0;
+            makeFarView();
+        }
         dropWoodMeshes();
         hands.wood = here->wood.get();
         hands.chests = &here->chests;
@@ -981,12 +1053,41 @@ int main() {
         std::cout << "through to " << here->name() << "\n";
     };
 
+    crossIntoWatched = [&](const std::string& world, const Simulation::Transfer& t, bool fromServer) -> bool {
+        auto it = watches.find(world);
+        if (it == watches.end() || !it->second->cw || it->second->building || !it->second->s || !it->second->s->world) return false;
+        GameSession* to = it->second->s;
+        const std::string left = here->name().rfind("srv:", 0) == 0 ? here->name().substr(4) : std::string();
+        const glm::vec3 before = player.position;
+        if (!Worlds::transfer(*here, *to, t)) return false;
+        std::printf("through to %s (seamless%s): %.1f %.1f %.1f -> %.1f %.1f %.1f\n", to->name().c_str(), fromServer ? "" : ", seen here first",
+                    before.x, before.y, before.z, player.position.x, player.position.y, player.position.z);
+        std::unique_ptr<Watch> w = std::move(it->second);
+        watches.erase(it);
+        std::unique_ptr<ClientWorld> old = std::move(remote);
+        remote = std::move(w->cw);
+        remote->becomePlayer(player.uuid, true);          // (where you are: here, you went through)
+        old->becomeWatcher();
+        GameSession* was = here;
+        switchFocus(to);
+        if (!left.empty()) { w->cw = std::move(old); w->s = was; watches[left] = std::move(w); }
+        else old->leave();
+        for (auto& n : here->sim.npcs().all()) if (n->puppet) puppetDown[n->uuid] = n->ragdoll.isLimp();
+        // the view comes too when this is the start of a frame (the streamers
+        // update before the camera does)
+        if (fromServer) camera.position = glm::vec3(t.through * glm::vec4(camera.position, 1.0f));
+        pendingCross.active = !fromServer; pendingCross.waited = 0.0f;
+        return true;
+    };
+
     // ── Join a server ─────────────────────────────────────
     // Connects (a screen shows how it's going; Esc gives up),
     // builds the same world from the settings the server sends,
     // and starts playing on the mirror. Returns "" or what went
     // wrong.
     auto joinServer = [&](const std::string& address, const std::string& name) -> std::string {
+        joinedAddress = address; joinedName = name;
+        dropWatches();
         streamer.reset();
         farView.reset();
         here->close();
@@ -994,7 +1095,7 @@ int main() {
         net::splitAddress(address, host, port);
         auto conn = net::enetConnect(host, port);
         if (!conn) return "couldn't look up " + host;
-        portals.realm = realm::Realm();           // no portals on a server (yet)
+        portals.leaveRemote();                    // (the server tells this client its realm: Msg::RealmState)
         portals.travel = PortalDirector::Travel();
         portals.menuOpen = false;
         player.resetForNewWorld();
@@ -1170,27 +1271,39 @@ int main() {
             glClear(GL_DEPTH_BUFFER_BIT);
         }
 
+        gpuTimers.mark("far land");
         // World pass: depth test + back-face culling ON
         glr->beginWorldDraw();
 
-        for (int cx = pc.x - MESH_DISTANCE;
-                 cx <= pc.x + MESH_DISTANCE; cx++)
-        for (int cz = pc.y - MESH_DISTANCE;
-                 cz <= pc.y + MESH_DISTANCE; cz++) {
-            // Not built yet (or outside the world) → skip
-            if (!streamer->hasMesh(cx, cz)) continue;
-            glm::vec3 origin = here->world->chunkOrigin(cx, cz);
-            for (int sy = 0; sy < SECTIONS; sy++) {
-                const ChunkMesh* mesh = streamer->getMesh(cx, sy, cz);
-                if (!mesh || mesh->isEmpty()) continue;
-                glr->drawMesh(*mesh, origin + glm::vec3(0.0f, (float)(sy * VOXEL_DIM), 0.0f),
-                              streamer->getLightTexture(cx, sy, cz), streamer->getCanopyTexture(cx, cz),
-                              streamer->getFlowTexture(cx, cz), streamer->getTintTexture(cx, sy, cz));
+        // near to far: what's nearest fills the depth first, so the
+        // pixels of what's behind it are thrown away before shading
+        {
+            struct Sec { float d; int cx, sy, cz; };
+            static std::vector<Sec> secs;
+            secs.clear();
+            for (int cx = pc.x - MESH_DISTANCE; cx <= pc.x + MESH_DISTANCE; cx++)
+            for (int cz = pc.y - MESH_DISTANCE; cz <= pc.y + MESH_DISTANCE; cz++) {
+                // Not built yet (or outside the world) → skip
+                if (!streamer->hasMesh(cx, cz)) continue;
+                for (int sy = 0; sy < SECTIONS; sy++) {
+                    const ChunkMesh* mesh = streamer->getMesh(cx, sy, cz);
+                    if (!mesh || mesh->isEmpty()) continue;
+                    glm::vec3 c = here->world->chunkOrigin(cx, cz) + glm::vec3(VOXEL_DIM * 0.5f, (sy + 0.5f) * VOXEL_DIM, VOXEL_DIM * 0.5f);
+                    glm::vec3 dv = c - camera.position;
+                    secs.push_back({ glm::dot(dv, dv), cx, sy, cz });
+                }
             }
+            std::sort(secs.begin(), secs.end(), [](const Sec& a, const Sec& b) { return a.d < b.d; });
+            for (const Sec& q : secs)
+                glr->drawMesh(*streamer->getMesh(q.cx, q.sy, q.cz),
+                              here->world->chunkOrigin(q.cx, q.cz) + glm::vec3(0.0f, (float)(q.sy * VOXEL_DIM), 0.0f),
+                              streamer->getLightTexture(q.cx, q.sy, q.cz), streamer->getCanopyTexture(q.cx, q.cz),
+                              streamer->getFlowTexture(q.cx, q.cz), streamer->getTintTexture(q.cx, q.sy, q.cz));
         }
 
         // Culling OFF again so the UI draws normally
         glr->endWorldDraw();
+        gpuTimers.mark("world");
 
         // The player's body, posed from what it is doing this
         // frame. Animated whenever there is a body (the ragdoll
@@ -1613,8 +1726,12 @@ int main() {
                     charRenderer.draw(*it->second, proj * view, at, camera.position,
                                       OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
                     charRenderer.resetPortal();
-                    placed.push_back({ it->second.get(), at, gOutlineFx.glowFor(*np) });
-                    placed.back().clip = cut;
+                    // (outlines: only near enough to see them; far bodies skip the second pass)
+                    const glm::vec4 glow = gOutlineFx.glowFor(*np);
+                    if (glm::length(at - camera.position) < EDGE_RANGE || glow.a > 0.0f) {
+                        placed.push_back({ it->second.get(), at, glow });
+                        placed.back().clip = cut;
+                    }
                 }
                 const float top = blob ? np->height : np->standHeight;          // for the bar and the marker
                 const glm::vec3 head = blob ? glm::vec3(0.0f) : np->ragdoll.headOffset(alpha);
@@ -1665,6 +1782,7 @@ int main() {
             if (!placed.empty()) charRenderer.drawEdges(placed, view, proj, 0, 0, fw, fh, fw, fh, edgeStyle());
         }
 
+        gpuTimers.mark("bodies");
         // ── Portals (world/PortalLinks.h): each opening facing you
         //    shows the room in front of its other end, drawn from a
         //    second camera that's where yours would be on that side,
@@ -1697,13 +1815,33 @@ int main() {
                     PortalLink::Face faces[2];
                     const int nf = l.faces(e, faces);                        // (none: one way, this side is a wall)
                     int fi = 0;
-                    while (fi < nf && !portalview::facing(faces[fi].in, camera.position, 400.0f)) fi++;
+                    // The camera and your body on either side of an opening:
+                    //   going in, the camera ahead (past it, the body not yet):
+                    //     still the view through it, filling the space past it
+                    //   coming out, the camera behind (the drawn position lags
+                    //     the body a tick): nothing through it at all, so its
+                    //     back doesn't show the world you've just left
+                    bool tunnel = false, justOut = false;
+                    {
+                        const glm::vec3 mid = player.position + glm::vec3(0.0f, player.height * 0.5f, 0.0f);
+                        for (int k = 0; k < nf && !tunnel && !justOut; k++) {
+                            const PortalEnd& F = faces[k].in;
+                            glm::vec3 q = F.local(camera.position), m = F.local(mid);
+                            if (q.z <= 0.0f && q.z > -portalview::TUNNEL && F.inside(q, 0.5f) &&
+                                m.z > 0.0f && m.z < PortalLinks::BODY_BAND + 2.0f && F.inside(m, 2.0f)) {
+                                if (glm::dot(player.velocity, F.normal) > 0.5f) justOut = true;
+                                else { fi = k; tunnel = true; }
+                            }
+                        }
+                    }
+                    if (justOut) continue;
+                    if (!tunnel) while (fi < nf && !portalview::facing(faces[fi].in, camera.position, 400.0f)) fi++;
                     if (fi == nf) continue;
                     const PortalEnd& E = faces[fi].in;
                     const PortalEnd& O = faces[fi].out;
                     const glm::mat4 M = PortalLink::through(E, O);
                     Camera vc = portalview::cameraThrough(camera, M);
-                    portalview::begin(blobs, proj * view, E);
+                    portalview::begin(blobs, proj * view, E, camera.position, tunnel ? portalview::TUNNEL + 0.5f : -1.0f);
                     // the far side
                     glr->setCamera(vc, aspect);
                     glm::mat4 vView = glr->getViewMatrix();
@@ -1715,7 +1853,7 @@ int main() {
                     }
                     glr->beginWorldDraw();
                     glr->overrideProjection(P);
-                    {
+                    if (!tunnel) {                       // (in the tunnel the far camera's past the far face: the whole view)
                         glm::vec4 op[5];
                         int n = portalview::openingPlanes(O, vc.position, op);
                         glr->narrowFrustum(op, n);
@@ -1769,6 +1907,7 @@ int main() {
             if (streamer) streamer->setExtraCentres(extras);
         }
 
+        gpuTimers.mark("portals");
         // Spells in flight (Simulation::projectiles): an ice spike is
         // a pale shard along its way, a thinner point ahead
         // Arrows: a thin shaft drawn as a few beads along its way (so
@@ -1895,6 +2034,7 @@ int main() {
         // Builder's Hammer: outline of the chosen structure
         // where it would go — green if it can be placed, red
         // if not — plus its anchor voxel
+        gpuTimers.mark("effects");
         // Window glass, after everything solid (chunks, roofs, bodies, props), far sections first
         // (Mesher.h panes, OpenGLRenderer::beginPanes)
         {
@@ -1919,6 +2059,7 @@ int main() {
                                    streamer->getLightTexture(p.cx, p.sy, p.cz), streamer->getCanopyTexture(p.cx, p.cz),
                                    streamer->getFlowTexture(p.cx, p.cz), streamer->getTintTexture(p.cx, p.sy, p.cz));
                 glr->endPanes();
+                gpuTimers.mark("glass");
             }
         }
         if (hands.hammerActive && !hands.previewBoxes.empty() && rules.worldInteraction) {
@@ -2133,7 +2274,7 @@ int main() {
                 "; " + std::to_string(here->portals.links.size()) + " portal(s) in this world");
         };
         ctx.portal = [&](const std::vector<std::string>& a) {
-            if (remote) { say("no portals on a server yet"); return; }
+            if (remote) { say("on a server its console runs the portals (portal open crypt …); at a gate, {interact}"); return; }
             if (!portals.realm.loaded()) { say("no world open"); return; }
             auto& R = portals.realm;
             if (a.empty()) {
@@ -2172,6 +2313,8 @@ int main() {
     // ── A test script (VOXELRPG_SCRIPT=<file>): one line a frame ─
     //   world <name>        open a saved world, or make a flat one (Test Play)
     //   pos x y z           put the player (feet) there
+    //   atportal dx dy dz   put the player relative to the foot of the first portal here
+    //   join <address> <name>  join a server
     //   look <yaw> <pitch>  turn the camera
     //   wait <frames>
     //   walk <frames>       walk the way the camera looks
@@ -2206,8 +2349,17 @@ int main() {
                 enterWorld(true, name, 1, GameMode::Dev, WorldType::Flat, 32, -1, TerrainStyle::NoErosion, WorldGenParams(), fo, false);
             }
             changeMode(GameMode::Dev);
-        } else if (w == "pos") {
+        } else if (w == "join") {                  // join <address> <name>: a server
+            std::string a, n; ls >> a >> n;
+            std::string why = joinServer(a, n);
+            std::cout << "script: join " << (why.empty() ? std::string("ok") : why) << "\n";
+        } else if (w == "pos" || w == "atportal") {
             glm::vec3 p; ls >> p.x >> p.y >> p.z;
+            if (w == "atportal") {                 // relative to the first portal here: its foot, in world axes
+                if (here->portals.empty()) return;
+                const PortalEnd& E = here->portals.links[0].a;
+                p += E.centre - E.up * E.half.y;
+            }
             player.position = p; player.velocity = glm::vec3(0.0f);
             controller.reset(player);
             camera.position = p + glm::vec3(0.0f, player.eyeHeight, 0.0f);
@@ -2227,7 +2379,19 @@ int main() {
         } else if (w == "shot") {
             ls >> pendingShot;
         } else if (w == "dbg") {
-            std::printf("dbg: draws %d (portal views %d)\n", lastFrameDraws, portalSectionDrawsShown);
+            std::printf("dbg: draws %d (portal views %d)  vertices %d, skipped facing away %d\n", lastFrameDraws, portalSectionDrawsShown,
+                        lastFrameVerts, lastFrameSkipped);
+            if (streamer && here->world) {
+                glm::ivec2 pc = here->world->worldToChunk(player.position);
+                std::string miss;
+                for (int dx = -2; dx <= 2; dx++) for (int dz = -2; dz <= 2; dz++) {
+                    int cx = pc.x + dx, cz = pc.y + dz;
+                    if (!here->world->inWorld(cx, cz)) continue;
+                    if (!streamer->hasMesh(cx, cz)) miss += " " + std::to_string(cx) + "," + std::to_string(cz) + (here->world->isLoaded(cx, cz) ? "(loaded)" : "(no data)");
+                }
+                std::printf("dbg: chunk %d %d, unmeshed near:%s\n", pc.x, pc.y, miss.empty() ? " none" : miss.c_str());
+            }
+            for (auto& [n, fs] : farStreamers) std::printf("dbg: far streamer %s: %d meshed%s\n", n.c_str(), fs->meshCount(), fs->isIdle() ? "" : " (busy)");
             for (const PortalLink& l : here->portals.links)
                 std::printf("dbg: link %s a %.1f %.1f %.1f n %.2f %.2f %.2f back %d  b %.1f %.1f %.1f n %.2f %.2f %.2f back %d %s\n", l.kind.c_str(),
                             l.a.centre.x, l.a.centre.y, l.a.centre.z, l.a.normal.x, l.a.normal.y, l.a.normal.z, (int)l.a.back,
@@ -2293,7 +2457,90 @@ int main() {
             std::string lastNotice;
             for (const std::string& n : remote->notices) { say(n); lastNotice = n; }
             remote->notices.clear();
-            if (remote->state != ClientWorld::State::Joined) {
+            // a chest on the server: its items as it has them; the way
+            // they're arranged here, sent when it changes; closed with the screen
+            auto boxKey = [&](Container& cc) {
+                std::ostringstream o;
+                cc.read().write(o, "c");
+                o << "--\n";
+                player.inventory.write(o, "inv");
+                return o.str();
+            };
+            auto boxHere = [&](uint32_t id) -> Container* {
+                const StructureInstance* ci = nullptr;
+                if (here->structs) here->structs->forEachInstance([&](const StructureInstance& si) { if (si.id == id) ci = &si; });
+                const StructureType* ct = ci ? gStructures.get(ci->type) : nullptr;
+                return ct && ct->slots > 0 ? &here->chests.get(id, *ct) : nullptr;
+            };
+            if (remote->boxChanged) {
+                remote->boxChanged = false;
+                std::istringstream in(remote->boxText);
+                uint32_t id = 0; in >> id;
+                Container* cc = id == remoteBox ? boxHere(id) : nullptr;
+                if (cc) {
+                    Container got;
+                    std::string line; std::getline(in, line);
+                    while (std::getline(in, line))
+                        if (size_t eq = line.find('='); eq != std::string::npos) got.readLine(line.substr(0, eq), line.substr(eq + 1), "c");
+                    got.finishLoad();
+                    cc->label = got.label;
+                    cc->setShowcase(got.showcase);
+                    Inventory& inv = cc->read();
+                    inv.capacity = got.read().capacity;
+                    for (int i = 0; i < Inventory::SLOTS; i++) inv.slots[i] = got.read().slots[i];
+                    remoteBoxSent = boxKey(*cc);
+                    if (!remoteBoxOpen) {
+                        remoteBoxOpen = true;
+                        const StructureInstance* ci = nullptr;
+                        here->structs->forEachInstance([&](const StructureInstance& si) { if (si.id == id) ci = &si; });
+                        const StructureType* ct = gStructures.get(ci->type);
+                        inventoryScreen.setContext(&player, &inv, cc->label.empty() ? ct->displayName : cc->label);
+                        inventoryScreen.onEnter();
+                        inventoryOpenedFrame = true;
+                        gState = GameState::Inventory;
+                        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                    }
+                }
+            }
+            if (remoteBox && remoteBoxOpen) {
+                if (gState != GameState::Inventory) {
+                    remote->container("close");
+                    remoteBox = 0; remoteBoxOpen = false;
+                } else if (Container* cc = boxHere(remoteBox)) {
+                    std::string k = boxKey(*cc);
+                    if (k != remoteBoxSent) { remote->container("set " + std::to_string(remoteBox) + "\n" + k); remoteBoxSent = k; }
+                }
+            }
+            auto applyRealm = [&]() {
+                if (!remote->realmChanged) return;
+                portals.readRemote(remote->realmText);
+                remote->realmChanged = false;
+                if (!portals.remoteWorld.empty() && here->name() != "srv:" + portals.remoteWorld) here->nameRemote("srv:" + portals.remoteWorld);
+                // its seamless links, to draw (the far world: our copy of it)
+                here->portals.links.clear();
+                for (PortalLink l : portals.remoteLinks) {
+                    l.b.world = "srv:" + l.b.world;           // (gone through here too: remoteTick; the server's word follows)
+                    here->portals.links.push_back(l);
+                }
+            };
+            applyRealm();
+            // a Swap on a watch connection: the server's word on a crossing
+            // the game made already (crossIntoWatched): confirmed
+            for (auto& [wn, wp] : watches)
+                if (wp->cw && wp->cw->swapped) { wp->cw->swapped = false; if (pendingCross.active && "srv:" + wp->cw->swapTo == here->name()) pendingCross.active = false; }
+            if (pendingCross.active && (pendingCross.waited += frameTime) > 3.0f) {
+                pendingCross.active = false;
+                travelRejoin = true;                       // (the server never moved you: join again, where it has you)
+            }
+            if (remote->swapped) {
+                // the server moved you through before the game did: the same swap, from its word
+                remote->swapped = false;
+                Simulation::Transfer t; t.id = player.uuid; t.through = remote->swapThrough;
+                if (crossIntoWatched(remote->swapTo, t, true)) applyRealm();
+                else travelRejoin = true;                  // (the far side not ready: join again there)
+            } else if (remote->travel) {
+                travelRejoin = true;                   // (through a portal into another of the server's worlds: joined again below)
+            } else if (remote->state != ClientWorld::State::Joined) {
                 dropToMenu(lastNotice.empty() ? "the connection to the server was lost" : lastNotice);
             } else {
                 here->sim.day.time = remote->clockTime;
@@ -2470,6 +2717,57 @@ int main() {
                     glm::ivec2 c = w->world->worldToChunk(at);
                     fs->update(c.x, c.y);
                 }
+            } else {
+                // on a server: the far sides of its portals, watched
+                std::map<std::string, glm::vec3> want;           // the server's world name → the far end
+                for (const PortalLink& l : here->portals.links)
+                    if (l.b.world.rfind("srv:", 0) == 0 && glm::length(l.a.centre - player.position) < 260.0f) want[l.b.world.substr(4)] = l.b.centre;
+                for (auto it = watches.begin(); it != watches.end();) {
+                    if (!want.count(it->first) || (it->second->cw && it->second->cw->state != ClientWorld::State::Connecting &&
+                                                   it->second->cw->state != ClientWorld::State::Joined)) {
+                        std::string n = it->first; ++it; dropWatch(n);
+                    } else ++it;
+                }
+                const float ticks = frameTime / PHYSICS_STEP;
+                for (auto& [world, at] : want) {
+                    auto& wp = watches[world];
+                    if (!wp) {
+                        std::string h; int port;
+                        net::splitAddress(joinedAddress, h, port);
+                        auto conn = net::enetConnect(h, port);
+                        if (!conn) continue;
+                        wp = std::make_unique<Watch>();
+                        wp->s = worlds.addRemote("srv:" + world);
+                        wp->cw = std::make_unique<ClientWorld>(conn, "servercache", &player, wp->s);   // (yours if you go through: Swap)
+                        wp->cw->watch(joinedName, world, at);
+                    }
+                    Watch& W = *wp;
+                    if (W.building) { W.cw->keepAlive(); continue; }
+                    if (W.worker.joinable()) W.worker.join();
+                    W.cw->receive();
+                    if (W.cw->needsGenerator()) {
+                        W.building = true;
+                        ClientWorld* cw = W.cw.get();
+                        std::atomic<bool>* b = &W.building;
+                        W.worker = std::thread([cw, b] { cw->buildGenerator(); *b = false; });
+                        continue;
+                    }
+                    if (!W.s->world) continue;
+                    W.cw->advance(ticks);
+                    W.s->sim.day.time = W.cw->clockTime;       // (its sky, seen through the portal)
+                    const std::string local = "srv:" + world;
+                    auto& fs = farStreamers[local];
+                    if (!fs) {
+                        // the whole world round the far end, as if you were there (it
+                        // becomes your streamer when you walk through: nothing to pop in)
+                        fs = std::make_unique<WorldStreamer>(*W.s->world, W.cw->chunkSource(), blockTable, lightTable());
+                        const TerrainGenerator* g = W.s->gen.get();
+                        fs->flowAt = [g](int x, int z) { return g->flowAt(x, z); };
+                    }
+                    glm::ivec2 c = W.s->world->worldToChunk(at);
+                    fs->update(c.x, c.y);
+                    syncPuppetsOf(*W.cw, *W.s, frameTime);
+                }
             }
             // View distances from the settings (they can change
             // while the game runs: the streamer and the far view
@@ -2506,9 +2804,12 @@ int main() {
         }
 
         lastFrameDraws = gRenderer->getDrawCalls();
+        lastFrameVerts = gRenderer->getVertexCount();
+        if (auto* gl = dynamic_cast<OpenGLRenderer*>(gRenderer.get())) lastFrameSkipped = gl->getFacesSkipped();
         portalSectionDrawsShown = portalSectionDraws;
         portalSectionDraws = 0;
         gRenderer->beginFrame();
+        gpuTimers.beginFrame(gDebug.on);
 
         // ══════════════════════════════════════════════════
         // STATE MACHINE
@@ -2562,6 +2863,12 @@ int main() {
                 glfwSetWindowShouldClose(window, true);
             }
 
+        } else if (gState == GameState::Playing && travelRejoin) {
+            // ── Through a portal into another of the server's worlds:
+            //    join again there (ClientWorld::travel) ──────────
+            travelRejoin = false;
+            std::string why = joinServer(joinedAddress, joinedName);
+            if (!why.empty()) dropToMenu(why);
         } else if (gState == GameState::Playing) {
 
             // ── A trip through a gate (game/Portals.h): dark, the far
@@ -2945,6 +3252,9 @@ int main() {
                     char b[160];
                     auto line = [&](const char* fmt, auto... v) { std::snprintf(b, sizeof(b), fmt, v...); hud.debugText.push_back(b); };
                     line("frame %.1f ms  (%.0f fps)  tick %.0f Hz", frameTime * 1000.0f, 1.0f / std::max(frameTime, 1e-4f), 1.0f / PHYSICS_STEP);
+                    for (const std::string& gl : gpuTimers.lines()) hud.debugText.push_back(gl);
+                    line("sections %d  vertices %dk  (%dk facing away, skipped)  portal views %d", lastFrameDraws,
+                         lastFrameVerts / 1000, lastFrameSkipped / 1000, portalSectionDrawsShown);
                     line("pos %.1f %.1f %.1f   chunk %d %d", player.position.x, player.position.y, player.position.z,
                          (int)std::floor(player.position.x / VOXEL_DIM), (int)std::floor(player.position.z / VOXEL_DIM));
                     line("vel %.1f %.1f %.1f  %s  facing %.0f deg", player.velocity.x, player.velocity.y, player.velocity.z,
@@ -3107,7 +3417,7 @@ int main() {
                     if (talkCloseIn >= 0.0f && (talkCloseIn -= dt) < 0.0f) { here->sim.closeMenu(talkingTo); }
                 }
                 // a gate's menu (game/Portals.h): the talk box's keys
-                if (portals.menuOpen && !remote) {
+                if (portals.menuOpen) {
                     const pad::State& ps = gInput.padNow();
                     auto padHit = [&](int b) { return ps.down[(size_t)b] && !talkPadPrev.down[(size_t)b]; };
                     const int n = (int)portals.options.size();
@@ -3120,12 +3430,18 @@ int main() {
                     talkDownHeld = glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS;
                     talkEnterHeld = glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS;
                     talkPadPrev = ps;
-                    if (pick >= 0) { std::string said = portals.choose(pick); if (!said.empty()) say(said); }
+                    if (pick >= 0) {
+                        if (remote) {                  // on a server: the server does it (server/RealmServer.h)
+                            const std::string a = portals.options[(size_t)pick].action;
+                            portals.menuOpen = false;
+                            if (a != "leave") remote->gate(a);
+                        } else { std::string said = portals.choose(pick); if (!said.empty()) say(said); }
+                    }
                 }
                 hud.talkingTo.clear();
                 hud.talkLine.clear();
                 hud.talkOptions.clear();
-                hud.instanceClock = remote ? std::string() : portals.timerText();
+                hud.instanceClock = portals.timerText();
                 if (portals.menuOpen) {
                     hud.talkingTo = portals.menuTitle;
                     hud.talkLine = portals.menuLine;
@@ -3167,10 +3483,17 @@ int main() {
                     }
                     if (hands.aimLabel.empty() && !talkingTo)
                         if (Npc* body = bodyInView()) hands.aimLabel = body->name + (body->pack.mayHoldItems() ? "   {interact}: search" : "   searched - empty");
-                    if (hands.aimLabel.empty() && !talkingTo && !portals.menuOpen && !remote && portals.gateInReach(*here, player, camera.front))
+                    if (hands.aimLabel.empty() && !talkingTo && !portals.menuOpen && portals.gateInReach(*here, player, camera.front))
                         hands.aimLabel = "Portal   {interact}: use";
 
-                    // E on a chest → the inventory, the chest beside it
+                    // E on a chest → the inventory, the chest beside it (on a
+                    // server: asked for, opened when its items come)
+                    if (hands.openChest && remote) {
+                        remoteBox = hands.openChest;
+                        hands.openChest = 0;
+                        remoteBoxOpen = false;
+                        remote->container("open " + std::to_string(remoteBox));
+                    }
                     if (hands.openChest) {
                         uint32_t cid = hands.openChest;
                         hands.openChest = 0;
@@ -3414,6 +3737,8 @@ int main() {
             std::cout << "shot: " << pendingShot << "\n";
             pendingShot.clear();
         }
+        gpuTimers.mark("hud, menus");
+        gpuTimers.endFrame();
         glfwSwapBuffers(window);
 
         // ── Window title: fps and streaming progress ──────

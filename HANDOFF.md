@@ -21,11 +21,37 @@ For a new Claude session picking this project up. Read this first, then ROADMAP.
 4. **Style:** keep answers direct and practical.
 
 ## In progress (more than one agent may be working; mark what you take)
-- (none) Next up per ROADMAP.md: servers, then the combat review.
+- Servers (Claude, 2026-11-21): slices 1-3 done (realm; gate menu; seamless gates) and phase 3's chests, parries at the
+  defender's time, ragdoll target from the sim, axe swing. Left: Open to LAN; then the combat review.
+  Then the combat review (hit reactions in the simulation).
 - When you finish something: an entry at the top of CHANGELOG.md, take
   it off ROADMAP.md, update this file's Current state, deliver a zip.
 
-## Current state (2026-11-20, latest): seamless portals, across worlds too (docs/dungeons.md step 7)
+## Current state (2026-11-20, latest): a realm on the dedicated server
+
+- `server/RealmServer.h`: Worlds + PortalDirector + a `ServerHost` per world (only the main one listens).
+  `ServerHost::route` (Hello → the right world's host: a body expected there, or the file's `realm_world=`),
+  `takeHandoffs`/`adopt`, `release` (sends `Msg::Travel`) / `expect` (the body waits ~30 s for its client),
+  `forget`, `tell`, `playerFolder` (every world's players in the main world's folder), `arrivalFromElsewhere`.
+  `Worlds::Entry::beforeStep/afterStep` (a host round each step), `Worlds::onPlayerMoved`; Worlds::tick runs
+  villages for hosted worlds. Client: `ClientWorld::travel` → main.cpp `travelRejoin` → `joinServer(joinedAddress,
+  joinedName)`. Protocol VERSION 6. ServerMain is a RealmServer loop (console `portal …`).
+- Gate menu on a server: `Msg::Gate` → `ServerHost::onGate` → `RealmServer::gateAction` (checks `gatesIn(world)`);
+  `Msg::RealmState` (`RealmServer::realmTextFor`, `ServerHost::realmText`, sent on change) → `ClientWorld::realmText` →
+  `PortalDirector::readRemote` (`remote`, `remoteGates`; `gateInReach` uses them; main.cpp sends picks with `remote->gate`).
+  Protocol VERSION 7.
+- Seamless on a server: client `watches` (main.cpp: a `Watch` per far world: ClientWorld in watch mode + a "srv:" session from
+  `Worlds::addRemote`; the lobby session is named "srv:<world>" too, `Worlds::get` finds it), far streamers keyed "srv:<world>",
+  `PortalLink::viewOnly` links from RealmState `link` lines. Server: `Client::watching/watchAt`, `routeWatch`, `welcomeWatcher`,
+  `demote`/`promote`/`watcherNamed`, `RealmServer::moved` swaps when the far host has a watcher of that name, else Travel.
+  Snapshots with `you.id == 0` aren't reconciled (a connection mid-swap). The client crosses on its own prediction
+  (`remoteTick` → `crossIntoWatched(world, t, false)`, `pendingCross`); the server's Swap confirms (on a watch connection)
+  or leads (`crossIntoWatched(…, true)`). Watchers' Inputs are kept for `promote`.
+- Chests: `Msg::Container` / `ContainerState`, `ServerHost::container` (item counts conserved, showcase refused, equips kept),
+  main.cpp `remoteBox`/`remoteBoxOpen`/`remoteBoxSent`. Parries: `Simulation::pendingHits`/`landPending` (resolveHits `defer`).
+  Ragdoll target: `BodyPoses::update` (Human&). Swing: `BodyState::F_SWING`/`swingT`, `Human::puppetSwing`. Protocol VERSION 11.
+
+## Earlier state (2026-11-20): seamless portals: seamless portals, across worlds too (docs/dungeons.md step 7)
 
 Still not pushed since 912284b; delivered as zips (`VoxelRPG_portals3.zip` the latest). Read `docs/dungeons.md` "Build order":
 - Across worlds: `Crossing::world` → `Simulation::transfers` → `Worlds::transfer` (and `moveNpcs` in `Worlds::tick`);
