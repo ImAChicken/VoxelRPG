@@ -1,0 +1,31 @@
+# ══════════════════════════════════════════════════════════
+# Portals and the dungeons behind them (world/Realm.h)
+# ══════════════════════════════════════════════════════════
+# docs/dungeons.md "Portals" and "Instance dungeons". A world made
+# with a portal (New World > Portal: At spawn; portal=on in
+# world.vxrp) has a gate near its spawn. Interact with it to pick a
+# dungeon: an instance of it is made (a fresh world of its own, inside
+# the save: saves/<world>/instances/<id>/) and the gate opens onto its
+# portal room. Walk through. The instance stays open for 'minutes'
+# (counting while you play), 'after_boss' minutes once its boss falls,
+# or until someone closes it at a gate; then everyone inside is moved
+# out and it's deleted. What you carry comes with you; anything left
+# inside is gone.
+#
+# Each [[dungeon]]:
+#   id          what the save knows it by
+#   name        shown at the gate and on the timer
+#   type        the world type it's made as ("dungeon")
+#   theme       the tile set (data/dungeons/<theme>/tiles)
+#   minutes     how long an instance stays open
+#   after_boss  minutes left once its boss is beaten
+#   close_warn  s of warning before a closed instance moves everyone out
+
+[[dungeon]]
+id = "crypt"
+name = "Undead Crypt"
+type = "dungeon"
+theme = "crypt"
+minutes = 60
+after_boss = 5
+close_warn = 30

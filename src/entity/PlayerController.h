@@ -85,6 +85,10 @@ public:
     // Where to draw the body this frame (feet centre),
     // blended between physics ticks. Set by updateCamera.
     glm::vec3 renderPosition = {0, 0, 0};
+    // degrees the camera should turn: the player went through a portal
+    // (the game applies it and sets it back to 0)
+    float portalTurnDeg = 0.0f;
+    uint32_t tripsSeen = 0;
 
     // Is the camera behind the player right now?
     bool usingThirdPerson(const GameModeRules& rules) const {
@@ -179,6 +183,16 @@ public:
         netOffset          += player.renderOffset;
         player.renderOffset = glm::vec3(0.0f);
 
+        // Through a portal (world/PortalLinks.h): the last position
+        // goes through too, so the view carries on smoothly, and the
+        // game turns the camera by the portal's turn (portalTurnDeg)
+        if (player.portalTrips != tripsSeen) {
+            tripsSeen = player.portalTrips;
+            prevPosition = glm::vec3(player.lastPortal * glm::vec4(prevPosition, 1.0f));
+            glm::vec3 x = glm::mat3(player.lastPortal) * glm::vec3(1.0f, 0.0f, 0.0f);
+            portalTurnDeg += glm::degrees(std::atan2(x.z, x.x));
+            return;
+        }
         // A teleport (respawn, popped out of the ground):
         // do not glide the camera across the gap
         if (glm::length(player.position - prevPosition) > 8.0f)

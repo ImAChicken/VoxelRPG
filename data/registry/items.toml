@@ -343,6 +343,18 @@ categories = ["dev"]
 dev_tool = "cube"
 color = [0.40, 0.80, 0.95]
 
+# The portal gun (game/PortalGun.h): left click puts the blue end of a
+# portal on a wall, right click the orange end; middle click takes them
+# away. Look through one, walk through it. Console: portalgun
+[[item]]
+id = 1209
+name = "dev_portal_gun"
+held_model = "dev_portal_gun"
+display = "Portal Gun"
+categories = ["dev"]
+dev_tool = "portal"
+color = [0.35, 0.60, 1.00]
+
 # ── Worn gear ─────────────────────────────────────────────
 # Weight only for now: no model yet, so nothing shows on the
 # body. Put on with the console: wear <item>, wear off <slot>.

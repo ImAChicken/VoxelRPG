@@ -54,7 +54,7 @@ int main() {
     session.buildGenerator();
     session.attach();
     ChunkKeeper keeper(*session.world, session.chunkSource());
-    glm::vec3 spawn = glm::vec3(session.gen->spawnPoint(WORLD_SIZE_X, WORLD_SIZE_Z));
+    glm::vec3 spawn = glm::vec3(session.gen->spawnPoint(session.world->sizeX(), session.world->sizeZ()));
     keeper.loadNow({ spawn });
     // a column changed before anyone joins: clients must get it whole
     glm::ivec3 pillar((int)spawn.x + 12, (int)spawn.y + 4, (int)spawn.z + 12);

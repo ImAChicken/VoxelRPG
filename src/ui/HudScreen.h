@@ -45,6 +45,10 @@ public:
     // lost shows pale)
     struct BossBar { bool on = false; std::string name; float fill = 1, lag = 1, phase = 0; };
     BossBar boss;
+    // In an instance (game/Portals.h): its name and clock, top right
+    std::string instanceClock;
+    // A trip through a gate: the screen going dark (0 clear .. 1 black)
+    float travelFade = 0.0f;
     // The locked-on target (game/LockOn.h): where to put the marker
     struct LockMarker { bool on = false; float x = 0, y = 0; };
     LockMarker lockMarker;
@@ -79,6 +83,13 @@ public:
     }
     float frameDt = 0.0f;               // set by the game each frame (timers above)
     bool  padDebug = false;             // the controller debug overlay (console: debug pad)
+
+    // A trip through a gate: the screen going dark (drawn over everything)
+    void drawFade(UIRenderer& ui) const {
+        if (travelFade <= 0.0f) return;
+        float black[4] = {4, 2, 8, 255 * std::clamp(travelFade, 0.0f, 1.0f)};
+        ui.drawRect(0, 0, (float)ui.getWidth(), (float)ui.getHeight(), black);
+    }
 
     void draw(UIRenderer& ui, const Player& player,
               const PlayerController& controller,
@@ -229,6 +240,14 @@ public:
             if (boss.phase > 0.0f && boss.phase < 1.0f) ui.drawRect(x + w * boss.phase - 1, y - 3, 2, h + 6, mark);
             ui.drawText(boss.name, x + 1, y - 25, sh, 2);
             ui.drawText(boss.name, x, y - 26, name, 2);
+        }
+
+        // ── An instance's clock, top right ────────────────
+        if (!instanceClock.empty()) {
+            float w = (float)ui.textWidth(instanceClock, 2), x = sw - w - 22.0f, y = 18.0f;
+            float bg[4] = {12, 8, 20, 170}, ink[4] = {214, 190, 255, 255};
+            ui.drawRect(x - 8, y - 6, w + 16, 26, bg);
+            ui.drawText(instanceClock, x, y, ink, 2);
         }
 
         // ── Enemies' health, over their heads ─────────────

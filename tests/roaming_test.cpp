@@ -37,8 +37,8 @@ int main() {
     s.cooldownMin = s.cooldownMax = 4.0f; s.nightCooldownMin = s.nightCooldownMax = 4.0f;
 
     World w;
-    gClock.frozen = true;
-    gClock.time = 12.0f / 24.0f;
+    w.sim.day.frozen = true;
+    w.sim.day.time = 12.0f / 24.0f;
     const glm::vec3 centre(256.5f, (float)GROUND, 256.5f);
     Player& pl = w.player(centre, GameMode::Dev);      // (Test Play: hits land, nobody dies)
     Roaming& r = w.sim.roaming;
@@ -83,7 +83,7 @@ int main() {
 
     std::printf("night\n");
     r.clear(w.sim.npcs());
-    gClock.time = 23.0f / 24.0f;
+    w.sim.day.time = 23.0f / 24.0f;
     std::set<std::string> nightTypes;
     for (int round = 0; round < 12 && !nightTypes.count("undead"); round++) {    // (cleared each round: the cap)
         r.clear(w.sim.npcs());
@@ -96,7 +96,7 @@ int main() {
 
     std::printf("biomes\n");
     r.clear(w.sim.npcs());
-    gClock.time = 12.0f / 24.0f;
+    w.sim.day.time = 12.0f / 24.0f;
     r.biomeAt = [](int, int) { return (int)island::Swamp; };
     std::set<std::string> swampTypes;
     for (int round = 0; round < 8; round++) {

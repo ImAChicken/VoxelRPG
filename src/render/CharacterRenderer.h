@@ -212,15 +212,25 @@ public:
     glm::vec3 lightDir  = glm::normalize(glm::vec3(0.33f, 0.74f, 0.58f));
     glm::vec3 skyTint   = glm::vec3(1.0f);
     glm::vec3 blockTint = glm::vec3(0.0f);
+    // At a portal (world/PortalLinks.h; main.cpp's portal bodies), for
+    // the next draws until reset:
+    //   xform   moves the whole body (a copy of one going through,
+    //           drawn where it comes out)
+    //   clip    a plane (n, d): only what's in front (n·p + d ≥ 0) is
+    //           drawn; (0,0,0,1) keeps everything
+    glm::mat4 xform = glm::mat4(1.0f);
+    glm::vec4 clip  = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    void resetPortal() { xform = glm::mat4(1.0f); clip = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f); }
     bool init() {
         body = link(R"(#version 460 core
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec3 aColor;
-uniform mat4 uViewProj; uniform mat4 uModel; uniform vec3 uCamPos;
+uniform mat4 uViewProj; uniform mat4 uModel; uniform vec3 uCamPos; uniform vec4 uClip;
 out vec3 vColor; out vec3 vNormal; out float vDist;
 void main() {
     vec4 world = uModel * vec4(aPos, 1.0);
+    gl_ClipDistance[0] = dot(vec4(world.xyz, 1.0), uClip);
     vNormal = mat3(uModel) * aNormal;
     vColor = aColor; vDist = length(world.xyz - uCamPos);
     gl_Position = uViewProj * world;
@@ -244,11 +254,13 @@ void main() {
 })");
         face = link(R"(#version 460 core
 layout(location = 0) in vec2 aCorner;       // -0.5 .. 0.5
-uniform mat4 uViewProj; uniform mat4 uModel; uniform vec3 uCenter; uniform float uSize;
+uniform mat4 uViewProj; uniform mat4 uModel; uniform vec3 uCenter; uniform float uSize; uniform vec4 uClip;
 out vec2 vUv;
 void main() {
     vUv = vec2(aCorner.x + 0.5, 0.5 - aCorner.y);
-    gl_Position = uViewProj * uModel * vec4(uCenter + vec3(aCorner * uSize, 0.0), 1.0);
+    vec4 world = uModel * vec4(uCenter + vec3(aCorner * uSize, 0.0), 1.0);
+    gl_ClipDistance[0] = dot(vec4(world.xyz, 1.0), uClip);
+    gl_Position = uViewProj * world;
 })", R"(#version 460 core
 in vec2 vUv; uniform sampler2D uFace; uniform vec3 uTint;
 out vec4 outColor;
@@ -262,12 +274,14 @@ layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec3 aColor;
 layout(location = 3) in float aPart;
-uniform mat4 uViewProj; uniform mat4 uModel; uniform mat4 uView;
+uniform mat4 uViewProj; uniform mat4 uModel; uniform mat4 uView; uniform vec4 uClip;
 out vec3 vN; out vec3 vColor; flat out float vPart;
 void main() {
     vN = mat3(uView) * (mat3(uModel) * aNormal);
     vColor = aColor; vPart = aPart;
-    gl_Position = uViewProj * uModel * vec4(aPos, 1.0);
+    vec4 world = uModel * vec4(aPos, 1.0);
+    gl_ClipDistance[0] = dot(vec4(world.xyz, 1.0), uClip);
+    gl_Position = uViewProj * world;
 })", R"(#version 460 core
 in vec3 vN; in vec3 vColor; flat in float vPart;
 uniform vec4 uGlow;                        // the character's outline glow (rgb, a = strength)
@@ -397,6 +411,8 @@ void main() {
         if (!body || !ch.ready()) return;
         std::array<glm::mat4, BONE_COUNT> mats;
         bodyMatrices(ch, feet, mats);
+        for (glm::mat4& m : mats) m = xform * m;
+        glEnable(GL_CLIP_DISTANCE0);
 
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
@@ -409,6 +425,7 @@ void main() {
         glUniform3f(loc(body, "uLightDir"), lightDir.x, lightDir.y, lightDir.z);
         glUniform3f(loc(body, "uSkyTint"), skyTint.x, skyTint.y, skyTint.z);
         glUniform3f(loc(body, "uBlockTint"), blockTint.x, blockTint.y, blockTint.z);
+        glUniform4fv(loc(body, "uClip"), 1, glm::value_ptr(clip));
         GLint lm = loc(body, "uModel");
         glBindVertexArray(ch.vao);
         for (int b = 0; b < BONE_COUNT; b++) {
@@ -438,6 +455,7 @@ void main() {
         const CharacterModel& m = ch.getModel();
         glUniform3f(loc(face, "uCenter"), m.faceCenter.x, m.faceCenter.y, m.faceCenter.z);
         glUniform1f(loc(face, "uSize"), m.faceSize);
+        glUniform4fv(loc(face, "uClip"), 1, glm::value_ptr(clip));
         {
             glm::vec3 t = glm::min(skyTint * 0.9f + blockTint, glm::vec3(1.2f));
             glUniform3f(loc(face, "uTint"), t.x, t.y, t.z);
@@ -448,9 +466,14 @@ void main() {
         glBindVertexArray(quadVao);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
+        glDisable(GL_CLIP_DISTANCE0);
     }
 
-    struct Placed { const Character* ch; glm::vec3 feet; glm::vec4 glow = glm::vec4(0.0f); };
+    // (xform, clip: as above, for a body at a portal)
+    struct Placed {
+        const Character* ch; glm::vec3 feet; glm::vec4 glow = glm::vec4(0.0f);
+        glm::mat4 xform = glm::mat4(1.0f); glm::vec4 clip = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    };
 
     // Edge lines for the characters just drawn. The viewport is
     // the one they were drawn in; fbW/fbH the whole framebuffer.
@@ -480,11 +503,15 @@ void main() {
         glUniformMatrix4fv(loc(normals, "uView"), 1, GL_FALSE, glm::value_ptr(view));
         GLint lm = loc(normals, "uModel");
         GLint lg = loc(normals, "uGlow");
+        GLint lc = loc(normals, "uClip");
+        glEnable(GL_CLIP_DISTANCE0);
         for (const Placed& p : list) {
             if (!p.ch || !p.ch->ready()) continue;
             glUniform4fv(lg, 1, glm::value_ptr(p.glow));
+            glUniform4fv(lc, 1, glm::value_ptr(p.clip));
             std::array<glm::mat4, BONE_COUNT> mats;
             bodyMatrices(*p.ch, p.feet, mats);
+            for (glm::mat4& m : mats) m = p.xform * m;
             glBindVertexArray(p.ch->vao);
             for (int b = 0; b < BONE_COUNT; b++) {
                 if (!p.ch->count[b]) continue;
@@ -503,6 +530,7 @@ void main() {
                 glDrawArrays(GL_TRIANGLES, 0, p.ch->offCount);
             }
         }
+        glDisable(GL_CLIP_DISTANCE0);
         glDisable(GL_CULL_FACE);
 
         // composite onto the screen, depth-tested against the world

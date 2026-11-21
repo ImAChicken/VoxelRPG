@@ -536,6 +536,10 @@ public:
         return result;
     }
 
+    // Voxels bodies walk through though they're there (behind a
+    // portal's opening: world/PortalLinks.h passable)
+    void setPassable(std::function<bool(int, int, int)> f) { passable = std::move(f); }
+
     bool columnLoaded(int x, int z) const override { return world && world->isColumnLoaded(x, z); }
 
     bool capsuleIsClear(glm::vec3 position,
@@ -669,8 +673,10 @@ private:
     bool isWorldSolid(int wx, int wy, int wz) const {
         uint16_t id = world->typeAtVoxel(wx, wy, wz);
         if (id == BLOCK_AIR) return false;
+        if (passable && passable(wx, wy, wz)) return false;    // the hole behind a portal (world/PortalLinks.h)
         return id < solid.size() ? solid[id] != 0 : true;
     }
+    std::function<bool(int, int, int)> passable;    // (setPassable)
     // The world, and loose objects in it (fallen logs)
     bool isSolid(int wx, int wy, int wz) const {
         return isWorldSolid(wx, wy, wz) || (loose && loose(wx, wy, wz));

@@ -1546,3 +1546,16 @@ opacity = "full"
 flags = ["solid", "destructible"]
 on_destroy = 0
 color = [0.55, 0.55, 0.50]
+
+# The veil in an open portal's gate (game/Gate.h): walk into it to
+# go through. No collision; a violet glow
+[[block]]
+id = 142
+name = "portal_veil"
+material = "none"
+hardness = 0
+opacity = "none"
+flags = ["emits_light"]
+on_destroy = 0
+color = [0.55, 0.30, 0.95]
+light = [9, 4, 15]

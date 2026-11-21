@@ -15,4 +15,4 @@ struct DayClock {
     }
 };
 
-inline DayClock gClock;
+// Every world keeps its own (Simulation::day); there's no global one

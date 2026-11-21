@@ -41,8 +41,8 @@ int main() {
         if ((d->state != 0) == open) return true;
         return sm.toggleDoor(*d, EditSource::Script, bodyBlocks).empty();
     };
-    gClock.frozen = true;
-    gClock.time = 7.0f / 24.0f;
+    w.sim.day.frozen = true;
+    w.sim.day.time = 7.0f / 24.0f;
 
     std::printf("a village and its people\n");
     village::Options o;
@@ -204,7 +204,7 @@ int main() {
     pl.flying = true;
 
     std::printf("morning: to work\n");
-    gClock.time = 9.5f / 24.0f;
+    w.sim.day.time = 9.5f / 24.0f;
     std::vector<Npc*> workers;
     for (Npc* n : folk) if (!n->life.job.empty()) workers.push_back(n);
     if (std::getenv("VERBOSE"))
@@ -243,7 +243,7 @@ int main() {
     check(doors > 0 && doorsOpen <= doors / 3, "doors shut behind them: " + std::to_string(doorsOpen) + " of " + std::to_string(doors) + " open");
 
     std::printf("night: in bed\n");
-    gClock.time = 23.0f / 24.0f;
+    w.sim.day.time = 23.0f / 24.0f;
     if (std::getenv("VERBOSE"))
         for (int k = 0; k < 44; k++) {
             w.run(5.0f);
@@ -299,7 +299,7 @@ int main() {
 
     std::printf("the guards come\n");
     if (!guards.empty()) {
-        gClock.time = 12.0f / 24.0f;
+        w.sim.day.time = 12.0f / 24.0f;
         w.run(20.0f);
         // the villager nearest a guard, hit by a bandit nearby
         Npc* v = folk[0]; float best = 1e9f;
@@ -354,7 +354,7 @@ int main() {
     }
 
     std::printf("woken\n");
-    gClock.time = 23.0f / 24.0f;
+    w.sim.day.time = 23.0f / 24.0f;
     // (one that ran from the bandit to the edge of this small test
     // world waits there for ground that never loads: put it home)
     auto homeFromEdge = [&] {

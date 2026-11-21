@@ -32,5 +32,5 @@ items = [
 [dev]
 items = [
   "dev_wand", "dev_fill", "dev_brush", "dev_copy",
-  "dev_paste", "dev_cube", "dev_explode", "builders_hammer",
+  "dev_paste", "dev_cube", "dev_explode", "builders_hammer", "dev_portal_gun",
 ]

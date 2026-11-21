@@ -276,6 +276,13 @@ public:
         return (int)(before - list.size());
     }
     std::vector<std::unique_ptr<Npc>>& all() { return list; }
+    // An NPC leaving for another world (server/Worlds.h) / arriving
+    std::unique_ptr<Npc> take(EntityId id) {
+        for (auto it = list.begin(); it != list.end(); ++it)
+            if ((*it)->uuid == id) { std::unique_ptr<Npc> n = std::move(*it); list.erase(it); return n; }
+        return nullptr;
+    }
+    Npc& adopt(std::unique_ptr<Npc> n) { list.push_back(std::move(n)); return *list.back(); }
     Npc* find(EntityId id) { for (auto& n : list) if (n->uuid == id) return n.get(); return nullptr; }
 
 private:

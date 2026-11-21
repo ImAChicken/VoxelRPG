@@ -27,7 +27,10 @@
 //            the world) is a wall that breaks: hit it with an attack
 //            (BREAK_HITS lights, a heavy counts double) and it
 //            crumbles, opening the way. A hit knocks bits out of it
-//   portal / exit: not yet (the portals, step 6)
+//   portal   a gate (game/Gate.h), always open: the way home (the
+//            game takes whoever walks into it back to the realm's
+//            main world: main.cpp, world/Realm.h)
+//   exit     a second gate, built open once the boss falls
 //
 // What has happened is kept in dungeon.dat in the world's folder, so
 // a cleared room stays cleared.
@@ -37,6 +40,7 @@
 #include "../world/StructureManager.h"
 #include "../world/Chests.h"
 #include "../world/WorldEditor.h"
+#include "../game/Gate.h"
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -111,8 +115,24 @@ public:
                         }
                 }
         }
-        for (const Spot& s : spots) if (s.m.kind == "exit") { exitAt = glm::vec3(s.world) + glm::vec3(0.5f, 0.0f, 0.5f); hasExit = true; }
+        for (const Spot& s : spots) {
+            if (s.m.kind == "exit") { exitAt = glm::vec3(s.world) + glm::vec3(0.5f, 0.0f, 0.5f); hasExit = true; exitGate.base = s.world; }
+            if (s.m.kind == "portal") { entry.base = s.world; hasEntry = true; }
+        }
+        // each gate faces into its room (its arrival side toward the middle)
+        for (Gate* g : { &entry, &exitGate }) {
+            int t = tileAt(glm::vec3(g->base) + glm::vec3(0.5f, 1.0f, 0.5f));
+            if (t < 0) continue;
+            glm::vec3 c = roomCentre(t);
+            g->side = c.z >= (float)g->base.z + 0.5f ? 1 : -1;
+        }
     }
+    // The gates: the one in the portal room (always), the exit once
+    // cleared. Built once their ground is loaded
+    bool hasEntryGate() const { return hasEntry; }
+    const Gate& entryGate() const { return entry; }
+    bool exitOpen() const { return hasExit && cleared; }
+    const Gate& exitGateRef() const { return exitGate; }
 
     // ── Saving: what has happened ─────────────────────────
     void load(const std::string& folder) {
@@ -241,6 +261,17 @@ public:
         arenaEmpty = someoneIn ? 0.0f : arenaEmpty + dt;
         bool wantBars = boss && !cleared && (someoneIn || arenaEmpty < ARENA_LET_GO);
         if (wantBars != barred && !bars.empty()) setBars(wantBars, world, editor, fx);
+        // the gates: the portal room's, and the exit's once cleared
+        if (hasEntry && entry.loaded(world) && !entry.isBuilt(world)) {
+            EditBatch b; b.source = EditSource::Script; b.label = "gate"; b.undoable = false;
+            entry.build(b, world, true, 1);
+            editor.submit(std::move(b));
+        }
+        if (hasExit && cleared && exitGate.loaded(world) && !exitGate.isBuilt(world)) {
+            EditBatch b; b.source = EditSource::Script; b.label = "exit gate"; b.undoable = false;
+            exitGate.build(b, world, true, 1);
+            editor.submit(std::move(b));
+        }
         // the way out, once cleared: a glow over the exit
         if (cleared && hasExit) {
             exitGlow -= dt;
@@ -286,6 +317,8 @@ private:
     float arenaEmpty = 99.0f, bossLost = 0.0f, exitGlow = 0.0f;
     std::string bossName;
     glm::vec3 exitAt{0.0f};
+    Gate  entry, exitGate;
+    bool  hasEntry = false;
     Spot* bossSpot() { for (Spot& s : spots) if (s.m.kind == "boss") return &s; return nullptr; }
     void setBars(bool on, ChunkManager& world, WorldEditor& editor, std::vector<Effect>& fx) {
         static const uint16_t IRON = gRegistry.getIDByName("iron_block");

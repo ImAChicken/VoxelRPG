@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <functional>
 #include <iostream>
 #include <thread>
@@ -77,6 +78,10 @@
 #include "game/Village.h"
 #include "game/Villagers.h"
 #include "game/Dialogue.h"
+#include "game/Portals.h"
+#include "server/Worlds.h"
+#include "game/PortalGun.h"
+#include "render/PortalView.h"
 #include "ui/InventoryScreen.h"
 #include "world/StructureManager.h"
 #include "world/Chests.h"
@@ -184,6 +189,9 @@ void keyCallback(GLFWwindow* window, int key,
 // Where the player aims a bow: degrees up from its chest to what
 // the crosshair is on (a point well down the camera's line), so a
 // third-person camera above and behind still shoots where it looks
+// Sections drawn in portal views (this frame; the last one's, for dbg)
+static int portalSectionDraws = 0, portalSectionDrawsShown = 0, lastFrameDraws = 0;
+
 static float aimPitchOf(const Human& p, const Camera& cam) {
     glm::vec3 chest = p.position + glm::vec3(0.0f, p.height * 0.78f, 0.0f);
     glm::vec3 to = cam.position + cam.front * 90.0f - chest;
@@ -209,6 +217,7 @@ int main() {
         return -1;
     }
 
+    glfwWindowHint(GLFW_STENCIL_BITS, 8);      // portals draw their far side through a stencil
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE,
@@ -266,6 +275,7 @@ int main() {
     gLoot.load("data/registry/loot.toml");
     gKits.load("data/registry/kits.toml");
     gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml"); gVillagers.load(); dialogue::gDialogue.load();
+    realm::gDungeonKinds.load();
     gAnims.load("data/animations", "data/animations/retarget.toml");
     gAnimMap.load("data/animations/anim_map.toml");
     gOutlineFx.load("data/registry/outline.toml");
@@ -431,9 +441,13 @@ int main() {
     // and therefore destroyed first.
     // The game itself (sim/Simulation.h): every body, the fixed
     // tick, combat. This window shows one of its players.
-    Simulation       sim;
+    // Every world open at once (server/Worlds.h), and the one this
+    // window shows: the player's (the focus). With no world open it's
+    // the lobby, an empty session whose simulation holds the player
+    Worlds           worlds;
+    GameSession*     here = &worlds.lobby();
     Camera           camera;
-    Player&          player = sim.addPlayer();
+    Player&          player = here->sim.addPlayer();
     PlayerController controller;
 
     // Left-over frame time not yet turned into physics ticks
@@ -454,15 +468,11 @@ int main() {
     };
     // The open world: the same GameSession the headless server
     // runs (server/GameSession.h). The names below are its parts.
-    GameSession session(sim);
-    session.log = say;
-    auto& gen      = session.gen;
-    auto& world    = session.world;
-    auto& editor   = session.editor;    // all world edits
-    auto& structs  = session.structs;   // doors, trees, buildings
-    ChestStore& chests = session.chests;   // what each chest holds (world/Chests.h)
-    auto& wood     = session.wood;      // felled trees, logs, wood on the ground
-    auto& gPhysics = session.physics;
+    // (its parts: here->gen, world, editor, structs (doors, trees,
+    // buildings), chests (what each holds), wood (felled trees, logs),
+    // physics, sim)
+    worlds.log = say;
+    worlds.lobby().log = say;
     // Meshes for woodcutting's logs (by log id), drawn like the
     // world (render/PropRenderer.h)
     std::unordered_map<uint32_t, PropRenderer::Mesh> logMeshes;
@@ -474,8 +484,19 @@ int main() {
         logMeshes.clear();
     };
     // Enemies live in the simulation; their bodies to draw (by id)
-    NpcManager& npcs = sim.npcs();
     EntityId talkingTo = 0;           // the NPC this player is in a menu with
+    // Portals (game/Portals.h): the realm (instances), the gates' menu,
+    // a trip between worlds. A trip fades out, reopens the far world
+    // with the same player (travelKeep), and fades back in
+    PortalDirector portals;
+    PortalGun portalGun;              // the portal gun's two ends (game/PortalGun.h; dev)
+    // (the farStreamers map is declared further down: it's looked up at call time)
+    std::function<void(const std::string&)> dropFarStreamer;
+    portals.beforeRemove = [&](const std::string& worldName) { if (dropFarStreamer) dropFarStreamer(worldName); worlds.close(worldName, false); };
+    bool  travelling = false;         // enterWorld: reopening for a trip (keep the player)
+    std::string travelKeep;           // the player as it was, written out
+    int   fadePhase = 0;              // 0 none, 1 going dark, 2 coming back
+    float fade = 0.0f, fadeHold = 0.0f;
     std::string talkLine;             // what it last said (game/Dialogue.h)
     float talkCloseIn = -1.0f;        // after goodbye: the menu closes in this many s
     int talkSel = 0;                  // the question picked with the D-pad / arrow keys
@@ -490,6 +511,17 @@ int main() {
     LockOn lockOn;                    // the camera held on an enemy (TAB: game/LockOn.h)
     std::unordered_map<uint64_t, std::unique_ptr<Character>> npcBodies;
     std::unique_ptr<WorldStreamer>    streamer;
+    // other worlds seen through a portal here (world/PortalLinks.h): a
+    // little of each streamed round its far end, by world name. Walking
+    // through swaps one with 'streamer' (seamless: nothing reloads)
+    std::map<std::string, std::unique_ptr<WorldStreamer>> farStreamers;
+    static constexpr int FAR_MESH_RADIUS = 2;
+    dropFarStreamer = [&](const std::string& name) {
+        auto it = farStreamers.find(name);
+        if (it == farStreamers.end()) return;
+        if (GameSession* w = worlds.get(name)) worlds.setStreamed(w, false);
+        farStreamers.erase(it);
+    };
     std::unique_ptr<FarTerrain>       farView;   // distant terrain
     float autosaveTimer = 0.0f;
 
@@ -512,10 +544,10 @@ int main() {
                 const ItemDef& d = gItems.get(id);
                 if (!d.heldModel.empty() && !itemForModel.count(d.heldModel)) itemForModel[d.heldModel] = d.name;
             }
-        auto& list = npcs.all();
+        auto& list = here->sim.npcs().all();
         list.erase(std::remove_if(list.begin(), list.end(), [&](auto& n) { return n->puppet && !remote->bodies.count(n->uuid); }), list.end());
         for (auto& [id, body] : remote->bodies) {
-            Npc* n = npcs.find(id);
+            Npc* n = here->sim.npcs().find(id);
             if (!n) {
                 auto made = std::make_unique<Npc>();
                 made->uuid = id;
@@ -575,10 +607,10 @@ int main() {
         if (!remote->groundReady()) return;      // wait with the server until the ground is here
         player.aimPitch = aimPitchOf(player, camera);
         remote->sendInput(in, player.facing, player.aimPitch);
-        sim.setIntent(player.uuid, in);
-        sim.step(PHYSICS_STEP);
+        here->sim.setIntent(player.uuid, in);
+        here->sim.step(PHYSICS_STEP);
         remote->afterPrediction();
-        for (auto& n : npcs.all()) if (n->puppet && gPhysics) gPhysics->stepRagdoll(*n, PHYSICS_STEP);
+        for (auto& n : here->sim.npcs().all()) if (n->puppet && here->physics) here->physics->stepRagdoll(*n, PHYSICS_STEP);
     };
 
     // ── Save everything ───────────────────────────────────
@@ -589,19 +621,42 @@ int main() {
     //   Single player trusts itself: every save is committed
     //   (server/SaveStaging.h), the player file and the far
     //   view's memory going in with the rest.
+    // the player, written out (player.dat; and carried on a trip)
+    auto writePlayer = [&](std::ostream& out) {
+        player.write(out);
+        build.write(out);
+        out << "look=" << camera.yaw << " " << camera.pitch << "\n";
+        out << "thirdperson=" << (controller.thirdPersonWanted ? 1 : 0) << "\n";
+        dev.write(out);
+    };
+    // The player belongs to the realm (world/Realm.h): in an instance
+    // their file still goes in the main world's folder, marked away
+    // (opened again from the menu, they come out at its gate)
     auto saveWorld = [&]() {
-        if (!world || remote) return;        // a server's world is the server's to save
-        session.save(true, [&](const std::string& stage) {
+        if (!here->world || remote) return;        // a server's world is the server's to save
+        const bool away = portals.inInstance();
+        here->save(true, [&](const std::string& stage) {
             memory.save(stage + "/lowres.dat");
+            if (away) return;
             std::ofstream out(stage + "/player.dat");
-            player.write(out);
-            build.write(out);
-            out << "look=" << camera.yaw << " " << camera.pitch << "\n";
-            out << "thirdperson=" << (controller.thirdPersonWanted ? 1 : 0) << "\n";
-            dev.write(out);
+            writePlayer(out);
         });
+        if (away) {
+            std::ofstream out(portals.realm.folder() + "/player.dat");
+            writePlayer(out);
+            out << "away=1\n";
+        }
+        portals.realm.save();
+        worlds.saveAll(true, here);                // every other world open (the one the player came from …)
         autosaveTimer = 0.0f;
         say("world saved");
+    };
+
+    // Every other world streamed for a portal goes (a world opened or left
+    // the old way: everything starts again)
+    auto dropFarStreamers = [&]() {
+        for (auto& [name, fs] : farStreamers) if (GameSession* w = worlds.get(name)) worlds.setStreamed(w, false);
+        farStreamers.clear();
     };
 
     // Leave the world: save (unless told not to: a dev world
@@ -617,6 +672,7 @@ int main() {
         trails.clear(); popups.clear(); gCamShake.clear();
         if (save) saveWorld();
         if (remote) remote->leave();
+        dropFarStreamers();
         streamer.reset();
         farView.reset();
         dev.attach(nullptr);
@@ -631,7 +687,13 @@ int main() {
             player.uuid = localUuid;
             pauseMenu.setRemote(false);
         }
-        session.close();
+        // every world closes (saved above); the player waits in the lobby
+        if (here != &worlds.lobby()) {
+            Worlds::move(player.uuid, *here, worlds.lobby());
+            here = &worlds.lobby();
+        }
+        here->close();
+        worlds.closeAll(false);
     };
 
     // Switch the player to another game mode. The body is
@@ -642,6 +704,21 @@ int main() {
         bodyToCamera();
         std::cout << "Game mode: "
                   << player.rules().name << "\n";
+    };
+
+    // The distant view of the focused world, coloured with each block's
+    // average atlas colour (render/FarTerrain.h)
+    auto makeFarView = [&]() {
+        auto colors = std::make_shared<FarTerrain::ColorTable>(blockTable->blocks.size());
+        for (size_t id = 0; id < blockTable->blocks.size(); id++) {
+            const BlockRenderInfo& info = blockTable->get((uint16_t)id);
+            (*colors)[id] = glr->tileAverage(info.tileX[FACE_TOP], info.tileY[FACE_TOP]);
+        }
+        farView = std::make_unique<FarTerrain>(*here->gen, here->world->sizeX(), here->world->sizeZ(), colors);
+        if (!farView->initGL()) {
+            std::cerr << "Distant terrain shaders failed to load\n";
+            farView.reset();
+        }
     };
 
     // ── Open a world (new or saved) ───────────────────────
@@ -661,29 +738,48 @@ int main() {
                           const WorldGenParams& genParams = WorldGenParams(),
                           const FlatOptions& flat = FlatOptions(),
                           bool devWorld = false) {     // in devworlds/
+        dropFarStreamers();
         streamer.reset();
         farView.reset();
-        session.close();
-
+        // From the menu every world is closed (leaveWorld); on a trip
+        // the one being left keeps running (server/Worlds.h), and the
+        // one going to may already be open (its gate watched)
+        GameSession* target = nullptr;
         if (isNew) {
             std::cout << "Creating world: " << name
                       << " seed=" << seed << "\n";
-            session.beginNew(name, seed, mode, type, size, biome, terrain, genParams, flat, devWorld);
+            target = worlds.create(name, seed, mode, type, size, biome, terrain, genParams, flat, devWorld);
         } else {
             std::cout << "Loading world: " << name << (devWorld ? " (dev world)" : "") << "\n";
-            session.begin(name, devWorld);
-            if (!session.recovered.empty()) say(session.recovered);
-            seed = gWorldSave.getSeed();
-            mode = gWorldSave.getDefaultMode();
-            type = gWorldSave.getWorldType();
+            target = worlds.begin(name, devWorld);
         }
+        if (!target) { say("couldn't open " + name); target = &worlds.lobby(); }
+        if (!isNew) {
+            if (!target->recovered.empty()) say(target->recovered);
+            seed = target->info.getSeed();
+            mode = target->info.getDefaultMode();
+            type = target->info.getWorldType();
+        }
+        // the player goes with it
+        if (target != here) {
+            Worlds::move(player.uuid, *here, *target);
+            here = target;
+        }
+        worlds.setFocus(here);
+        portalGun = PortalGun();               // (its ends belong to the world it was used in)
+        controller.tripsSeen = player.portalTrips;
+        const bool ready = here->open();       // already running (a trip back): no generator, no attach
 
-        hud.devWorld = gWorldSave.isDevWorld();
+        hud.devWorld = here->info.isDevWorld();
+        // opened from the menu: it's a main world, the realm's root
+        if (!travelling) {
+            portals.realm.load(name, devWorld); portals.travel = PortalDirector::Travel(); portals.menuOpen = false;
+            worlds.pin(here);                  // the realm's main world stays open
+        }
 
         // World size first: the chunk grid and streamer are
         // built for it
-        size = gWorldSave.getWorldSize();
-        WORLD_SIZE_X = WORLD_SIZE_Z = size;
+        size = here->info.getWorldSize();
         std::cout << worldTypeName(type) << " world, " << size << " x "
                   << size << " chunks\n";
 
@@ -691,12 +787,12 @@ int main() {
         // (a few seconds the first time, then read from the world
         // folder), so it's built on a worker thread while a
         // progress screen keeps the window alive
-        {
-            const bool baking = worldTypeShaped(type) && gWorldSave.getTerrainStyle() != TerrainStyle::NoErosion;
+        if (!ready) {
+            const bool baking = worldTypeShaped(type) && here->info.getTerrainStyle() != TerrainStyle::NoErosion;
             gBakeProgress = 0.0f; gBakeStage = 0;
             std::atomic<bool> done{ false };
             std::thread worker([&] {
-                session.buildGenerator();
+                here->buildGenerator();
                 done = true;
             });
             while (baking && !done) {
@@ -722,41 +818,31 @@ int main() {
         }
         // The rest of the world from its folder: voxels' home,
         // physics, structures, containers, logs, NPCs, the clock
-        session.attach();
+        if (!ready) here->attach();
 
         // Chunks come in around the camera (a chunk the player
         // edited is read from the save folder, everything else is
         // rebuilt from the seed: GameSession::chunkSource)
         streamer = std::make_unique<WorldStreamer>(
-            *world, session.chunkSource(), blockTable, lightTable());
+            *here->world, here->chunkSource(), blockTable, lightTable());
         {   // where rivers run (the generator knows; the water moves that way)
-            const TerrainGenerator* g = session.gen.get();
+            const TerrainGenerator* g = here->gen.get();
             streamer->flowAt = [g](int x, int z) { return g->flowAt(x, z); };
         }
-        memory.load(gWorldSave.getWorldPath() + "/lowres.dat");
+        memory = WorldMemory();
+        memory.load(here->info.getWorldPath() + "/lowres.dat");
         memorySeen = 0;
 
         // The distant view, coloured with each block's
         // average atlas colour
-        {
-            auto colors = std::make_shared<FarTerrain::ColorTable>(blockTable->blocks.size());
-            for (size_t id = 0; id < blockTable->blocks.size(); id++) {
-                const BlockRenderInfo& info = blockTable->get((uint16_t)id);
-                (*colors)[id] = glr->tileAverage(info.tileX[FACE_TOP], info.tileY[FACE_TOP]);
-            }
-            farView = std::make_unique<FarTerrain>(*gen, WORLD_SIZE_X, WORLD_SIZE_Z, colors);
-            if (!farView->initGL()) {
-                std::cerr << "Distant terrain shaders failed to load\n";
-                farView.reset();
-            }
-        }
+        makeFarView();
 
         dropWoodMeshes();
-        hands.wood = wood.get();
-        hands.chests = &chests;
+        hands.wood = here->wood.get();
+        hands.chests = &here->chests;
         build.reset();
         dev.resetForNewWorld();
-        dev.attach(editor.get());
+        dev.attach(here->editor.get());
         hands.clearTarget();
         autosaveTimer = 0.0f;
 
@@ -766,7 +852,7 @@ int main() {
         // ground and drops onto it once the chunk arrives.
         // The world type decides where players appear (the
         // island's spawn marker; the classic world's centre)
-        glm::ivec3 sp = gen->spawnPoint(WORLD_SIZE_X, WORLD_SIZE_Z);
+        glm::ivec3 sp = here->gen->spawnPoint(here->world->sizeX(), here->world->sizeZ());
         int spawnX = sp.x, spawnZ = sp.z, ground = sp.y;
 
         player.resetForNewWorld();
@@ -782,24 +868,48 @@ int main() {
         // A new player starts at the spawn in the world's
         // default mode.
         float lookYaw = camera.yaw, lookPitch = camera.pitch;
-        bool returning = !isNew && gWorldSave.loadPlayer(
-            [&](const std::string& key, const std::string& value) {
-                if (key == "look")
-                    std::sscanf(value.c_str(), "%f %f", &lookYaw, &lookPitch);
-                else if (key == "thirdperson")
-                    controller.thirdPersonWanted = (value == "1");
-                else if (!player.read(key, value) && !build.read(key, value))
-                    dev.read(key, value);
-            });
+        bool away = false;                   // saved inside an instance: out at the gate
+        auto readPlayer = [&](const std::string& key, const std::string& value) {
+            if (key == "look")
+                std::sscanf(value.c_str(), "%f %f", &lookYaw, &lookPitch);
+            else if (key == "thirdperson")
+                controller.thirdPersonWanted = (value == "1");
+            else if (key == "away")
+                away = value == "1";
+            else if (!player.read(key, value) && !build.read(key, value))
+                dev.read(key, value);
+        };
+        bool returning;
+        if (travelling) {
+            // a trip: the same player, as they were a moment ago
+            std::istringstream in(travelKeep);
+            for (std::string line; std::getline(in, line);) {
+                size_t eq = line.find('=');
+                if (eq != std::string::npos) readPlayer(line.substr(0, eq), line.substr(eq + 1));
+            }
+            returning = true;
+        } else returning = !isNew && here->info.loadPlayer(readPlayer);
         player.inventory.finishLoad();
         player.devInventory.finishLoad();
 
+        if (!travelling && !away) portals.realm.here.clear();    // opened from the menu: in the main world
         if (returning) {
             mode = player.mode;
+            if (travelling || away) {
+                // through a gate: in front of the far one, facing out
+                glm::vec3 f(0, 0, 1);
+                if (away) { portals.travel = PortalDirector::Travel(); portals.travel.here = ""; }
+                player.position = portals.arrival(*here, f) + glm::vec3(0.0f, 0.5f, 0.0f);
+                player.velocity = glm::vec3(0.0f);
+                player.facing = f;
+                lookYaw = glm::degrees(std::atan2(f.z, f.x));
+                lookPitch = 0.0f;
+                if (away) { portals.travel = PortalDirector::Travel(); say("back through the gate"); }
+            }
             camera.position = player.position +
                 glm::vec3(0.0f, Human::eyeStand, 0.0f);
             camera.setLook(lookYaw, lookPitch);
-            say("welcome back");
+            if (!travelling && !away) say("welcome back");
         } else {
             float above = rulesFor(mode, false).hasBody
                         ? Human::eyeStand + 3.0f : 105.0f;
@@ -826,6 +936,51 @@ int main() {
                   << " worker thread(s)\n";
     };
 
+    // ── Through a portal into another world, seamlessly ───
+    // (world/PortalLinks.h, server/Worlds.h) The player is already in
+    // the far world's simulation; the game's focus follows: the far
+    // world's streamer (already loading round the far end) becomes the
+    // main one, the world left is kept streamed round its end so you
+    // can look back through, and what the hands and tools work on
+    // changes. Nothing reloads; no fade.
+    auto switchFocus = [&](GameSession* to) {
+        if (!to || to == here) return;
+        GameSession* from = here;
+        std::unique_ptr<WorldStreamer> next;
+        if (auto it = farStreamers.find(to->name()); it != farStreamers.end()) { next = std::move(it->second); farStreamers.erase(it); }
+        else {
+            next = std::make_unique<WorldStreamer>(*to->world, to->chunkSource(), blockTable, lightTable());
+            const TerrainGenerator* g = to->gen.get();
+            next->flowAt = [g](int x, int z) { return g->flowAt(x, z); };
+        }
+        next->meshRadius = -1;
+        if (streamer) {
+            streamer->meshRadius = FAR_MESH_RADIUS;
+            streamer->setExtraCentres({});
+            farStreamers[from->name()] = std::move(streamer);
+            worlds.setStreamed(from, true);
+        }
+        streamer = std::move(next);
+        here = to;
+        worlds.setStreamed(here, false);
+        worlds.setFocus(here);
+        memory = WorldMemory();
+        memory.load(here->info.getWorldPath() + "/lowres.dat");
+        memorySeen = 0;
+        makeFarView();
+        dropWoodMeshes();
+        hands.wood = here->wood.get();
+        hands.chests = &here->chests;
+        dev.attach(here->editor.get());
+        hands.clearTarget();
+        portalGun = PortalGun();
+        lockOn.clear(); gParticles.clear(); trails.clear(); popups.clear();
+        player.spawnPoint = glm::vec3(here->gen->spawnPoint(here->world->sizeX(), here->world->sizeZ()));
+        hud.devWorld = here->info.isDevWorld();
+        portals.arrivedSeamless(here->name());
+        std::cout << "through to " << here->name() << "\n";
+    };
+
     // ── Join a server ─────────────────────────────────────
     // Connects (a screen shows how it's going; Esc gives up),
     // builds the same world from the settings the server sends,
@@ -834,16 +989,19 @@ int main() {
     auto joinServer = [&](const std::string& address, const std::string& name) -> std::string {
         streamer.reset();
         farView.reset();
-        session.close();
+        here->close();
         std::string host; int port;
         net::splitAddress(address, host, port);
         auto conn = net::enetConnect(host, port);
         if (!conn) return "couldn't look up " + host;
+        portals.realm = realm::Realm();           // no portals on a server (yet)
+        portals.travel = PortalDirector::Travel();
+        portals.menuOpen = false;
         player.resetForNewWorld();
         player.inventory = Inventory();
         player.appearance = loadDefaultCharacter();
         localUuid = player.uuid;
-        remote = std::make_unique<ClientWorld>(conn, "servercache", &player, &session);
+        remote = std::make_unique<ClientWorld>(conn, "servercache", &player, &*here);
         remote->join(name, player.appearance);
         hands.remote = [&remote](const WorldRequest& q) { if (remote) remote->request(q); };
         auto screen = [&](const std::string& title, const std::string& line, float bar) {
@@ -867,7 +1025,7 @@ int main() {
             glfwSwapBuffers(window);
             std::this_thread::sleep_for(std::chrono::milliseconds(30));
         };
-        auto fail = [&](const std::string& why) { remote.reset(); player.uuid = localUuid; session.close(); return why; };
+        auto fail = [&](const std::string& why) { remote.reset(); player.uuid = localUuid; here->close(); return why; };
         // 1. the answer
         while (remote->state == ClientWorld::State::Connecting) {
             remote->receive();
@@ -888,11 +1046,11 @@ int main() {
             }
             worker.join();
         }
-        std::cout << "Joined " << address << " as " << name << ": " << worldTypeName(gWorldSave.getWorldType()) << " world, "
-                  << WORLD_SIZE_X << " x " << WORLD_SIZE_Z << " chunks\n";
+        std::cout << "Joined " << address << " as " << name << ": " << worldTypeName(here->info.getWorldType()) << " world, "
+                  << here->world->sizeX() << " x " << here->world->sizeZ() << " chunks\n";
         hud.devWorld = false;
         pauseMenu.setRemote(true);
-        streamer = std::make_unique<WorldStreamer>(*world, remote->chunkSource(), blockTable, lightTable());
+        streamer = std::make_unique<WorldStreamer>(*here->world, remote->chunkSource(), blockTable, lightTable());
         if (const TerrainGenerator* g = remote->gen.get()) streamer->flowAt = [g](int x, int z) { return g->flowAt(x, z); };
         // columns the server has changed come from the server, not the seed
         streamer->skipLoad = [&](int cx, int cz) { return remote && remote->isModified(cx, cz); };
@@ -904,18 +1062,18 @@ int main() {
                 const BlockRenderInfo& info = blockTable->get((uint16_t)id);
                 (*colors)[id] = glr->tileAverage(info.tileX[FACE_TOP], info.tileY[FACE_TOP]);
             }
-            farView = std::make_unique<FarTerrain>(*gen, WORLD_SIZE_X, WORLD_SIZE_Z, colors);
+            farView = std::make_unique<FarTerrain>(*here->gen, here->world->sizeX(), here->world->sizeZ(), colors);
             if (!farView->initGL()) farView.reset();
         }
         dropWoodMeshes();
-        hands.wood = wood.get();
-        hands.chests = &chests;
+        hands.wood = here->wood.get();
+        hands.chests = &here->chests;
         build.reset();
         dev.resetForNewWorld();
         dev.attach(nullptr);
         hands.clearTarget();
         playerBody->resetAnimation();
-        player.spawnPoint = glm::vec3(gen->spawnPoint(WORLD_SIZE_X, WORLD_SIZE_Z));
+        player.spawnPoint = glm::vec3(here->gen->spawnPoint(here->world->sizeX(), here->world->sizeZ()));
         camera = Camera();
         controller.thirdPersonWanted = false;
         camera.position = player.position + glm::vec3(0.0f, Human::eyeStand, 0.0f);
@@ -942,19 +1100,19 @@ int main() {
     // ── Draw the world ────────────────────────────────────
     // Used while playing and behind the pause menu
     auto drawWorld = [&]() {
-        if (!world || !streamer) return;
+        if (!here->world || !streamer) return;
 
         float aspect = (float)gRenderer->getScreenWidth() /
                        (float)std::max(1,
                            gRenderer->getScreenHeight());
         gRenderer->setCamera(gCamShake.apply(camera), aspect);   // shaken by hits (a copy: the look itself never drifts)
 
-        glm::ivec2 pc = world->worldToChunk(camera.position);
+        glm::ivec2 pc = here->world->worldToChunk(camera.position);
 
         // ── This frame's light and haze ───────────────────
         {
             FrameLight& fl = gFrameLight;
-            fl.sky = SkyState::at(gClock.time);
+            fl.sky = SkyState::at(here->sim.day.time);
             // clear air: only a thin haze, a little more where
             // the voxel chunks hand over to the distant terrain
             float edge = MESH_DISTANCE * (float)VOXEL_DIM;
@@ -978,7 +1136,7 @@ int main() {
             std::vector<int> changed;
             for (const auto& [idx, ci] : streamer->columnInfo()) {
                 // the streamer keys by ChunkManager index (cx * Z + cz); memory by cz * X + cx
-                int cx = idx / WORLD_SIZE_Z, cz = idx % WORLD_SIZE_Z, key = cz * WORLD_SIZE_X + cx;
+                int cx = idx / here->world->sizeZ(), cz = idx % here->world->sizeZ(), key = cz * here->world->sizeX() + cx;
                 auto it = memory.columns.find(key);
                 if (it != memory.columns.end() && it->second.summary == ci.summary) continue;
                 if (memory.remember(key, ci.summary, ci.emitters)) changed.push_back(key);
@@ -996,11 +1154,11 @@ int main() {
         // always draw over it.
         if (farView) {
             static std::vector<uint8_t> nearMask;
-            nearMask.assign((size_t)WORLD_SIZE_X * WORLD_SIZE_Z, 0);
+            nearMask.assign((size_t)here->world->sizeX() * here->world->sizeZ(), 0);
             for (int cx = pc.x - MESH_DISTANCE; cx <= pc.x + MESH_DISTANCE; cx++)
             for (int cz = pc.y - MESH_DISTANCE; cz <= pc.y + MESH_DISTANCE; cz++)
                 if (streamer->hasMesh(cx, cz))
-                    nearMask[(size_t)cz * WORLD_SIZE_X + cx] = 1;
+                    nearMask[(size_t)cz * here->world->sizeX() + cx] = 1;
             farView->setNearMask(nearMask);
             farView->draw(glr->getViewMatrix(), Camera::FOV_DEG, aspect, camera.position,
                           OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
@@ -1021,7 +1179,7 @@ int main() {
                  cz <= pc.y + MESH_DISTANCE; cz++) {
             // Not built yet (or outside the world) → skip
             if (!streamer->hasMesh(cx, cz)) continue;
-            glm::vec3 origin = world->chunkOrigin(cx, cz);
+            glm::vec3 origin = here->world->chunkOrigin(cx, cz);
             for (int sy = 0; sy < SECTIONS; sy++) {
                 const ChunkMesh* mesh = streamer->getMesh(cx, sy, cz);
                 if (!mesh || mesh->isEmpty()) continue;
@@ -1084,7 +1242,7 @@ int main() {
                 // Axe: trace the blade's edge from last frame to this
                 // one; the first solid voxel it passes is the hit
                 AxeSwing& sw = player.swing;
-                if (sw.active() && editor && structs) {    // (on a server, what it hits is a request: hands.axeHit)
+                if (sw.active() && here->editor && here->structs) {    // (on a server, what it hits is a request: hands.axeHit)
                     const ItemDef& tool = player.activeInventory().heldDef();
                     const HeldModelDef* hm = gHeldModels.find(tool.heldModel);
                     std::vector<glm::vec3> bp = hm ? hm->edgePoints(model) : std::vector<glm::vec3>();
@@ -1093,7 +1251,7 @@ int main() {
                     for (int k = 0; k < 3; k++) now[k] = glm::vec3(target[B_WRIST_R] * glm::vec4(bp[k], 1.0f));
                     if (sw.striking() && sw.traceValid && sw.lastStep > 0.0f) {
                         axeswing::BladeHit h = axeswing::trace(sw.lastBlade, now, sw.lastStep,
-                            [&](glm::ivec3 v) { return gPhysics->solidAt(v.x, v.y, v.z); });   // world and logs
+                            [&](glm::ivec3 v) { return here->physics->solidAt(v.x, v.y, v.z); });   // world and logs
                         // bodies: the first edge point inside someone
                         EntityId who = 0; float whoS = 2.0f; glm::vec3 whoAt(0), whoDir(0);
                         for (int k = 0; k < 3; k++) {
@@ -1103,19 +1261,19 @@ int main() {
                                 float s = (float)i / steps;
                                 if (s >= whoS) break;
                                 glm::vec3 p = sw.lastBlade[k] + d * s;
-                                if (EntityId id = sim.bodyAt(p, player.uuid)) { who = id; whoS = s; whoAt = p; whoDir = d; break; }
+                                if (EntityId id = here->sim.bodyAt(p, player.uuid)) { who = id; whoS = s; whoAt = p; whoDir = d; break; }
                             }
                         }
                         if (who && (!h.hit || whoS < h.s)) {
                             float speed = glm::length(now[1] - sw.lastBlade[1]) / std::max(sw.lastStep, 1e-4f);
                             float dmg = AxeSwing::damageFor(tool.toolPower, speed);
-                            sim.toolHit(player.uuid, who, dmg, tool.poiseDamage * dmg / std::max(tool.toolPower, 1e-3f), whoAt, whoDir);
+                            here->sim.toolHit(player.uuid, who, dmg, tool.poiseDamage * dmg / std::max(tool.toolPower, 1e-3f), whoAt, whoDir);
                             sw.hitDone = true;
                             sw.stop = AxeSwing::HITSTOP;
                         } else if (h.hit) {
                             sw.hitDone = true;
                             sw.stop = AxeSwing::HITSTOP;
-                            hands.axeHit(player, *structs, *editor, h,
+                            hands.axeHit(player, *here->structs, *here->editor, h,
                                          player.activeInventory().heldDef().toolPower);
                         }
                     }
@@ -1130,8 +1288,16 @@ int main() {
         {
             float alpha = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
             std::unordered_map<uint64_t, bool> alive;
-            for (auto& np : npcs.all()) {
-                Npc& n = *np;
+            // this world's, and those near a portal's far end in another
+            std::vector<Npc*> toPose;
+            for (auto& np : here->sim.npcs().all()) toPose.push_back(np.get());
+            for (const PortalLink& l : here->portals.links)
+                if (!l.b.world.empty())
+                    if (GameSession* fw = worlds.get(l.b.world))
+                        for (auto& np : fw->sim.npcs().all())
+                            if (glm::length(np->position - l.b.centre) < 140.0f) toPose.push_back(np.get());
+            for (Npc* npp : toPose) {
+                Npc& n = *npp;
                 if (n.type && !n.type->person()) continue;         // a slime: no skeleton (drawn below)
                 alive[n.uuid] = true;
                 auto& ch = npcBodies[n.uuid];
@@ -1165,18 +1331,99 @@ int main() {
 
         // Characters and loose objects are lit by the baked light
         // where they stand
-        auto lightCharacters = [&](glm::vec3 feet) {
+        auto lightCharacters = [&](glm::vec3 feet, WorldStreamer* from = nullptr) {
+            WorldStreamer* ls = from ? from : streamer.get();
             glm::vec3 at = feet + glm::vec3(0.0f, 9.0f, 0.0f);
-            uint16_t L = streamer->lightAt(at.x, at.y, at.z);
+            uint16_t L = ls->lightAt(at.x, at.y, at.z);
             float sky = light::skyOf(L) / 15.0f;
             const SkyState& ss = gFrameLight.sky;
             charRenderer.lightDir  = ss.lightDir();
-            float shade = streamer->canopyAt(at.x, at.y, at.z);
+            float shade = ls->canopyAt(at.x, at.y, at.z);
             glm::vec3 leafTint = glm::mix(glm::vec3(1.0f), glm::vec3(0.30f, 0.50f, 0.24f), shade);
             charRenderer.skyTint   = ss.skyLight * leafTint * (sky * sky) + ss.ambient * 4.0f;
             glm::vec3 b(light::rOf(L) / 15.0f, light::gOf(L) / 15.0f, light::bOf(L) / 15.0f);
             // the same fade as the world's (Settings > Graphics > Light fade)
             charRenderer.blockTint = gSettings.lightCurve == 0 ? b * b * 1.3f : glm::pow(b, glm::vec3(1.1f)) * 1.1f;
+        };
+
+        // ── Bodies at portals (world/PortalLinks.h) ───────
+        // A body part way through an opening is in two places: what's
+        // gone in is cut off on this side (bodyCut: a clip plane), and
+        // drawn coming out of the far face (portalCopies: a copy moved by
+        // the way through, cut to what's come out). The same for the half
+        // still going in once its middle has crossed (Human::lastExit…).
+        auto bodyCut = [&](GameSession* w, const Human& h, glm::vec3 at) -> glm::vec4 {
+            glm::vec3 mid = at + glm::vec3(0.0f, h.height * 0.5f, 0.0f);
+            PortalLink::Face f[2];
+            for (const PortalLink& l : w->portals.links)
+                for (int e = 0; e < 2; e++) {
+                    if (!l.end(e).world.empty()) continue;
+                    for (int i = 0, n = l.faces(e, f); i < n; i++) {
+                        glm::vec3 q = f[i].in.local(mid);
+                        if (q.z > 0.0f && q.z < PortalLinks::BODY_BAND && f[i].in.inside(q, 2.0f)) return f[i].in.plane();
+                    }
+                }
+            if (glm::length(h.lastExitNormal) > 0.5f) {
+                float q = glm::dot(mid - h.lastExitCentre, h.lastExitNormal);
+                if (q > 0.0f && q < PortalLinks::BODY_BAND)
+                    return glm::vec4(h.lastExitNormal, -glm::dot(h.lastExitNormal, h.lastExitCentre));
+            }
+            return glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        };
+        struct BodyCopy { const Character* ch; glm::vec3 at; GameSession* into; glm::mat4 xf; glm::vec4 clip; glm::vec4 glow; };
+        std::vector<BodyCopy> portalCopies;
+        auto addCopies = [&](GameSession* w, const Human& h, const Character* ch, glm::vec3 at, glm::vec4 glow) {
+            glm::vec3 mid = at + glm::vec3(0.0f, h.height * 0.5f, 0.0f);
+            PortalLink::Face f[2];
+            for (const PortalLink& l : w->portals.links)
+                for (int e = 0; e < 2; e++) {
+                    if (!l.end(e).world.empty()) continue;
+                    for (int i = 0, n = l.faces(e, f); i < n; i++) {
+                        glm::vec3 q = f[i].in.local(mid);
+                        if (!(q.z > 0.0f && q.z < PortalLinks::BODY_BAND && f[i].in.inside(q, 2.0f))) continue;
+                        GameSession* to = f[i].out.world.empty() ? w : worlds.get(f[i].out.world);
+                        if (!to) return;
+                        portalCopies.push_back({ ch, at, to, PortalLink::through(f[i].in, f[i].out), f[i].out.plane(), glow });
+                        return;
+                    }
+                }
+            if (glm::length(h.lastExitNormal) > 0.5f) {                   // just out of one: the half still going in
+                float q = glm::dot(mid - h.lastExitCentre, h.lastExitNormal);
+                if (!(q > 0.0f && q < PortalLinks::BODY_BAND)) return;
+                GameSession* from = h.lastPortalFrom.empty() ? w : worlds.get(h.lastPortalFrom);
+                if (!from) return;
+                glm::mat4 xf = glm::inverse(h.lastPortal);
+                glm::vec3 c = glm::vec3(xf * glm::vec4(h.lastExitCentre, 1.0f));
+                glm::vec3 n = glm::mat3(xf) * -h.lastExitNormal;
+                portalCopies.push_back({ ch, at, from, xf, glm::vec4(n, -glm::dot(n, c)), glow });
+            }
+        };
+        {
+            const float a2 = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
+            auto npcsOf = [&](GameSession* w) {
+                if (w->portals.empty() && worlds.all().size() < 2) return;
+                for (auto& np : w->sim.npcs().all()) {
+                    auto it = npcBodies.find(np->uuid);
+                    if (it == npcBodies.end()) continue;
+                    addCopies(w, *np, it->second.get(), glm::mix(np->prevPosition, np->position, a2), gOutlineFx.glowFor(*np));
+                }
+            };
+            // you: only when your body's drawn (in first person the copy's
+            // head would be round the camera over there)
+            if (rules.hasBody && controller.usingThirdPerson(rules) && controller.bodyVisible())
+                addCopies(here, player, playerBody.get(), controller.renderPosition, gOutlineFx.glowFor(player));
+            npcsOf(here);
+            for (auto& fsEntry : farStreamers) if (GameSession* w = worlds.get(fsEntry.first)) npcsOf(w);
+        }
+        // the copies come out in world 'w', seen through 'vp' from 'eye'
+        auto drawCopies = [&](GameSession* w, const glm::mat4& vp, glm::vec3 eye, WorldStreamer* ls) {
+            for (const BodyCopy& c : portalCopies) {
+                if (c.into != w || !c.ch) continue;
+                lightCharacters(glm::vec3(c.xf * glm::vec4(c.at, 1.0f)), ls);
+                charRenderer.xform = c.xf; charRenderer.clip = c.clip;
+                charRenderer.draw(*c.ch, vp, c.at, eye, OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
+            }
+            charRenderer.resetPortal();
         };
 
         // A body with no skeleton (npcs.toml body: a slime): three
@@ -1222,7 +1469,7 @@ int main() {
 
         // ── Roofs: one sloped surface over each roof piece's
         //    steps, eaves overhanging (render/RoofRenderer.h) ─
-        if (gSettings.roofStyle == 1 && structs && streamer && glr->hasAtlas()) {
+        if (gSettings.roofStyle == 1 && here->structs && streamer && glr->hasAtlas()) {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
             PropLightFn lightAt = [&](glm::vec3 p) {
@@ -1233,7 +1480,7 @@ int main() {
                 s.shade = std::clamp(streamer->canopyAt(p.x, p.y, p.z), 0.0f, 1.0f);
                 return s;
             };
-            roofs.draw(*structs, glr->getViewMatrix(), proj, camera.position, glr->getAtlas(), lightAt);
+            roofs.draw(*here->structs, glr->getViewMatrix(), proj, camera.position, glr->getAtlas(), lightAt);
         }
 
         // ── The hammer's piece, as it will be: a ghost of its voxels,
@@ -1276,7 +1523,7 @@ int main() {
 
         // ── Woodcutting: logs, wood on the ground, leaves and
         //    chips (world/Woodcutting.h), drawn like the world ─
-        if (wood && glr->hasAtlas()) {
+        if (here->wood && glr->hasAtlas()) {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
             glm::mat4 view = glr->getViewMatrix();
@@ -1292,7 +1539,7 @@ int main() {
             };
             props.begin(view, proj, camera.position, glr->getAtlas());
             std::unordered_map<uint32_t, bool> alive;
-            for (const auto& lg : wood->allLogs()) {
+            for (const auto& lg : here->wood->allLogs()) {
                 alive[lg->id] = true;
                 PropRenderer::Mesh& m = logMeshes[lg->id];
                 if (!m.count) props.buildVoxels(m, lg->body.voxels());
@@ -1303,7 +1550,7 @@ int main() {
             for (auto it = logMeshes.begin(); it != logMeshes.end();)
                 if (!alive.count(it->first)) { it->second.release(); it = logMeshes.erase(it); }
                 else ++it;
-            for (const auto& d : wood->itemDrops()) {         // wood: short lengths of log
+            for (const auto& d : here->wood->itemDrops()) {         // wood: short lengths of log
                 uint16_t blk = gItems.get(d.item).blockID;
                 if (!blk) continue;
                 float turn = d.resting ? (float)((d.item * 37 + (int)(d.pos.x * 7)) % 360) : d.age * 160.0f;
@@ -1312,7 +1559,7 @@ int main() {
                 M = glm::scale(M, glm::vec3(1.8f, 1.2f, 1.2f));
                 props.drawBlock(blk, M, lightAt(d.pos + glm::vec3(0, 0.8f, 0)));
             }
-            for (const auto& pt : wood->allParticles()) {     // leaves are flat, chips chunky
+            for (const auto& pt : here->wood->allParticles()) {     // leaves are flat, chips chunky
                 float fade = std::min(1.0f, pt.life / (0.3f * pt.maxLife));
                 glm::mat4 M = glm::translate(glm::mat4(1.0f), pt.p);
                 M = glm::rotate(M, pt.spin * pt.life, glm::normalize(glm::vec3(0.3f, 1.0f, 0.5f)));
@@ -1330,25 +1577,29 @@ int main() {
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
             glm::mat4 view = glr->getViewMatrix();
             lightCharacters(controller.renderPosition);   // from the baked layer where the body stands
+            const glm::vec4 cut = bodyCut(here, player, controller.renderPosition);
+            charRenderer.clip = cut;
             charRenderer.draw(*playerBody, proj * view, controller.renderPosition, camera.position,
                               OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
+            charRenderer.resetPortal();
             // toon edge lines (hidden behind anything in front)
             int fw = gRenderer->getScreenWidth(), fh = gRenderer->getScreenHeight();
-            charRenderer.drawEdges({ { playerBody.get(), controller.renderPosition, gOutlineFx.glowFor(player) } }, view, proj,
-                                   0, 0, fw, fh, fw, fh, edgeStyle());
+            CharacterRenderer::Placed me{ playerBody.get(), controller.renderPosition, gOutlineFx.glowFor(player) };
+            me.clip = cut;
+            charRenderer.drawEdges({ me }, view, proj, 0, 0, fw, fh, fw, fh, edgeStyle());
         }
 
         // Enemies
         hud.enemyBars.clear();
         hud.lockMarker.on = false;
         bool bossShown = false;
-        if (!npcs.all().empty()) {
+        if (!here->sim.npcs().all().empty()) {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
             glm::mat4 view = glr->getViewMatrix();
             float alpha = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
             std::vector<CharacterRenderer::Placed> placed;
-            for (auto& np : npcs.all()) {
+            for (auto& np : here->sim.npcs().all()) {
                 const bool blob = np->type && !np->type->person();
                 auto it = npcBodies.find(np->uuid);
                 if (it == npcBodies.end() && !blob) continue;
@@ -1357,9 +1608,13 @@ int main() {
                 if (blob) drawBlob(*np, at, proj * view);
                 else {
                     lightCharacters(at);
+                    const glm::vec4 cut = bodyCut(here, *np, at);
+                    charRenderer.clip = cut;
                     charRenderer.draw(*it->second, proj * view, at, camera.position,
                                       OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
+                    charRenderer.resetPortal();
                     placed.push_back({ it->second.get(), at, gOutlineFx.glowFor(*np) });
+                    placed.back().clip = cut;
                 }
                 const float top = blob ? np->height : np->standHeight;          // for the bar and the marker
                 const glm::vec3 head = blob ? glm::vec3(0.0f) : np->ragdoll.headOffset(alpha);
@@ -1397,6 +1652,122 @@ int main() {
                 charRenderer.drawEdges(placed, view, proj, 0, 0, fw, fh, fw, fh, edgeStyle());
         }
         if (!bossShown) hud.boss.on = false;
+        // bodies coming out of an opening here (copies of those going in
+        // at the other end, or the half of one still going in)
+        if (!portalCopies.empty()) {
+            glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect, Camera::NEAR_PLANE, Camera::FAR_PLANE);
+            glm::mat4 view = glr->getViewMatrix();
+            drawCopies(here, proj * view, camera.position, nullptr);
+            std::vector<CharacterRenderer::Placed> placed;
+            for (const BodyCopy& c : portalCopies)
+                if (c.into == here && c.ch) { placed.push_back({ c.ch, c.at, c.glow }); placed.back().xform = c.xf; placed.back().clip = c.clip; }
+            int fw = gRenderer->getScreenWidth(), fh = gRenderer->getScreenHeight();
+            if (!placed.empty()) charRenderer.drawEdges(placed, view, proj, 0, 0, fw, fh, fw, fh, edgeStyle());
+        }
+
+        // ── Portals (world/PortalLinks.h): each opening facing you
+        //    shows the room in front of its other end, drawn from a
+        //    second camera that's where yours would be on that side,
+        //    cut to the opening by the stencil and to the far side of
+        //    the other end by its near plane (render/PortalView.h) ─
+        {
+            std::vector<glm::ivec2> extras;
+            glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect, Camera::NEAR_PLANE, Camera::FAR_PLANE);
+            glm::mat4 view = glr->getViewMatrix();
+            const glm::vec3 BLUE(0.25f, 0.55f, 1.0f), ORANGE(1.0f, 0.55f, 0.15f);
+            auto rim = [&](const PortalEnd& E, glm::vec3 col) {
+                portalview::drawRim(blobs, proj * view, E, col);
+            };
+            for (const PortalLink& l : here->portals.links)
+                for (int e = 0; e < 2; e++) {
+                    if (!l.end(e).world.empty()) continue;                   // (an end in another world: seen from there)
+                    const PortalEnd& farEnd = l.other(e);
+                    // the far side: this world, or another one open (server/Worlds.h)
+                    GameSession* fw = here;
+                    WorldStreamer* fs = streamer.get();
+                    if (!farEnd.world.empty()) {
+                        fw = worlds.get(farEnd.world);
+                        auto fit = farStreamers.find(farEnd.world);
+                        if (!fw || !fw->world || fit == farStreamers.end()) continue;
+                        fs = fit->second.get();
+                    } else extras.push_back(here->world->worldToChunk(farEnd.centre));
+                    // the face of this end turned to you (its front; its back
+                    // when that goes somewhere: PortalEnd::back), and the face
+                    // it comes out of
+                    PortalLink::Face faces[2];
+                    const int nf = l.faces(e, faces);                        // (none: one way, this side is a wall)
+                    int fi = 0;
+                    while (fi < nf && !portalview::facing(faces[fi].in, camera.position, 400.0f)) fi++;
+                    if (fi == nf) continue;
+                    const PortalEnd& E = faces[fi].in;
+                    const PortalEnd& O = faces[fi].out;
+                    const glm::mat4 M = PortalLink::through(E, O);
+                    Camera vc = portalview::cameraThrough(camera, M);
+                    portalview::begin(blobs, proj * view, E);
+                    // the far side
+                    glr->setCamera(vc, aspect);
+                    glm::mat4 vView = glr->getViewMatrix();
+                    glm::mat4 P = portalview::oblique(proj, vView, O.plane() + glm::vec4(0.0f, 0.0f, 0.0f, 0.02f));
+                    {
+                        glm::mat4 skyProj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect, 0.5f, 10.0f);
+                        glm::mat4 v = vView; v[3] = glm::vec4(0, 0, 0, 1);
+                        skyRenderer.draw(skyProj * v, gFrameLight.sky);
+                    }
+                    glr->beginWorldDraw();
+                    glr->overrideProjection(P);
+                    {
+                        glm::vec4 op[5];
+                        int n = portalview::openingPlanes(O, vc.position, op);
+                        glr->narrowFrustum(op, n);
+                    }
+                    const int callsBefore = glr->getDrawCalls();
+                    glm::ivec2 vpc = fw->world->worldToChunk(vc.position);
+                    const int R = WorldStreamer::EXTRA_RADIUS + 1;
+                    for (int cx = vpc.x - R; cx <= vpc.x + R; cx++)
+                    for (int cz = vpc.y - R; cz <= vpc.y + R; cz++) {
+                        if (!fs->hasMesh(cx, cz)) continue;
+                        glm::vec3 origin = fw->world->chunkOrigin(cx, cz);
+                        for (int sy = 0; sy < SECTIONS; sy++) {
+                            const ChunkMesh* mesh = fs->getMesh(cx, sy, cz);
+                            if (!mesh || mesh->isEmpty()) continue;
+                            glr->drawMesh(*mesh, origin + glm::vec3(0.0f, (float)(sy * VOXEL_DIM), 0.0f),
+                                          fs->getLightTexture(cx, sy, cz), fs->getCanopyTexture(cx, cz),
+                                          fs->getFlowTexture(cx, cz), fs->getTintTexture(cx, sy, cz));
+                        }
+                    }
+                    glr->endWorldDraw();
+                    portalSectionDraws += glr->getDrawCalls() - callsBefore;
+                    // bodies over there (you too, when it's this world: seen from the far side)
+                    if (rules.hasBody && fw == here) {
+                        lightCharacters(controller.renderPosition);
+                        charRenderer.clip = bodyCut(here, player, controller.renderPosition);
+                        charRenderer.draw(*playerBody, P * vView, controller.renderPosition, vc.position,
+                                          OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
+                        charRenderer.resetPortal();
+                    }
+                    {
+                        float a2 = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
+                        for (auto& np : fw->sim.npcs().all()) {
+                            auto it = npcBodies.find(np->uuid);
+                            if (it == npcBodies.end()) continue;
+                            glm::vec3 at = glm::mix(np->prevPosition, np->position, a2);
+                            if (glm::length(at - vc.position) > 160.0f) continue;
+                            lightCharacters(at, fs);
+                            charRenderer.clip = bodyCut(fw, *np, at);
+                            charRenderer.draw(*it->second, P * vView, at, vc.position, OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity);
+                            charRenderer.resetPortal();
+                        }
+                    }
+                    drawCopies(fw, P * vView, vc.position, fs);
+                    glr->setCamera(gCamShake.apply(camera), aspect);
+                    portalview::end(blobs, proj * view, E);
+                    if (l.kind == "gun") rim(E, e == 0 ? BLUE : ORANGE);     // (a gate has its arch)
+                }
+            // the gun's ends not joined yet: just their rims
+            for (int e = 0; e < 2; e++)
+                if (portalGun.have[e] && !portalGun.linkId) rim(portalGun.ends[e], e == 0 ? BLUE : ORANGE);
+            if (streamer) streamer->setExtraCentres(extras);
+        }
 
         // Spells in flight (Simulation::projectiles): an ice spike is
         // a pale shard along its way, a thinner point ahead
@@ -1412,7 +1783,7 @@ int main() {
         };
         // Shockwaves: dust thrown up along the front as it runs
         if (gState == GameState::Playing)
-            for (const Simulation::Wave& w : sim.waves()) {
+            for (const Simulation::Wave& w : here->sim.waves()) {
                 float base = std::atan2(w.dir.z, w.dir.x), half = std::acos(std::clamp(w.cosArc, -1.0f, 1.0f));
                 int n = std::max(3, (int)(w.radius * half * 0.25f));
                 for (int k = 0; k < n; k++) {
@@ -1421,17 +1792,17 @@ int main() {
                     gParticles.burst("quake_dust", at, glm::vec3(0, 1, 0), 1.0f, 0.5f, 1.0f);
                 }
             }
-        if (!sim.stuckArrows().empty()) {
+        if (!here->sim.stuckArrows().empty()) {
             glm::mat4 vp = glm::perspective(glm::radians(Camera::FOV_DEG), aspect, Camera::NEAR_PLANE, Camera::FAR_PLANE) * glr->getViewMatrix();
-            for (const Simulation::StuckArrow& a : sim.stuckArrows())
+            for (const Simulation::StuckArrow& a : here->sim.stuckArrows())
                 if (glm::length(a.pos - camera.position) < 160.0f) drawArrow(vp, a.pos + a.dir * 0.8f, a.dir);
         }
-        if (!sim.projectiles().empty()) {
+        if (!here->sim.projectiles().empty()) {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
             glm::mat4 vp = proj * glr->getViewMatrix();
             float alpha = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
-            for (const Simulation::Projectile& p : sim.projectiles()) {
+            for (const Simulation::Projectile& p : here->sim.projectiles()) {
                 glm::vec3 at = p.pos + p.vel * (alpha * PHYSICS_STEP);
                 if (p.arrow) { drawArrow(vp, at, p.vel); continue; }
                 glm::vec3 f(p.vel.x, 0.0f, p.vel.z);
@@ -1481,8 +1852,8 @@ int main() {
             glm::mat4 proj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
                                               Camera::NEAR_PLANE, Camera::FAR_PLANE);
             glm::mat4 vp = proj * glr->getViewMatrix();
-            gDungeonWorld = dynamic_cast<const DungeonGenerator*>(session.gen.get());
-            debugview::build(debugDraw, sim, wood.get(), player, axeTrail);
+            gDungeonWorld = dynamic_cast<const DungeonGenerator*>(here->gen.get());
+            debugview::build(debugDraw, here->sim, here->wood.get(), player, axeTrail);
             debugDraw.flush(vp);
             float sw = (float)gRenderer->getScreenWidth(), shh = (float)gRenderer->getScreenHeight();
             for (auto& l : debugDraw.takeLabels()) {
@@ -1535,7 +1906,7 @@ int main() {
                 for (int sy = 0; sy < SECTIONS; sy++) {
                     const ChunkMesh* mesh = streamer->getMesh(cx, sy, cz);
                     if (!mesh || !mesh->hasPanes()) continue;
-                    glm::vec3 c = world->chunkOrigin(cx, cz) + glm::vec3(VOXEL_DIM * 0.5f, (sy + 0.5f) * VOXEL_DIM, VOXEL_DIM * 0.5f);
+                    glm::vec3 c = here->world->chunkOrigin(cx, cz) + glm::vec3(VOXEL_DIM * 0.5f, (sy + 0.5f) * VOXEL_DIM, VOXEL_DIM * 0.5f);
                     paneSecs.push_back({ glm::length(c - camera.position), cx, sy, cz });
                 }
             }
@@ -1544,7 +1915,7 @@ int main() {
                 glr->beginPanes();
                 for (const PaneSec& p : paneSecs)
                     glr->drawPanes(*streamer->getMesh(p.cx, p.sy, p.cz),
-                                   world->chunkOrigin(p.cx, p.cz) + glm::vec3(0.0f, (float)(p.sy * VOXEL_DIM), 0.0f),
+                                   here->world->chunkOrigin(p.cx, p.cz) + glm::vec3(0.0f, (float)(p.sy * VOXEL_DIM), 0.0f),
                                    streamer->getLightTexture(p.cx, p.sy, p.cz), streamer->getCanopyTexture(p.cx, p.cz),
                                    streamer->getFlowTexture(p.cx, p.cz), streamer->getTintTexture(p.cx, p.sy, p.cz));
                 glr->endPanes();
@@ -1738,6 +2109,140 @@ int main() {
     // ══════════════════════════════════════════════════════
     // MAIN LOOP
     // ══════════════════════════════════════════════════════
+    // Run one console line (the console; a test script: VOXELRPG_SCRIPT)
+    auto runCommand = [&](const std::string& line) {
+        if (remote) {
+            // on a server only what's yours to change runs here
+            std::string w = line.substr(0, line.find(' '));
+            if (w == "ping") { char b[64]; std::snprintf(b, sizeof(b), "ping %.0f ms", remote->pingMs()); say(b); return; }
+            if (w != "debug" && w != "help" && w != "where" && w != "outline") { say("on a server: only debug, where, ping, help"); return; }
+        }
+        CommandContext ctx {
+            player, dev, hands.target, here->structs.get(),
+            [&](GameMode m) { changeMode(m); },
+            [&]() { saveWorld(); },
+            say, &here->sim.npcs(), &here->sim, &here->chests };
+        ctx.gen = here->gen.get();
+        ctx.info = here->world ? &here->info : nullptr;
+        ctx.portalGun = [&](const std::vector<std::string>& a) {
+            if (remote || !here->world) { say("needs your own world"); return; }
+            if (!a.empty() && a[0] == "clear") { portalGun.clear(here->portals); say("portal gone"); return; }
+            if (!a.empty() && (a[0] == "oneway" || a[0] == "twoway")) portalGun.setTwoWay(a[0] == "twoway", here->portals);
+            say(std::string("portal gun: blue ") + (portalGun.have[0] ? "up" : "not placed") + ", orange " +
+                (portalGun.have[1] ? "up" : "not placed") + ", " + (portalGun.twoWay ? "two way" : "one way (only blue opens)") +
+                "; " + std::to_string(here->portals.links.size()) + " portal(s) in this world");
+        };
+        ctx.portal = [&](const std::vector<std::string>& a) {
+            if (remote) { say("no portals on a server yet"); return; }
+            if (!portals.realm.loaded()) { say("no world open"); return; }
+            auto& R = portals.realm;
+            if (a.empty()) {
+                std::string s = std::string("in ") + (R.here.empty() ? "the main world" : R.here) + "; gate " +
+                                (R.hasGate ? std::to_string(R.gate.x) + " " + std::to_string(R.gate.y) + " " + std::to_string(R.gate.z) : std::string("not placed")) + "; ";
+                if (R.instances.empty()) s += "no instances open";
+                for (auto& i : R.instances) s += i.id + " " + realm::Realm::clock(i.left) + (i.cleared ? " cleared" : "") + (i.closing ? " closing" : "") + "  ";
+                say(s);
+            } else if (a[0] == "open") {
+                if (portals.inInstance() || R.gateInstance()) { say("one's open already (portal close)"); return; }
+                portals.options = { { "", "open:" + (a.size() > 1 ? a[1] : std::string("crypt")) } };
+                say(portals.choose(0));
+            } else if (a[0] == "close") {
+                portals.options = { { "", "close" } };
+                std::string r = portals.choose(0);
+                say(r.empty() ? "nothing to close" : r);
+            } else if (a[0] == "go") {
+                if (portals.inInstance()) portals.goHome("");
+                else if (auto* i = R.gateInstance()) portals.goInto(*i);
+                else say("no instance open (portal open)");
+            } else if (a[0] == "time" && a.size() > 1) {
+                if (auto* i = portals.inInstance() ? R.current() : R.gateInstance()) {
+                    i->left = std::max(1.0f, (float)std::atof(a[1].c_str()) * 60.0f);
+                    i->warned10 = i->left <= 600.0f; i->warned1 = i->left <= 60.0f;
+                    say(i->id + ": " + realm::Realm::clock(i->left) + " left");
+                }
+            } else if (a[0] == "tp") {
+                if (portals.inInstance()) { if (auto* r = here->dungeon(); r && r->hasEntryGate()) player.position = r->entryGate().arrival(); }
+                else if (R.hasGate) player.position = portals.mainGate().arrival();
+                player.velocity = glm::vec3(0.0f);
+            } else say("portal [open <dungeon>|close|go|time <minutes>|tp]");
+        };
+        commands.run(line, ctx);
+    };
+
+    // ── A test script (VOXELRPG_SCRIPT=<file>): one line a frame ─
+    //   world <name>        open a saved world, or make a flat one (Test Play)
+    //   pos x y z           put the player (feet) there
+    //   look <yaw> <pitch>  turn the camera
+    //   wait <frames>
+    //   walk <frames>       walk the way the camera looks
+    //   gun 0|1             fire the portal gun's blue / orange end where the camera looks
+    //   shot <file.ppm>     save the screen
+    //   dbg                 print where the player is, which world, portal trips
+    //   /<console line>     run a console command
+    //   quit
+    // (for checking what's drawn without anyone at the keys: tools)
+    std::vector<std::string> scriptLines;
+    size_t scriptAt = 0;
+    int scriptWait = 0;
+    std::string pendingShot;
+    int scriptWalk = 0;                       // frames left walking (walk <frames>: the way the camera faces)
+    if (const char* sp = std::getenv("VOXELRPG_SCRIPT")) {
+        std::ifstream sf(sp);
+        for (std::string l; std::getline(sf, l);) if (!l.empty() && l[0] != '#') scriptLines.push_back(l);
+        std::cout << "script: " << scriptLines.size() << " lines from " << sp << "\n";
+    }
+    auto runScript = [&]() {
+        if (scriptAt >= scriptLines.size()) return;
+        if (scriptWait > 0) { scriptWait--; return; }
+        const std::string line = scriptLines[scriptAt++];
+        std::istringstream ls(line);
+        std::string w; ls >> w;
+        std::cout << "script> " << line << "\n";
+        if (w == "world") {
+            std::string name; ls >> name;
+            if (std::filesystem::exists(std::string("saves/") + name + "/world.vxrp")) enterWorld(false, name, 0, GameMode::Dev, WorldType::Classic, 0);
+            else {
+                FlatOptions fo; fo.plants = false;
+                enterWorld(true, name, 1, GameMode::Dev, WorldType::Flat, 32, -1, TerrainStyle::NoErosion, WorldGenParams(), fo, false);
+            }
+            changeMode(GameMode::Dev);
+        } else if (w == "pos") {
+            glm::vec3 p; ls >> p.x >> p.y >> p.z;
+            player.position = p; player.velocity = glm::vec3(0.0f);
+            controller.reset(player);
+            camera.position = p + glm::vec3(0.0f, player.eyeHeight, 0.0f);
+        } else if (w == "look") {
+            float y = 0, pt = 0; ls >> y >> pt;
+            camera.setLook(y, pt);
+        } else if (w == "wait") {
+            ls >> scriptWait;
+        } else if (w == "gun") {
+            int which = 0; ls >> which;
+            PortalEnd e; std::string why;
+            if (here->world && PortalGun::aim(*here->world, camera.position, camera.front, e, why)) portalGun.place(which & 1, e, here->portals);
+            else std::cout << "script: gun: " << why << "\n";
+        } else if (w == "walk") {
+            ls >> scriptWalk;
+            scriptWait = scriptWalk;
+        } else if (w == "shot") {
+            ls >> pendingShot;
+        } else if (w == "dbg") {
+            std::printf("dbg: draws %d (portal views %d)\n", lastFrameDraws, portalSectionDrawsShown);
+            for (const PortalLink& l : here->portals.links)
+                std::printf("dbg: link %s a %.1f %.1f %.1f n %.2f %.2f %.2f back %d  b %.1f %.1f %.1f n %.2f %.2f %.2f back %d %s\n", l.kind.c_str(),
+                            l.a.centre.x, l.a.centre.y, l.a.centre.z, l.a.normal.x, l.a.normal.y, l.a.normal.z, (int)l.a.back,
+                            l.b.centre.x, l.b.centre.y, l.b.centre.z, l.b.normal.x, l.b.normal.y, l.b.normal.z, (int)l.b.back, l.b.world.c_str());
+            std::printf("dbg: world %s  cam %.1f %.1f %.1f yaw %.1f pitch %.1f  feet %.1f %.1f %.1f  render %.1f %.1f %.1f  state %d mode %d\n",
+                        here->name().c_str(), camera.position.x, camera.position.y, camera.position.z, camera.yaw, camera.pitch,
+                        player.position.x, player.position.y, player.position.z,
+                        controller.renderPosition.x, controller.renderPosition.y, controller.renderPosition.z, (int)gState, (int)player.mode);
+        } else if (w == "quit") {
+            glfwSetWindowShouldClose(window, true);
+        } else if (!w.empty() && w[0] == '/') {
+            runCommand(line.substr(1));
+        }
+    };
+
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = (float)glfwGetTime();
         float frameTime    = currentFrame - lastFrame;
@@ -1760,7 +2265,7 @@ int main() {
         frameDt = dt;
         // the pad's motors: only while playing (a pause stops them)
         rumble::gRumble.update(dt, gInput.padLastUsed() && gState == GameState::Playing);
-        if ((gState == GameState::Playing || gState == GameState::Console) && !remote) gClock.update(dt);
+        if ((gState == GameState::Playing || gState == GameState::Console) && !remote) here->sim.day.update(dt);
 
         // Menus draw block icons from the world atlas (ui/ItemIcon.h)
         {
@@ -1775,7 +2280,7 @@ int main() {
         const bool menuUp = gState != GameState::Playing && gState != GameState::Console;
         // talking (game/Dialogue.h): the pad drives the talk box, not
         // the body (no swing or jump by mistake)
-        gInput.setMenuMode(menuUp || talkingTo != 0);
+        gInput.setMenuMode(menuUp || talkingTo != 0 || portals.menuOpen);
         gInput.setToolLayer(!player.combatStance && rulesFor(player.mode, false).hasBody && PlayerInteraction::takesPad(player));
         gInput.poll(window);
         // the controller in menus (ui/PadNav.h): a new screen starts its focus afresh
@@ -1791,14 +2296,14 @@ int main() {
             if (remote->state != ClientWorld::State::Joined) {
                 dropToMenu(lastNotice.empty() ? "the connection to the server was lost" : lastNotice);
             } else {
-                gClock.time = remote->clockTime;
+                here->sim.day.time = remote->clockTime;
                 syncPuppets(dt);
                 // a menu is open: the world goes on, you stand still
                 if (gState != GameState::Playing) {
                     remoteTime = std::min(remoteTime + dt, 0.25f);
                     while (remoteTime >= PHYSICS_STEP) { remoteTick(HumanIntent()); remoteTime -= PHYSICS_STEP; }
                     remote->events.clear();
-                    sim.takeEvents();
+                    here->sim.takeEvents();
                 }
             }
         }
@@ -1814,6 +2319,8 @@ int main() {
                 glfwSetWindowShouldClose(window, true);
             }
         }
+
+        if (!scriptLines.empty()) runScript();
 
         // ── Shortcuts while playing ───────────────────────
         if (gState == GameState::Playing) {
@@ -1888,6 +2395,7 @@ int main() {
                 gLoot.load("data/registry/loot.toml");
                 gKits.load("data/registry/kits.toml");
                 gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml"); gVillagers.load(); dialogue::gDialogue.load(); gRoaming.load();
+                realm::gDungeonKinds.load();
                 gAnims.load("data/animations", "data/animations/retarget.toml");
                 gAnimMap.load("data/animations/anim_map.toml");
                 gOutlineFx.load("data/registry/outline.toml");
@@ -1903,7 +2411,7 @@ int main() {
                 props.setBlocks(blockTable); roofs.setBlocks(blockTable);
                 dropWoodMeshes();
                 if (streamer) streamer->setLightTable(lightTable());
-                if (gPhysics && world) gPhysics->init(*world);
+                if (here->physics && here->world) here->physics->init(*here->world);
                 say("blocks and items reloaded");
             }
             // F7 — hot reload the resource pack
@@ -1932,11 +2440,37 @@ int main() {
         // Runs while paused too, so chunks keep arriving
         // behind the pause menu. Costs well under a
         // millisecond: the heavy lifting is on other threads.
-        if (world && streamer &&
+        if (here->world && streamer &&
             gState != GameState::MainMenu) {
             glm::ivec2 pc =
-                world->worldToChunk(camera.position);
+                here->world->worldToChunk(camera.position);
             streamer->update(pc.x, pc.y);
+            // the far sides of portals into other worlds, a little round
+            // each far end (server/Worlds.h has those worlds running)
+            if (!remote) {
+                std::map<std::string, glm::vec3> want;
+                for (const PortalLink& l : here->portals.links)
+                    if (!l.b.world.empty() && glm::length(l.a.centre - player.position) < 260.0f) want[l.b.world] = l.b.centre;
+                for (auto it = farStreamers.begin(); it != farStreamers.end();) {
+                    GameSession* w = worlds.get(it->first);
+                    if (!want.count(it->first) || !w || !w->world) { if (w) worlds.setStreamed(w, false); it = farStreamers.erase(it); }
+                    else ++it;
+                }
+                for (auto& [name, at] : want) {
+                    GameSession* w = worlds.get(name);
+                    if (!w || !w->world || w == here) continue;
+                    auto& fs = farStreamers[name];
+                    if (!fs) {
+                        fs = std::make_unique<WorldStreamer>(*w->world, w->chunkSource(), blockTable, lightTable(), 2);
+                        fs->meshRadius = FAR_MESH_RADIUS;
+                        const TerrainGenerator* g = w->gen.get();
+                        fs->flowAt = [g](int x, int z) { return g->flowAt(x, z); };
+                        worlds.setStreamed(w, true);
+                    }
+                    glm::ivec2 c = w->world->worldToChunk(at);
+                    fs->update(c.x, c.y);
+                }
+            }
             // View distances from the settings (they can change
             // while the game runs: the streamer and the far view
             // simply adjust)
@@ -1956,21 +2490,24 @@ int main() {
 
             // Big edits are spread over frames: a few
             // milliseconds of them per frame
-            session.updateEdits(4.0f);
+            here->updateEdits(4.0f);
             // spells' ice set down, and melted when its time is up
             // (a server does this for its own world)
-            if (!remote) session.tickWorld(dt);
-            else sim.takeLandings();
+            if (!remote) here->tickWorld(dt);
+            else here->sim.takeLandings();
 
             // Autosave every few minutes (Settings → Auto save);
             // dev worlds only save when asked
             autosaveTimer += frameTime;
             if (autosaveTimer >= AUTOSAVE_SECONDS) {
-                if (gSettings.autosave && !gWorldSave.isDevWorld() && !remote) saveWorld();
+                if (gSettings.autosave && !here->info.isDevWorld() && !remote) saveWorld();
                 else autosaveTimer = 0.0f;
             }
         }
 
+        lastFrameDraws = gRenderer->getDrawCalls();
+        portalSectionDrawsShown = portalSectionDraws;
+        portalSectionDraws = 0;
         gRenderer->beginFrame();
 
         // ══════════════════════════════════════════════════
@@ -2007,8 +2544,9 @@ int main() {
                 pendingKit = mainMenu.getNewWorldKit();   // laid out once the ground under you is there
                 pendingVillage = mainMenu.getNewWorldVillage();
                 // the Enemies row: roaming spawns on or off for this world
-                gWorldSave.setRoamingSpawns(mainMenu.getNewWorldRoaming());
-                sim.roaming.enabled = mainMenu.getNewWorldRoaming();
+                here->info.setRoamingSpawns(mainMenu.getNewWorldRoaming());
+                here->info.setSpawnPortal(mainMenu.getNewWorldPortal());     // the Portal row
+                here->sim.roaming.enabled = mainMenu.getNewWorldRoaming();
             } else if (r == ScreenResult::LoadWorld) {
                 // Seed and mode come from the save file
                 enterWorld(false,
@@ -2025,6 +2563,42 @@ int main() {
             }
 
         } else if (gState == GameState::Playing) {
+
+            // ── A trip through a gate (game/Portals.h): dark, the far
+            //    world opened with the same player, light again once the
+            //    ground there is in
+            if (!remote && portals.travel.pending && fadePhase == 0) { fadePhase = 1; portals.menuOpen = false; }
+            if (fadePhase == 1) {
+                fade = std::min(1.0f, fade + dt / 0.35f);
+                if (fade >= 1.0f) {
+                    std::ostringstream keep;
+                    writePlayer(keep);
+                    travelKeep = keep.str();
+                    const std::string target = portals.travel.world;
+                    const bool devRealm = portals.realm.dev;
+                    // the world being left keeps running (server/Worlds.h);
+                    // only what this window draws of it goes
+                    saveWorld();
+                    lockOn.clear(); gParticles.clear(); trails.clear(); popups.clear(); gCamShake.clear();
+                    streamer.reset(); farView.reset();
+                    dev.attach(nullptr);
+                    hands.wood = nullptr;
+                    dropWoodMeshes();
+                    npcBodies.clear();
+                    travelling = true;
+                    enterWorld(false, target, 0, GameMode::Survival, WorldType::Classic, 0, -1,
+                               TerrainStyle::NoErosion, WorldGenParams(), FlatOptions(), devRealm);
+                    travelling = false;
+                    portals.arrived();
+                    fadePhase = 2; fadeHold = 0.0f;
+                }
+            } else if (fadePhase == 2) {
+                fadeHold += dt;
+                bool ready = here->world && here->world->isColumnLoaded((int)std::floor(player.position.x), (int)std::floor(player.position.z));
+                if (ready || fadeHold > 8.0f) fade = std::max(0.0f, fade - dt / 0.5f);
+                if (fade <= 0.0f) fadePhase = 0;
+            }
+            hud.travelFade = fade;
 
             camera.sensitivity = gSettings.mouseSensitivity;
             glm::vec2 mouseDelta = gInput.getMouseDelta();
@@ -2078,15 +2652,15 @@ int main() {
                 //    Survival, and Survival's combat stance) ─
                 // TAB: lock onto the enemy nearest the middle of
                 // the view, or let go (game/LockOn.h)
-                auto hostileToMe = [&](const Npc& n) { return sim.hostile(n, player); };
+                auto hostileToMe = [&](const Npc& n) { return here->sim.hostile(n, player); };
                 if (gInput.isPressed(InputAction::LockOn)) {
                     if (lockOn) { lockOn.clear(); }
-                    else if (Npc* t = LockOn::pick(npcs.all(), camera.position, camera.front, hostileToMe)) {
+                    else if (Npc* t = LockOn::pick(here->sim.npcs().all(), camera.position, camera.front, hostileToMe)) {
                         lockOn.target = t->uuid;
                         lockOn.lostFor = 0.0f;
                     }
                 }
-                Npc* locked = lockOn ? npcs.find(lockOn.target) : nullptr;
+                Npc* locked = lockOn ? here->sim.npcs().find(lockOn.target) : nullptr;
                 if (lockOn && (!locked || locked->dead() || player.dead() ||
                                glm::length(locked->position - player.position) > LockOn::BREAK_RANGE)) {
                     lockOn.clear(); locked = nullptr;
@@ -2094,7 +2668,7 @@ int main() {
                 if (locked) {
                     // out of sight too long: let go
                     glm::vec3 aim = LockOn::aimPoint(*locked);
-                    bool seen = sim.clearLine(player.position + glm::vec3(0.0f, player.eyeHeight, 0.0f), aim);
+                    bool seen = here->sim.clearLine(player.position + glm::vec3(0.0f, player.eyeHeight, 0.0f), aim);
                     lockOn.lostFor = seen ? 0.0f : lockOn.lostFor + dt;
                     if (lockOn.lostFor > LockOn::LOST_TIME) { lockOn.clear(); locked = nullptr; }
                 }
@@ -2102,7 +2676,7 @@ int main() {
                     // sideways mouse switches targets; the camera turns onto it
                     int side = lockOn.flicked(mouseDelta.x, dt);
                     if (side) {
-                        if (Npc* n = LockOn::pick(npcs.all(), camera.position, camera.front, hostileToMe,
+                        if (Npc* n = LockOn::pick(here->sim.npcs().all(), camera.position, camera.front, hostileToMe,
                                                   locked->uuid, side, locked->position)) { lockOn.target = n->uuid; locked = n; }
                     }
                     camera.processMouse(0.0f, mouseDelta.y);
@@ -2117,10 +2691,15 @@ int main() {
                 //    Which buttons do what depends on the
                 //    mode and stance (see PlayerController).
                 controller.slotKeysBlocked =
-                    PlayerInteraction::blocksToolbarKeys(dev) || talkingTo != 0;   // (talking: the hotbar stays put)
+                    PlayerInteraction::blocksToolbarKeys(dev) || talkingTo != 0 || portals.menuOpen;   // (talking: the hotbar stays put)
                 controller.readInput(player, camera, dt);
                 // talking: standing still, hands down (keys and mouse too)
-                if (talkingTo) { bool fly = controller.intent.fly; controller.intent = HumanIntent(); controller.intent.fly = fly; }
+                if (talkingTo || portals.menuOpen || fadePhase != 0) { bool fly = controller.intent.fly; controller.intent = HumanIntent(); controller.intent.fly = fly; }
+                if (scriptWalk > 0) {                  // a test script walking (VOXELRPG_SCRIPT walk)
+                    scriptWalk--;
+                    glm::vec2 f(camera.front.x, camera.front.z);
+                    if (glm::length(f) > 1e-3f) controller.intent.move = glm::normalize(f);
+                }
 
                 // 2. The simulation, in fixed 1/60 s ticks. A
                 //    fast frame may run none, a slow one several.
@@ -2129,25 +2708,55 @@ int main() {
                 physicsTime = std::min(physicsTime + dt, 0.25f);
                 // the spawner structures placed in the world, for the
                 // simulation to run (sim/Spawners.h)
-                if (!remote) session.syncSpawners();
+                if (!remote) here->syncSpawners();
+                // portals (game/Portals.h): the gates, the instances' clocks
+                if (!remote) portals.syncGates([&](const std::string& n) { return worlds.get(n); });   // gates: seamless when both worlds are up
+                if (!remote && fadePhase == 0) portals.tick(dt, *here, player, here->info.getSpawnPortal(), say);
+                // the far side of a gate you're near: open and loading
+                // before you step through (server/Worlds.h)
+                if (!remote && fadePhase == 0)
+                    for (const auto& w : portals.wanted(*here, player.position))
+                        if (GameSession* s = worlds.open(w.world, portals.realm.dev)) {
+                            glm::vec3 at = w.point;
+                            if (w.entry) { if (const dungeon::Run* r = s->dungeon(); r && r->hasEntryGate()) at = r->entryGate().arrival(); }
+                            worlds.watch(s->name(), at);
+                        }
                 // the world's village sites, built when a player first comes near
-                if (!remote) session.tickVillages({ player.position }, [&](const std::string& s) { say("a village: " + s); });
+                if (!remote) here->tickVillages({ player.position }, [&](const std::string& s) { say("a village: " + s); });
                 if (!remote)
-                    for (const auto& fx : session.tickDungeon({ &player }, dt)) {      // a Dungeon world's markers coming alive
+                    for (const auto& fx : here->tickDungeon({ &player }, dt)) {      // a Dungeon world's markers coming alive
                         if (!fx.particle.empty()) gParticles.burst(fx.particle, fx.at, glm::vec3(0, 1, 0), 1.0f, fx.size, fx.size);
                         if (!fx.line.empty()) say(fx.line);
                     }
+                int stepsRun = 0;
                 while (physicsTime >= PHYSICS_STEP) {
                     controller.beforeTick(player);
                     if (remote) remoteTick(controller.intent);
                     else {
                         player.aimPitch = aimPitchOf(player, camera);
-                        sim.setIntent(player.uuid, controller.intent);
-                        sim.step(PHYSICS_STEP);
+                        here->sim.setIntent(player.uuid, controller.intent);
+                        here->sim.step(PHYSICS_STEP);
+                        // through a portal into another world: you (the
+                        // focus follows) or an NPC after you
+                        for (const Simulation::Transfer& t : here->sim.takeTransfers()) {
+                            GameSession* to = worlds.get(t.world);
+                            if (!to || !to->world) continue;
+                            if (t.id == player.uuid) { if (Worlds::transfer(*here, *to, t)) switchFocus(to); }
+                            else Worlds::transfer(*here, *to, t);
+                        }
                     }
                     controller.afterTick(player);
                     physicsTime -= PHYSICS_STEP;
+                    stepsRun++;
                 }
+                // through a portal: the view turns with you
+                if (controller.portalTurnDeg != 0.0f) {
+                    camera.setLook(camera.yaw + controller.portalTurnDeg, camera.pitch);
+                    controller.portalTurnDeg = 0.0f;
+                }
+                // every other world open runs too (server/Worlds.h): the
+                // one you came from, the one past a gate you're near
+                if (!remote) worlds.tick(dt, stepsRun, PHYSICS_STEP);
 
                 // 3. What happened, as it concerns this player
                 //    (on a server: what the server says happened)
@@ -2158,18 +2767,18 @@ int main() {
                     int lit = std::max({ light::skyOf(L), light::rOf(L), light::gOf(L), light::bOf(L) });
                     return std::clamp(lit / 15.0f, 0.0f, 1.0f);
                 };
-                gParticles.watch(sim.bodies());
+                gParticles.watch(here->sim.bodies());
                 gCamShake.update(frameDt);
                 // slash trails: each blade in (or just around) its hit window
                 trails.update(frameDt);
-                for (Human* h : sim.bodies()) {
+                for (Human* h : here->sim.bodies()) {
                     const AttackState& a = h->attack;
                     if (!a.active() || h->dead() || !a.def().effect.empty()) continue;
                     const AttackDef& d = a.def();
                     if (a.t < d.activeStart - 0.04f || a.t > d.activeEnd + 0.05f) continue;
                     if (glm::length(h->position - camera.position) > 160.0f) continue;
                     hitshape::Posed pp;
-                    if (!sim.bodyPoses().posed(h->uuid, pp) || !pp.now || !pp.held || !pp.model) continue;
+                    if (!here->sim.bodyPoses().posed(h->uuid, pp) || !pp.now || !pp.held || !pp.model) continue;
                     glm::mat4 W = (*pp.now)[B_WRIST_R] * pp.held->turn(*pp.model, pp.turnNow);
                     std::vector<hitshape::OBB> wb;
                     hitshape::weaponBoxes(*pp.held, *pp.model, W, wb);
@@ -2183,11 +2792,11 @@ int main() {
                 for (WorldPopup& p : popups) { p.age += frameDt; p.at += p.vel * frameDt; p.vel *= std::exp(-frameDt * 3.0f); }
                 popups.erase(std::remove_if(popups.begin(), popups.end(), [](const WorldPopup& p) { return p.age > p.life; }), popups.end());
                 gParticles.update(frameDt, [&](glm::vec3 p) {
-                    if (!world) return false;
-                    uint16_t t = world->typeAtVoxel((int)std::floor(p.x), (int)std::floor(p.y), (int)std::floor(p.z));
+                    if (!here->world) return false;
+                    uint16_t t = here->world->typeAtVoxel((int)std::floor(p.x), (int)std::floor(p.y), (int)std::floor(p.z));
                     return t != 0 && gRegistry.get(t).isSolid() && !gRegistry.get(t).sprite;
                 });
-                std::vector<SimEvent> happened = sim.takeEvents();
+                std::vector<SimEvent> happened = here->sim.takeEvents();
                 if (remote) {
                     happened.clear();
                     for (const proto::EventMsg& m : remote->events) {
@@ -2210,13 +2819,13 @@ int main() {
                         float high = std::clamp((e.y - 160.0f) / 400.0f, 0.0f, 1.0f);   // above the sea (IslandGenerator::SEA_LEVEL)
                         exposure = sky * sky * (1.0f - shade * 0.7f) * (0.6f + 0.4f * high);
                     }
-                    sound::gSounds.frame(dt, sim, npcs, player, happened,
-                                         [&](int x, int y, int z) -> uint16_t { return world ? world->typeAtVoxel(x, y, z) : 0; },
+                    sound::gSounds.frame(dt, here->sim, here->sim.npcs(), player, happened,
+                                         [&](int x, int y, int z) -> uint16_t { return here->world ? here->world->typeAtVoxel(x, y, z) : 0; },
                                          exposure, glfwGetTime());
                 }
                 for (const SimEvent& e : happened) {
                     gOutlineFx.onEvent(e);       // flashing outlines (hurt, blocked …)
-                    gParticles.onEvent(e, sim);  // sparks, puffs, splats at the contact
+                    gParticles.onEvent(e, here->sim);  // sparks, puffs, splats at the contact
                     // the camera: your hits and hits on you shake it, by how big
                     if (e.kind == SimEvent::Kind::Hit && (e.a == player.uuid || e.b == player.uuid)) {
                         float k = e.parried ? 0.35f : e.blocked ? 0.15f
@@ -2283,7 +2892,7 @@ int main() {
                         break;
                     case SimEvent::Kind::EncounterStarted:
                     case SimEvent::Kind::EncounterMerged:
-                        if (auto* en = sim.encounters().byId(e.encounter); en && en->has(en->players, player.uuid)) {
+                        if (auto* en = here->sim.encounters().byId(e.encounter); en && en->has(en->players, player.uuid)) {
                             // the opening bookend: who you're up against
                             std::unordered_map<std::string, int> count;
                             for (auto& n : en->enemyNames) count[n]++;
@@ -2294,7 +2903,7 @@ int main() {
                         }
                         break;
                     case SimEvent::Kind::EncounterEnded:
-                        if (auto* en = sim.encounters().byId(e.encounter); en && en->has(en->players, player.uuid)) {
+                        if (auto* en = here->sim.encounters().byId(e.encounter); en && en->has(en->players, player.uuid)) {
                             // the closing bookend: a review of the fight
                             const encounter::PlayerTally& t = en->tally[player.uuid];
                             hud.review.clear();
@@ -2313,7 +2922,7 @@ int main() {
                         break;
                     case SimEvent::Kind::MenuClosed:
                         if (e.a == talkingTo) {
-                            if (talkCloseIn < 0.0f) if (Npc* n = npcs.find(e.a)) say(n->name + " stopped talking");
+                            if (talkCloseIn < 0.0f) if (Npc* n = here->sim.npcs().find(e.a)) say(n->name + " stopped talking");
                             talkingTo = 0;
                             talkCloseIn = -1.0f;
                         }
@@ -2342,10 +2951,10 @@ int main() {
                          player.grounded ? "grounded" : "air", glm::degrees(std::atan2(player.facing.x, -player.facing.z)));
                     line("hp %.0f/%.0f  stamina %.0f/%.0f  mass %.0f kg  weapon %.0f", player.health, player.maxHealth,
                          player.stamina, player.maxStamina, player.mass, player.weaponDamage);
-                    line("bodies %zu (npcs %zu)  logs %zu  drops %zu", sim.bodies().size(), npcs.all().size(),
-                         wood ? wood->allLogs().size() : (size_t)0, wood ? wood->itemDrops().size() : (size_t)0);
+                    line("bodies %zu (npcs %zu)  logs %zu  drops %zu", here->sim.bodies().size(), here->sim.npcs().all().size(),
+                         here->wood ? here->wood->allLogs().size() : (size_t)0, here->wood ? here->wood->itemDrops().size() : (size_t)0);
                     glm::vec3 eye = camera.position;
-                    RaycastResult r = gPhysics->raycast(eye, camera.front, 60.0f);
+                    RaycastResult r = here->physics->raycast(eye, camera.front, 60.0f);
                     if (r.hit) {
                         glm::vec3 lp = glm::vec3(r.blockPos) + 0.5f + r.normal;
                         uint16_t L = streamer ? streamer->lightAt(lp.x, lp.y, lp.z) : 0;
@@ -2365,11 +2974,11 @@ int main() {
                 //    the last two ticks
                 controller.updateCamera(player, camera,
                     physicsTime / PHYSICS_STEP, dt,
-                    gPhysics.get());
+                    here->physics.get());
 
                 // A new dev world's showcase chests, once you stand on
                 // its ground (the chunks have to be there first)
-                if (pendingVillage && player.grounded && structs) {
+                if (pendingVillage && player.grounded && here->structs) {
                     // its square 30 ft ahead, so you don't start inside a house
                     // (chosen once: where you look when you land)
                     if (!villageAtSet) {
@@ -2381,7 +2990,7 @@ int main() {
                     // wait until the ground it will stand on has loaded: a lot
                     // over unloaded ground is skipped
                     glm::ivec3 at = villageAt;
-                    auto loaded = [&](int dx, int dz) { return terrain::groundLevel(*world, at.x + dx, at.z + dz, at.y + 96, 192) >= 0; };
+                    auto loaded = [&](int dx, int dz) { return terrain::groundLevel(*here->world, at.x + dx, at.z + dz, at.y + 96, 192) >= 0; };
                     const int R = 200;
                     if (!(loaded(R, 0) && loaded(-R, 0) && loaded(0, R) && loaded(0, -R) &&
                           loaded(R, R) && loaded(-R, -R) && loaded(R, -R) && loaded(-R, R)) && ++villageWait < 60 * 30) {
@@ -2391,19 +3000,19 @@ int main() {
                     villageAtSet = false;
                     villageWait = 0;
                     village::Options vo;
-                    vo.seed = (uint32_t)gWorldSave.getSeed() + 1;
+                    vo.seed = (uint32_t)here->info.getSeed() + 1;
                     vo.keepClear = { (int)player.position.x, (int)player.position.z };   // not on top of you
                     vo.clearRadius = 15;
                     village::pickPalette(vo);
-                    village::Plan vp = village::plan(*world, gBlueprints, at, vo);
-                    village::Built vb = village::build(vp, *structs, *editor, &chests, vo, EditSource::Command);
-                    villagers::Populated vpop = villagers::populate(vp, vb, *structs, *world, npcs, vo.seed);
+                    village::Plan vp = village::plan(*here->world, gBlueprints, at, vo);
+                    village::Built vb = village::build(vp, *here->structs, *here->editor, &here->chests, vo, EditSource::Command);
+                    villagers::Populated vpop = villagers::populate(vp, vb, *here->structs, *here->world, here->sim.npcs(), vo.seed);
                     say("a village ahead: " + std::to_string(vb.buildings) + " buildings, " + std::to_string(vpop.villagers) + " villagers");
                     }
                 }
-                if (pendingKit && player.grounded && structs) {
+                if (pendingKit && player.grounded && here->structs) {
                     pendingKit = false;
-                    int n = devkit::placeKit(*structs, chests, player.position, player.facing, say);
+                    int n = devkit::placeKit(*here->structs, here->chests, player.position, player.facing, say);
                     if (n) say("showcase chests: take a copy of anything ({interact} opens; chest kit makes more)");
                 }
 
@@ -2411,7 +3020,7 @@ int main() {
                 // game/Container.h): the nearest within reach
                 auto bodyInView = [&]() -> Npc* {
                     Npc* best = nullptr; float bestD = 24.0f;   // 8 ft
-                    for (auto& n : npcs.all()) {
+                    for (auto& n : here->sim.npcs().all()) {
                         if (!n->dead() || !n->pack.exists()) continue;
                         glm::vec3 mid = n->ragdoll.simulating() ? n->ragdoll.point(RP_PELVIS) : n->position + glm::vec3(0, 3, 0);
                         glm::vec3 d = mid - camera.position;
@@ -2427,8 +3036,13 @@ int main() {
                 // NPC in front of you (it waits in its 'unavailable'
                 // state until you leave)
                 if (gInput.isPressed(InputAction::Interact) && !remote) {
-                    if (talkingTo) { sim.closeMenu(talkingTo); }
-                    else if (Npc* body = (hands.target.hit && structs->instanceAt(hands.target.blockPos)) ? nullptr : bodyInView()) {
+                    if (talkingTo) { here->sim.closeMenu(talkingTo); }
+                    else if (portals.menuOpen) { portals.menuOpen = false; }
+                    else if (fadePhase == 0 && portals.interact(*here, player, camera.front)) {
+                        talkSel = 0;
+                        talkPadPrev = gInput.padNow();
+                    }
+                    else if (Npc* body = (hands.target.hit && here->structs->instanceAt(hands.target.blockPos)) ? nullptr : bodyInView()) {
                         inventoryScreen.setContext(&player, &body->pack.read(), body->name + " - pack");
                         inventoryScreen.onEnter();
                         inventoryOpenedFrame = true;
@@ -2436,7 +3050,7 @@ int main() {
                         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
                     } else {
                         Npc* best = nullptr; float bestD = 10.0f;
-                        for (auto& n : npcs.all()) {
+                        for (auto& n : here->sim.npcs().all()) {
                             if (n->dead()) continue;
                             glm::vec3 d = n->position + glm::vec3(0, 9, 0) - camera.position;
                             float dist = glm::length(d);
@@ -2445,14 +3059,14 @@ int main() {
                             if (flat < bestD) { bestD = flat; best = n.get(); }
                         }
                         if (best) {
-                            if (sim.openMenu(best->uuid, player.uuid)) {
+                            if (here->sim.openMenu(best->uuid, player.uuid)) {
                                 talkingTo = best->uuid;
                                 talkCloseIn = -1.0f;
                                 talkSel = 0;
                                 talkPadPrev = gInput.padNow();
                                 // villagers and guards talk (game/Dialogue.h); others just greet
                                 if (best->life.on || best->typeId == "guard") {
-                                    talkLine = dialogue::say(*best, dialogue::Topic::Greet, gClock.time * 24.0f, npcs, talkRng);
+                                    talkLine = dialogue::say(*best, dialogue::Topic::Greet, here->sim.day.time * 24.0f, here->sim.npcs(), talkRng);
                                     sound::gSounds.say(best->uuid, sound::gSounds.voiceOf(*best), talkLine, sound::SoundDirector::mouthOf(*best));
                                 } else {
                                     talkLine.clear();
@@ -2465,7 +3079,7 @@ int main() {
                 }
                 // talking: 1-4 ask (game/Dialogue.h); after goodbye it closes
                 if (talkingTo && !remote) {
-                    Npc* tn = npcs.find(talkingTo);
+                    Npc* tn = here->sim.npcs().find(talkingTo);
                     const auto& qs = dialogue::questions();
                     // the controller: D-pad up / down picks, A asks, B leaves;
                     // keys the same way: the arrow keys pick, Enter asks (not
@@ -2485,18 +3099,42 @@ int main() {
                     talkEnterHeld = glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS;
                     talkPadPrev = ps;
                     if (ask >= 0) {
-                        talkLine = dialogue::say(*tn, qs[(size_t)ask].first, gClock.time * 24.0f, npcs, talkRng);
+                        talkLine = dialogue::say(*tn, qs[(size_t)ask].first, here->sim.day.time * 24.0f, here->sim.npcs(), talkRng);
                         sound::gSounds.say(tn->uuid, sound::gSounds.voiceOf(*tn), talkLine, sound::SoundDirector::mouthOf(*tn));
                         if (qs[(size_t)ask].first == dialogue::Topic::Bye) talkCloseIn = 1.8f;
                     }
-                    if (leave && talkCloseIn < 0.0f) sim.closeMenu(talkingTo);
-                    if (talkCloseIn >= 0.0f && (talkCloseIn -= dt) < 0.0f) { sim.closeMenu(talkingTo); }
+                    if (leave && talkCloseIn < 0.0f) here->sim.closeMenu(talkingTo);
+                    if (talkCloseIn >= 0.0f && (talkCloseIn -= dt) < 0.0f) { here->sim.closeMenu(talkingTo); }
+                }
+                // a gate's menu (game/Portals.h): the talk box's keys
+                if (portals.menuOpen && !remote) {
+                    const pad::State& ps = gInput.padNow();
+                    auto padHit = [&](int b) { return ps.down[(size_t)b] && !talkPadPrev.down[(size_t)b]; };
+                    const int n = (int)portals.options.size();
+                    int pick = -1;
+                    if (padHit(pad::Up) || (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS && !talkUpHeld)) portals.sel = (portals.sel + n - 1) % n;
+                    if (padHit(pad::Down) || (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS && !talkDownHeld)) portals.sel = (portals.sel + 1) % n;
+                    if (padHit(pad::A) || (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS && !talkEnterHeld)) pick = portals.sel;
+                    if (padHit(pad::B)) portals.menuOpen = false;
+                    talkUpHeld = glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS;
+                    talkDownHeld = glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS;
+                    talkEnterHeld = glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS;
+                    talkPadPrev = ps;
+                    if (pick >= 0) { std::string said = portals.choose(pick); if (!said.empty()) say(said); }
                 }
                 hud.talkingTo.clear();
                 hud.talkLine.clear();
                 hud.talkOptions.clear();
+                hud.instanceClock = remote ? std::string() : portals.timerText();
+                if (portals.menuOpen) {
+                    hud.talkingTo = portals.menuTitle;
+                    hud.talkLine = portals.menuLine;
+                    for (auto& o : portals.options) hud.talkOptions.push_back(o.label);
+                    hud.talkSel = portals.sel;
+                    hud.talkPad = gInput.padLastUsed();
+                }
                 if (talkingTo) {
-                    if (Npc* n = npcs.find(talkingTo)) {
+                    if (Npc* n = here->sim.npcs().find(talkingTo)) {
                         hud.talkingTo = n->name;
                         hud.talkLine = talkLine;
                         if (!talkLine.empty() && talkCloseIn < 0.0f)
@@ -2511,21 +3149,36 @@ int main() {
                 glm::vec3 eyes = controller.renderPosition +
                     glm::vec3(0.0f, player.eyeHeight, 0.0f);
                 if (rules.worldInteraction) {
-                    hands.aim(camera, eyes, *gPhysics,
+                    hands.aim(camera, eyes, *here->physics,
                               player.mode == GameMode::Dev);
-                    hands.update(player, *editor, dev, *structs, build, dt);
+                    hands.update(player, *here->editor, dev, *here->structs, build, dt);
+                    // the portal gun (game/PortalGun.h): ends on walls or standing on the ground
+                    if (!remote && player.mode != GameMode::Survival && player.activeInventory().heldDef().devTool == DevToolKind::Portal) {
+                        for (int which : { 0, 1 }) {
+                            if (!gInput.isPressed(which == 0 ? InputAction::UseLeft : InputAction::UseRight)) continue;
+                            PortalEnd e; std::string why;
+                            if (PortalGun::aim(*here->world, camera.position, camera.front, e, why)) {
+                                portalGun.place(which, e, here->portals);
+                                say(std::string(which == 0 ? "blue" : "orange") + " end placed" +
+                                    (portalGun.linkId ? (portalGun.twoWay ? ": the portal is open" : ": open one way (blue)") : ""));
+                            } else say("the portal won't go there: " + why);
+                        }
+                        if (gInput.isPressed(InputAction::PickBlock)) { portalGun.clear(here->portals); say("portal gone"); }
+                    }
                     if (hands.aimLabel.empty() && !talkingTo)
                         if (Npc* body = bodyInView()) hands.aimLabel = body->name + (body->pack.mayHoldItems() ? "   {interact}: search" : "   searched - empty");
+                    if (hands.aimLabel.empty() && !talkingTo && !portals.menuOpen && !remote && portals.gateInReach(*here, player, camera.front))
+                        hands.aimLabel = "Portal   {interact}: use";
 
                     // E on a chest → the inventory, the chest beside it
                     if (hands.openChest) {
                         uint32_t cid = hands.openChest;
                         hands.openChest = 0;
                         StructureInstance* ci = nullptr;
-                        structs->forEachInstance([&](const StructureInstance& si) { if (si.id == cid) ci = const_cast<StructureInstance*>(&si); });
+                        here->structs->forEachInstance([&](const StructureInstance& si) { if (si.id == cid) ci = const_cast<StructureInstance*>(&si); });
                         const StructureType* ct = ci ? gStructures.get(ci->type) : nullptr;
                         if (ct) {
-                            Container& cc = chests.get(cid, *ct);
+                            Container& cc = here->chests.get(cid, *ct);
                             inventoryScreen.setContext(&player, &cc.read(), cc.label.empty() ? ct->displayName : cc.label);
                             inventoryScreen.onEnter();
                             inventoryOpenedFrame = true;
@@ -2539,7 +3192,7 @@ int main() {
                         uint32_t sid = hands.openStation;
                         hands.openStation = 0;
                         const StructureType* st = nullptr;
-                        structs->forEachInstance([&](const StructureInstance& si) { if (si.id == sid) st = gStructures.get(si.type); });
+                        here->structs->forEachInstance([&](const StructureInstance& si) { if (si.id == sid) st = gStructures.get(si.type); });
                         if (st) {
                             stationScreen.setStation(st);
                             stationScreen.onEnter();
@@ -2565,6 +3218,7 @@ int main() {
             drawWorld();
             hud.draw(*gRenderer->getUIRenderer(),
                      player, controller, hands, dev);
+            hud.drawFade(*gRenderer->getUIRenderer());
             console.update(dt);
             console.draw(*gRenderer->getUIRenderer());
 
@@ -2577,21 +3231,7 @@ int main() {
                      player, controller, hands, dev);
 
             // Run whatever was typed this frame
-            for (const std::string& line : gConsoleLines) {
-                if (remote) {
-                    // on a server only what's yours to change runs here
-                    std::string w = line.substr(0, line.find(' '));
-                    if (w == "ping") { char b[64]; std::snprintf(b, sizeof(b), "ping %.0f ms", remote->pingMs()); say(b); continue; }
-                    if (w != "debug" && w != "help" && w != "where" && w != "outline") { say("on a server: only debug, where, ping, help"); continue; }
-                }
-                CommandContext ctx {
-                    player, dev, hands.target, structs.get(),
-                    [&](GameMode m) { changeMode(m); },
-                    [&]() { saveWorld(); },
-                    say, &npcs, &sim, &chests };
-                ctx.gen = session.gen.get();
-                commands.run(line, ctx);
-            }
+            for (const std::string& line : gConsoleLines) runCommand(line);
             gConsoleLines.clear();
 
             console.update(dt);
@@ -2637,7 +3277,7 @@ int main() {
                      player, controller, hands, dev);
             if (gInput.isPressed(InputAction::SwapWeapon)) player.activeInventory().swapWeapons();
             inventoryScreen.setPauseContext(pauseMenu.isRemote(), player.mode != GameMode::Survival,
-                                            gWorldSave.isDevWorld());
+                                            here->info.isDevWorld());
             ScreenResult r = inventoryScreen.update(*gRenderer->getUIRenderer(), dt);
             bool justOpened = inventoryOpenedFrame;
             inventoryOpenedFrame = false;
@@ -2742,7 +3382,7 @@ int main() {
 
             UIRenderer* ui = gRenderer->getUIRenderer();
             pauseMenu.setDevMenuAllowed(player.mode != GameMode::Survival);
-            pauseMenu.setDevWorld(gWorldSave.isDevWorld());
+            pauseMenu.setDevWorld(here->info.isDevWorld());
             ScreenResult r = pauseMenu.update(*ui, dt);
             pauseButton(r, GameState::Paused);
         }
@@ -2757,10 +3397,23 @@ int main() {
         sound::gAudio.setMuffling(gSettings.soundWalls != 0);
         sound::gAudio.setListener(camera.position, camera.front, camera.up);
         sound::gAudio.update(dt,
-            [&](uint64_t who, glm::vec3& at) { return sound::gSounds.where(who, at, sim); },
-            [&](int x, int y, int z) -> uint16_t { return world && gState != GameState::MainMenu ? world->typeAtVoxel(x, y, z) : 0; });
+            [&](uint64_t who, glm::vec3& at) { return sound::gSounds.where(who, at, here->sim); },
+            [&](int x, int y, int z) -> uint16_t { return here->world && gState != GameState::MainMenu ? here->world->typeAtVoxel(x, y, z) : 0; });
 
         gRenderer->endFrame();
+        if (!pendingShot.empty()) {
+            // the frame as drawn (bottom row first in GL: flipped here)
+            int fw = gRenderer->getScreenWidth(), fh = gRenderer->getScreenHeight();
+            std::vector<unsigned char> px((size_t)fw * fh * 3);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            glReadBuffer(GL_BACK);
+            glReadPixels(0, 0, fw, fh, GL_RGB, GL_UNSIGNED_BYTE, px.data());
+            std::ofstream out(pendingShot, std::ios::binary);
+            out << "P6\n" << fw << " " << fh << "\n255\n";
+            for (int y = fh - 1; y >= 0; y--) out.write((const char*)&px[(size_t)y * fw * 3], (std::streamsize)fw * 3);
+            std::cout << "shot: " << pendingShot << "\n";
+            pendingShot.clear();
+        }
         glfwSwapBuffers(window);
 
         // ── Window title: fps and streaming progress ──────
@@ -2814,8 +3467,8 @@ int main() {
     // ── Shutdown ──────────────────────────────────────────
     // Closing the window while in a world still saves it
     // (a dev world only saves when asked, so not that)
-    if (gState != GameState::MainMenu && world)
-        leaveWorld(!gWorldSave.isDevWorld() && !remote);
+    if (gState != GameState::MainMenu && here->world)
+        leaveWorld(!here->info.isDevWorld() && !remote);
 
     // Everything that owns OpenGL objects goes before
     // glfwTerminate() destroys the context
@@ -2830,7 +3483,7 @@ int main() {
     ghost.release();
     skyRenderer.cleanup();
     distantLights.cleanup();
-    session.close();
+    here->close();
     gRenderer->shutdown();
     gRenderer.reset();
     glfwTerminate();

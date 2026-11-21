@@ -29,7 +29,7 @@ public:
         std::shared_ptr<const light::ColumnLight> summary;   // topY / topId only
         std::vector<light::Emitter> lights;                   // merged: one per 8 × 8 × 8 voxels
     };
-    std::unordered_map<int, Column> columns;    // key: cz * WORLD_SIZE_X + cx
+    std::unordered_map<int, Column> columns;    // key: cz * (the world's sizeX) + cx
     uint32_t version = 0;
 
     void clear() { columns.clear(); version++; }

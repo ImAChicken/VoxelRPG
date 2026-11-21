@@ -9,12 +9,11 @@
 // ── World size ────────────────────────────────────────────
 // 32 × 32 chunks of 128 voxels = 4096 × 4096 voxels
 // = 1365 ft per side at 4 inches per voxel
-// World size in chunks. Set when a world is opened (its
-// world type decides: Classic 32, Island 72 / 96 / 128) and
-// before the ChunkManager for it is created. One world is
-// open at a time.
-inline int WORLD_SIZE_X = 32;
-inline int WORLD_SIZE_Z = 32;
+// A world's size in chunks is its own (its world type decides:
+// Classic 32, Island 72 / 96 / 128, Dungeon 16): every
+// ChunkManager is made for one world and knows its size
+// (sizeX / sizeZ). Several worlds can be open at once.
+constexpr int DEFAULT_WORLD_SIZE = 32;
 
 // ── View distance (in chunks, measured from the player) ───
 // Chunks inside MESH_DISTANCE are drawn.
@@ -33,20 +32,24 @@ inline int loadDistance() { return MESH_DISTANCE + 1; }
 // and are filled in by WorldStreamer as the player moves.
 class ChunkManager {
 public:
-    ChunkManager() {
-        int total = WORLD_SIZE_X * WORLD_SIZE_Z;
+    explicit ChunkManager(int sizeXChunks = DEFAULT_WORLD_SIZE, int sizeZChunks = DEFAULT_WORLD_SIZE)
+        : sx(std::max(1, sizeXChunks)), sz(std::max(1, sizeZChunks)) {
+        int total = sx * sz;
         chunks.resize(total);
         dirty.assign(total, 0);
         meshDirty.assign(total, 0);
     }
 
-    static bool inWorld(int cx, int cz) {
-        return cx >= 0 && cx < WORLD_SIZE_X &&
-               cz >= 0 && cz < WORLD_SIZE_Z;
+    int sizeX() const { return sx; }     // chunks
+    int sizeZ() const { return sz; }
+
+    bool inWorld(int cx, int cz) const {
+        return cx >= 0 && cx < sx &&
+               cz >= 0 && cz < sz;
     }
 
     int index(int cx, int cz) const {
-        return cx * WORLD_SIZE_Z + cz;
+        return cx * sz + cz;
     }
 
     Chunk* getChunk(int cx, int cz) {
@@ -182,6 +185,7 @@ public:
     }
 
 private:
+    int sx = DEFAULT_WORLD_SIZE, sz = DEFAULT_WORLD_SIZE;
     std::vector<ChunkPtr> chunks;
     std::vector<uint8_t>  dirty;
     std::vector<uint8_t>  meshDirty;

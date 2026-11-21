@@ -70,7 +70,7 @@ public:
             for (int dz = -RADIUS; dz <= RADIUS; dz++)
                 for (int dx = -RADIUS; dx <= RADIUS; dx++) {
                     int cx = pcx + dx, cz = pcz + dz;
-                    if (!ChunkManager::inWorld(cx, cz) || world.isLoaded(cx, cz) || pending.count({ cx, cz })) continue;
+                    if (!world.inWorld(cx, cz) || world.isLoaded(cx, cz) || pending.count({ cx, cz })) continue;
                     want.push_back({ std::max(std::abs(dx), std::abs(dz)), { cx, cz } });
                 }
         }
@@ -81,8 +81,8 @@ public:
         }
         cv.notify_all();
         // drop columns no one is near
-        for (int cx = 0; cx < WORLD_SIZE_X; cx++)
-            for (int cz = 0; cz < WORLD_SIZE_Z; cz++)
+        for (int cx = 0; cx < world.sizeX(); cx++)
+            for (int cz = 0; cz < world.sizeZ(); cz++)
                 if (world.isLoaded(cx, cz) && !world.isDirty(cx, cz) && !near(cx, cz, RADIUS + SLACK))
                     world.setChunk(cx, cz, nullptr);
     }
@@ -96,7 +96,7 @@ public:
                 int pcx = ChunkManager::chunkCoord((int)std::floor(p.x)), pcz = ChunkManager::chunkCoord((int)std::floor(p.z));
                 for (int dz = -RADIUS; dz <= RADIUS && all; dz++)
                     for (int dx = -RADIUS; dx <= RADIUS && all; dx++)
-                        if (ChunkManager::inWorld(pcx + dx, pcz + dz) && !world.isLoaded(pcx + dx, pcz + dz)) all = false;
+                        if (world.inWorld(pcx + dx, pcz + dz) && !world.isLoaded(pcx + dx, pcz + dz)) all = false;
             }
             if (all) return;
             std::this_thread::sleep_for(std::chrono::milliseconds(2));

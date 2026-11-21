@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paints the dungeon marker tiles in every resource pack (blocks.toml
+"""Paints the dungeon marker tiles (and the portal veil, column 8) in every resource pack (blocks.toml
 marker_spawner … marker_secret; atlas row 15, columns 1-7) and adds
 their face_map entries. A marker is a placeholder that turns into the
 real thing in a dungeon (dungeon/Tile.h), so it looks like one: bold
@@ -43,11 +43,33 @@ def tile(colour, symbol):
     return px
 
 
+def veil():
+    """portal_veil (column 8): a violet swirl, brightest in the middle."""
+    import math
+    px = [[(0, 0, 0)] * T for _ in range(T)]
+    for y in range(T):
+        for x in range(T):
+            dx, dy = x - 7.5, y - 7.5
+            r = math.hypot(dx, dy) / 10.6
+            a = math.atan2(dy, dx)
+            swirl = 0.5 + 0.5 * math.sin(a * 3 + r * 9.0)
+            k = 0.55 + 0.35 * swirl + 0.25 * (1 - r)
+            px[y][x] = (min(255, int(120 * k)), min(255, int(60 * k)), min(255, int(235 * k)))
+    return px
+
+
+EXTRA = {"portal_veil": (8, veil)}
+
 for pack in PACKS:
     path = f"data/resourcepacks/{pack}/atlas.png"
     im = Image.open(path).convert("RGBA")
     for kind, (col, colour, sym) in MARKERS.items():
         px = tile(colour, sym)
+        for y in range(T):
+            for x in range(T):
+                im.putpixel((col * T + x, 15 * T + y), px[y][x] + (255,))
+    for name, (col, paint) in EXTRA.items():
+        px = paint()
         for y in range(T):
             for x in range(T):
                 im.putpixel((col * T + x, 15 * T + y), px[y][x] + (255,))
@@ -59,5 +81,8 @@ for pack in PACKS:
         if f'name    = "{name}"' in text:
             continue
         text += f'\n[[face_map]]\nname    = "{name}"\ntop     = [{col}, 15]\nside    = [{col}, 15]\nbottom  = [{col}, 15]\n'
+    for name, (col, _) in EXTRA.items():
+        if f'name    = "{name}"' not in text:
+            text += f'\n[[face_map]]\nname    = "{name}"\ntop     = [{col}, 15]\nside    = [{col}, 15]\nbottom  = [{col}, 15]\n'
     open(cfg, "w").write(text)
     print(f"{pack}: marker tiles painted")

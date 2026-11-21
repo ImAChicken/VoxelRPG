@@ -62,6 +62,9 @@ struct CommandContext {
     Simulation*          sim = nullptr;
     ChestStore*          chests = nullptr;  // structures' containers (nullptr outside a world)
     const TerrainGenerator* gen = nullptr;  // the world's generator (nullptr outside a world)
+    std::function<void(const std::vector<std::string>&)> portal;   // the game's portals (game/Portals.h)
+    WorldSaveManager*    info = nullptr;  // the world's settings (world.vxrp; nullptr outside a world)
+    std::function<void(const std::vector<std::string>&)> portalGun;   // the portal gun (game/PortalGun.h)
 };
 
 class CommandRegistry {
@@ -471,23 +474,24 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
     reg.add("time", "time [day|noon|dusk|night|midnight|0-24|freeze|run|length <min>]",
             "show or set the time of day",
         [](C& c, const Args& a) {
+            if (!c.sim) { c.log("needs a world"); return; }
             if (!a.empty()) {
                 const std::string& w = a[0];
-                if (w == "day" || w == "morning") gClock.time = 0.32f;
-                else if (w == "noon")     gClock.time = 0.5f;
-                else if (w == "dusk" || w == "sunset") gClock.time = 0.745f;
-                else if (w == "night")    gClock.time = 0.88f;
-                else if (w == "midnight") gClock.time = 0.0f;
-                else if (w == "dawn" || w == "sunrise") gClock.time = 0.255f;
-                else if (w == "freeze")   gClock.frozen = true;
-                else if (w == "run")      gClock.frozen = false;
-                else if (w == "length" && a.size() > 1) gClock.dayLengthSeconds = std::max(0.5f, (float)std::atof(a[1].c_str())) * 60.0f;
-                else gClock.time = std::fmod(std::fabs((float)std::atof(w.c_str())) / 24.0f, 1.0f);
+                if (w == "day" || w == "morning") c.sim->day.time = 0.32f;
+                else if (w == "noon")     c.sim->day.time = 0.5f;
+                else if (w == "dusk" || w == "sunset") c.sim->day.time = 0.745f;
+                else if (w == "night")    c.sim->day.time = 0.88f;
+                else if (w == "midnight") c.sim->day.time = 0.0f;
+                else if (w == "dawn" || w == "sunrise") c.sim->day.time = 0.255f;
+                else if (w == "freeze")   c.sim->day.frozen = true;
+                else if (w == "run")      c.sim->day.frozen = false;
+                else if (w == "length" && a.size() > 1) c.sim->day.dayLengthSeconds = std::max(0.5f, (float)std::atof(a[1].c_str())) * 60.0f;
+                else c.sim->day.time = std::fmod(std::fabs((float)std::atof(w.c_str())) / 24.0f, 1.0f);
             }
-            int mins = (int)(gClock.time * 24.0f * 60.0f);
+            int mins = (int)(c.sim->day.time * 24.0f * 60.0f);
             char b[64];
             std::snprintf(b, sizeof(b), "time %02d:%02d%s (day %d min)", mins / 60, mins % 60,
-                          gClock.frozen ? " frozen" : "", (int)(gClock.dayLengthSeconds / 60.0f));
+                          c.sim->day.frozen ? " frozen" : "", (int)(c.sim->day.dayLengthSeconds / 60.0f));
             c.log(b);
         });
     reg.add("cube", "cube <size>", "width of the Cube Tool's cube, in voxels",
@@ -736,6 +740,12 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             gOutlineFx.start(who, a[0]);
             c.log("outline " + a[0]);
         });
+    reg.add("portalgun", "portalgun [oneway|twoway|clear]",
+        "the portal gun (dev_portal_gun; game/PortalGun.h): its ends; one way (only blue opens) or two way; take them away",
+        [](C& c, const Args& a) { if (c.portalGun) c.portalGun(a); else c.log("no world open"); });
+    reg.add("portal", "portal [open <dungeon>|close|go|time <minutes>|tp]",
+        "the realm's gates and instances (game/Portals.h): what's open; open one (crypt); close it; go through now; set its clock; tp to the gate",
+        [](C& c, const Args& a) { if (c.portal) c.portal(a); else c.log("no portals here"); });
     reg.add("dungeon", "dungeon [tp <n>|portal|boss|stair] | map",
         "a Dungeon world (docs/dungeons.md): how it was grown; tp to a tile on the main path (#n), the portal, the stair or the boss; map: the layout",
         [](C& c, const Args& a) {
@@ -1024,12 +1034,12 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             if (!c.sim || !c.npcs || !c.sim->hasWorld()) { c.log("needs a world"); return; }
             Roaming& r = c.sim->roaming;
             if (!r.biomeAt) { c.log("on a server: its console sets roaming (roaming on|off)"); return; }
-            const float hour = gClock.time * 24.0f;
+            const float hour = c.sim->day.time * 24.0f;
             std::string what = a.empty() ? "" : a[0];
             if (what == "on" || what == "off") {
                 r.enabled = what == "on";
                 r.resetTimers();
-                bool saved = gWorldSave.setRoamingSpawns(r.enabled);
+                bool saved = c.info && c.info->setRoamingSpawns(r.enabled);
                 c.log(std::string("roaming spawns ") + (r.enabled ? "on" : "off") + (saved ? " (saved with the world)" : " (couldn't save the setting)"));
                 return;
             }

@@ -46,7 +46,7 @@ int main() {
         GameSession s(sim);
         check(openSession(s, true) && s.open(), "a new flat world opens headless");
         ChunkKeeper keeper(*s.world, s.chunkSource());
-        spawn = glm::vec3(s.gen->spawnPoint(WORLD_SIZE_X, WORLD_SIZE_Z));
+        spawn = glm::vec3(s.gen->spawnPoint(s.world->sizeX(), s.world->sizeZ()));
         keeper.loadNow({ spawn });
         int cx = ChunkManager::chunkCoord((int)spawn.x), cz = ChunkManager::chunkCoord((int)spawn.z);
         check(s.world->isLoaded(cx, cz) && s.world->isLoaded(cx + 2, cz - 2) && !s.world->isLoaded(cx + 4, cz),

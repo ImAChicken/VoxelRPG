@@ -84,6 +84,7 @@ public:
         worldFlat   = flat;
         worldDev    = dev;
         worldRoaming = -1;                // its type's default (getRoamingSpawns)
+        worldPortal = -1;
         worldName   = name;
         worldBiome  = biome;
         worldTerrain = terrain;
@@ -128,6 +129,7 @@ public:
         worldParams.reset();
         worldFlat = FlatOptions();
         worldRoaming = -1;
+        worldPortal = -1;
         return loadDescriptor();
     }
 
@@ -145,6 +147,7 @@ public:
         worldParams.reset();
         worldFlat = FlatOptions();
         worldRoaming = -1;
+        worldPortal = -1;
         return loadDescriptor();
     }
 
@@ -153,8 +156,8 @@ public:
     // stays small no matter how much of the world was visited.
     void saveDirtyChunks(ChunkManager& world) {
         int saved = 0;
-        for (int cx = 0; cx < WORLD_SIZE_X; cx++)
-        for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
+        for (int cx = 0; cx < world.sizeX(); cx++)
+        for (int cz = 0; cz < world.sizeZ(); cz++) {
             if (!world.isDirty(cx, cz)) continue;
             Chunk* chunk = world.getChunk(cx, cz);
             if (!chunk) continue;
@@ -233,6 +236,14 @@ public:
         return !worldDev && worldType != WorldType::Flat && worldType != WorldType::Dungeon;
     }
     bool setRoamingSpawns(bool on) { worldRoaming = on ? 1 : 0; return saveDescriptor(); }
+    // A portal by the spawn (game/Gate.h, world/Realm.h): "portal=on|off"
+    // in world.vxrp; left out, on for any world but a dungeon (an
+    // instance has its own gates) or a dev world. New World > Portal
+    bool getSpawnPortal() const {
+        if (worldPortal >= 0) return worldPortal == 1;
+        return !worldDev && worldType != WorldType::Dungeon;
+    }
+    bool setSpawnPortal(bool on) { worldPortal = on ? 1 : 0; return saveDescriptor(); }
     int         getWorldBiome() const { return worldBiome; }
     TerrainStyle getTerrainStyle() const { return worldTerrain; }
     const WorldGenParams& getGenParams() const { return worldParams; }
@@ -254,6 +265,7 @@ private:
     FlatOptions    worldFlat;          // flat worlds
     bool           worldDev = false;   // in devworlds/
     int            worldRoaming = -1;  // roaming spawns: 1 on, 0 off, -1 the type's default
+    int            worldPortal = -1;   // a portal at the spawn: 1 on, 0 off, -1 the default
 
     bool saveDescriptor() {
         std::ofstream f(worldPath + "/world.vxrp");
@@ -270,6 +282,7 @@ private:
             worldParams.write(f, [](int b) { return island::biomeInfo(b).name; }, island::BIOME_COUNT);
         }
         if (worldRoaming >= 0) f << "roaming=" << (worldRoaming ? "on" : "off") << "\n";
+        if (worldPortal >= 0) f << "portal=" << (worldPortal ? "on" : "off") << "\n";
         f << "version=" << 2        << "\n";
         return true;
     }
@@ -298,6 +311,8 @@ private:
             }
             if (line.substr(0,8) == "roaming=")
                 worldRoaming = line.substr(8) == "off" ? 0 : 1;
+            if (line.substr(0,7) == "portal=")
+                worldPortal = line.substr(7) == "off" ? 0 : 1;
             if (line.substr(0,8) == "terrain=")
                 worldTerrain = terrainStyleFromKey(line.substr(8));
             if (line.substr(0,6) == "biome=") {
@@ -319,4 +334,4 @@ private:
     }
 };
 
-extern WorldSaveManager gWorldSave;
+// (no global one: every open world has its own, GameSession::info)

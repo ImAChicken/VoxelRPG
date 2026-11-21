@@ -65,6 +65,7 @@ enum class DevToolKind : uint8_t {
     Explode,    // left: explosion at target
     Breaker,    // left: break one block   right: break a 3×3×3
     Cube,       // left: place a cube of material   right: break a cube
+    Portal,     // left / right: the two ends of a portal on walls (game/PortalGun.h)
 };
 
 struct ItemDef {
@@ -326,6 +327,7 @@ private:
                 else if (dev == "explode") d.devTool = DevToolKind::Explode;
                 else if (dev == "breaker") d.devTool = DevToolKind::Breaker;
                 else if (dev == "cube")    d.devTool = DevToolKind::Cube;
+                else if (dev == "portal")  d.devTool = DevToolKind::Portal;
 
                 if (auto* col = (*t)["color"].as_array())
                     for (int k = 0; k < 3 && k < (int)col->size(); k++)

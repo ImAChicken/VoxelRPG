@@ -102,6 +102,8 @@ public:
     const FlatOptions& getNewWorldFlat() const { return flat; }
     // Roaming enemy spawns (sim/Roaming.h): the Enemies row; left as
     // is, on unless the world is flat or a dev world
+    // The Portal row: a gate by the spawn (game/Gate.h); -1 the default
+    bool        getNewWorldPortal() const { return portal >= 0 ? portal == 1 : !(newDev || worldType == WorldType::Dungeon); }
     bool        getNewWorldRoaming() const { return roaming >= 0 ? roaming == 1 : !(newDev || worldType == WorldType::Flat || worldType == WorldType::Dungeon); }
 
     // Coming back from a world: always start at the main
@@ -142,6 +144,7 @@ private:
     WorldGenParams genParams;                       // the World Settings sliders
     FlatOptions flat;                               // flat worlds
     int         roaming = -1;                       // Enemies row: 1 roaming, 0 none, -1 the default
+    int         portal = -1;                        // Portal row: 1 at the spawn, 0 none, -1 the default
     bool        genOpen  = false;                   // World Settings showing
     int         genPage  = 0;                       // 0 Terrain, 1 Features, 2 Biomes
     int         genDrag  = -1;                      // slider being dragged
@@ -503,6 +506,12 @@ private:
             rowLabel(ui, theme, "Enemies", lx, ly, bh, true);
             int c = choiceRow(ui, theme, cx, ly, cw, { "Roaming", "None" }, getNewWorldRoaming() ? 0 : 1);
             if (c >= 0) roaming = c == 0 ? 1 : 0;
+            ly += bh + rowGap;
+        }
+        if (worldType != WorldType::Dungeon) {
+            rowLabel(ui, theme, "Portal", lx, ly, bh, true);
+            int c = choiceRow(ui, theme, cx, ly, cw, { "At spawn", "None" }, getNewWorldPortal() ? 0 : 1);
+            if (c >= 0) portal = c == 0 ? 1 : 0;
             ly += bh + rowGap;
         }
         if (worldType == WorldType::Flat) {

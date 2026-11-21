@@ -872,3 +872,9 @@ name    = "marker_secret"
 top     = [7, 15]
 side    = [7, 15]
 bottom  = [7, 15]
+
+[[face_map]]
+name    = "portal_veil"
+top     = [8, 15]
+side    = [8, 15]
+bottom  = [8, 15]

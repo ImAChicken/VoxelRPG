@@ -327,7 +327,8 @@ if __name__ == "__main__":
     greatsword()
     for name, gem in [("dev_wand", (90, 200, 255)), ("dev_fill", (90, 220, 120)), ("dev_replace", (240, 200, 70)),
                       ("dev_brush", (230, 120, 220)), ("dev_copy", (120, 150, 255)), ("dev_paste", (150, 120, 255)),
-                      ("dev_explode", (255, 110, 60)), ("dev_breaker", (220, 70, 70)), ("dev_cube", (240, 240, 240))]:
+                      ("dev_explode", (255, 110, 60)), ("dev_breaker", (220, 70, 70)), ("dev_cube", (240, 240, 240)),
+                      ("dev_portal_gun", (90, 150, 255))]:
         dev_wand(name, gem, "Dev tool: " + name)
     spellbook("spellbook_wind", (70, 120, 140), (170, 235, 245), "Windburst spellbook")
     spellbook("spellbook_ice", (52, 78, 132), (150, 205, 255), "Ice spike spellbook")

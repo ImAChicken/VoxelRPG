@@ -461,8 +461,128 @@ they're the core of the gameplay loop. Drops and loot come later.
 6. **Worlds:** realm saves, `WorldInstance`, the portal at spawn (with
    the world generation option), travel with a fade, instances
    (create, timer, close, delete, respawn at the entrance).
+   - **Done (2026-11-20), single player, one world loaded at a time:**
+     - The realm (`world/Realm.h`): the main world's folder is the
+       realm; `realm.dat` lists its open instances (with their clocks),
+       where the player is and the spawn gate; an instance is a world
+       save of its own in `instances/<id>/`, opened by the name
+       `<world>/instances/<id>`. Old saves are realms already. The
+       player's file stays in the main world's folder (`away=1` while
+       they're in an instance: opened from the menu, they come out at
+       the gate).
+     - Gates (`game/Gate.h`): an obsidian arch, a 10 x 22 opening, the
+       `portal_veil` block filling it while open. The main world's is
+       placed a few steps from the spawn facing it (New World >
+       Portal: At spawn / None; `portal=` in world.vxrp; on by default
+       except dungeons and dev worlds) and built once its ground is
+       loaded. A dungeon's portal room has one (always open: home), and
+       its exit gets one when the boss falls.
+     - The game (`game/Portals.h`, main.cpp): Interact at a gate opens
+       its menu (the dungeon selector: `portals.toml`; close it early).
+       Walk into an open veil: a fade, the far world opened with the
+       same player, out in front of the far gate.
+     - Instances: an hour (counting while you play, saved), 5 minutes
+       once the boss falls, 30 s once closed at a gate; warnings at 10
+       and 1 minute; the clock on screen inside; at zero you're moved
+       out and it's deleted. Dying inside respawns you in its portal
+       room.
+     - Console `portal` (open, close, go, time, tp); `portal_test`.
+   - **Not yet:** `WorldInstance` and more than one world loaded (needed
+     for the live view and for servers: step 7); portals on a server;
+     persistent dimensions and dungeon templates (only instances so
+     far); a nicer gate model and its sound.
 7. **Seamless portals:** the view through the frame, walking through,
    followers; the server running several worlds; the portal hub.
+   Eddie's order (2026-11-20): several worlds running at once first,
+   each with its own settings (a hub world to load into others is
+   wanted, maybe for servers too), then the view and the crossing;
+   doors and windows as portals later.
+   - **Done (2026-11-20): several worlds at once (game side).**
+     - No more one-world globals: a `ChunkManager` knows its own size
+       (`sizeX/sizeZ`; `WORLD_SIZE_X/Z` are gone), a `GameSession` has
+       its own settings (`info`, its world.vxrp; `gWorldSave` is gone)
+       and can own its simulation, and every simulation has its own
+       clock (`Simulation::day`; `gClock` is gone).
+     - `server/Worlds.h`: every world open at once, by name. The game
+       draws one (the focus, streamed and meshed); the others run
+       headless at the same time (their simulations, dungeons, edits,
+       clocks), with ground kept loaded round their players and round
+       watched points (a ChunkKeeper each). A world nobody is in sleeps
+       and closes after a minute (saved); the realm's main world is
+       pinned open. Players move between simulations
+       (`Simulation::takePlayer / adoptPlayer`, the same body).
+     - main.cpp works on `here` (the focus); the lobby holds the player
+       with no world open. A trip through a gate moves the player into
+       a world that's already running: walking toward a gate opens its
+       far side in the background and loads the ground there, so the
+       fade is only a blink. The world left keeps running.
+     - `worlds_test`.
+   - **Done (2026-11-20): seamless portals in one world, and the portal
+     gun.**
+     - `world/PortalLinks.h`: a link joins two ends (flat openings on
+       walls; `through()` the way from one to the other: a half turn
+       between their frames). One way (only end a opens and shows the
+       far side; b is a plain wall) or two way. Each world has its own
+       (`GameSession::portals`).
+     - Crossing (`Simulation::crossPortals`): a body whose middle goes
+       into an opening comes out of the other end, still moving, turned;
+       the game turns the camera with it and carries the view's
+       smoothing through (`PlayerController` `portalTurnDeg`). Bodies
+       walk into the wall behind an opening (`passable`: the voxels stay,
+       physics lets bodies through).
+     - The view (`render/PortalView.h`, main.cpp): the far side drawn
+       from a second camera into a stencil of the opening, its near plane
+       leaned onto the other end; sky, chunks, you and the NPCs over
+       there; the chunks round a far end kept meshed
+       (`WorldStreamer::setExtraCentres`). One level deep. A coloured rim.
+     - The portal gun (`dev_portal_gun`, in the dev kit; `game/PortalGun.h`):
+       left / right click put the blue / orange end on a wall (standing on
+       the floor, slid to fit), middle click takes them away; console
+       `portalgun oneway|twoway|clear`.
+     - A test script (`VOXELRPG_SCRIPT=<file>`: world, pos, look, wait,
+       walk, gun, shot, dbg, /console, quit) to check what's drawn without anyone at
+       the keys; `seamless_test`.
+   - **Done (2026-11-20): the dungeon gates, seamless across worlds.**
+     - A link's far end can be in another open world (`PortalEnd`'s
+       world; `Crossing::world`). Walking through queues a
+       `Simulation::Transfer`; `Worlds::transfer` moves the body (player
+       or NPC, turned) into the other world's simulation; main.cpp's
+       `switchFocus` swaps the focus and streamers, no fade, no load.
+     - `PortalDirector::syncGates` links the main gate and the crypt's
+       entry gate (and its exit once the boss falls) once both are built
+       and loaded; the veils go. Until then the old fade is the fallback.
+     - The far world is kept loaded around its end only
+       (`farStreamers` in main, `WorldStreamer::meshRadius`,
+       `Worlds::setStreamed`); its NPCs are drawn through the arch and
+       can follow you through.
+     - The opening is drawn as a shallow box (`PortalView.h`
+       drawOpening `behind`), so the view doesn't blink while the
+       camera passes through the surface; polygon offset against the
+       wall it's on.
+     - The arch is one sided: from behind it's an arch.
+     - `seamless_test` "the gate into the crypt" section.
+   - **Done (2026-11-20): both sides, bodies part way through, culling.**
+     - An end's back (`PortalEnd::back`): Wall (one sided), Through
+       (back of A out of back of B, a doorway in the open), Turn (either
+       side of A out of B's front). A back that goes somewhere else is a
+       second link on the same opening turned round. `PortalLink::faces`
+       lists the ways in; crossing, holes and drawing go by faces. Gates
+       are Turn.
+     - The portal gun stands an end on the ground (both sides open;
+       Through when both stand, Turn when the other's on a wall); on a
+       wall as before.
+     - A body part way through is cut at the surface
+       (`CharacterRenderer::clip`, gl_ClipDistance) and a copy comes out
+       of the far face (`xform`), both ways, across worlds too
+       (`Human::lastExit…` for the half still going in). main.cpp
+       `bodyCut`, `addCopies`, `drawCopies`.
+     - A portal view only draws sections seen through its opening
+       (`portalview::openingPlanes`, `OpenGLRenderer::narrowFrustum`).
+       Script `dbg` prints draw counts.
+   - **Next:** floors and ceilings; projectiles; portals seen through portals;
+     occlusion culling and batching (world and portal views);
+     the server running several worlds; the hub world; doors and windows
+     as portals.
 
 Steps 1–5 are the crypt itself and can be played in a Dungeon world
 before portals exist. Step 6 joins it to the main world.

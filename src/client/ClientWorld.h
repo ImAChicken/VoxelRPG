@@ -63,10 +63,10 @@ public:
     // On its own (tests, bots) it keeps everything itself. The game
     // gives it its Player and its GameSession: the mirror is built
     // into the session's parts, so the game draws and predicts on it
-    // exactly as it does a local world (and gWorldSave describes it).
+    // exactly as it does a local world (and the session's info describes it).
     ClientWorld(std::shared_ptr<net::IConnection> c, std::string cacheRoot = "servercache",
                 Player* player = nullptr, GameSession* into = nullptr)
-        : me(player ? *player : ownMe), info(into ? gWorldSave : ownInfo),
+        : me(player ? *player : ownMe), info(into ? into->info : ownInfo),
           gen(into ? into->gen : own.gen), world(into ? into->world : own.world),
           physics(into ? into->physics : own.physics), editor(into ? into->editor : own.editor),
           structs(into ? into->structs : own.structs),
@@ -123,8 +123,7 @@ public:
     void buildGenerator() {
         gen = makeGenerator(info.getWorldType(), info.getSeed(), info.getWorldSize(), info.getWorldBiome(),
                             info.getTerrainStyle(), folder + "/terrain.bake", info.getGenParams(), info.getFlatOptions());
-        WORLD_SIZE_X = WORLD_SIZE_Z = info.getWorldSize();
-        world = std::make_unique<ChunkManager>();
+        world = std::make_unique<ChunkManager>(info.getWorldSize(), info.getWorldSize());
         physics = std::make_unique<VoxelPhysics>();
         physics->init(*world);
         editor = std::make_unique<WorldEditor>(*world);
@@ -304,7 +303,7 @@ private:
         case proto::Msg::ChunkData: {
             int cx, cz;
             ChunkPtr ch = makeChunk();
-            if (!proto::readChunkData(r, cx, cz, *ch, &ids) || !ChunkManager::inWorld(cx, cz)) return;
+            if (!proto::readChunkData(r, cx, cz, *ch, &ids) || (world && !world->inWorld(cx, cz)) || cx < 0 || cz < 0) return;
             { std::lock_guard<std::mutex> g(m); modified.insert({ cx, cz }); }
             chunksIn++;
             if (world) { world->setChunk(cx, cz, std::move(ch)); world->markDirty(cx, cz); world->clearDirty(cx, cz); }

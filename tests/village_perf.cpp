@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
     int g = terrain::groundLevel(*s.world, vs.at.x + 20, vs.at.y + 20, 400, 400);
     Player& pl = sim.addPlayer(); pl.setMode(GameMode::Dev); pl.position = glm::vec3(vs.at.x + 20.5f, g + 30.0f, vs.at.y + 20.5f); pl.flying = true;
     sim.roaming.enabled = false;
-    gClock.frozen = true;
+    sim.day.frozen = true;
     std::map<std::string, int> who; std::map<std::string, long> nodes; std::map<std::string, int> fails, stucks;
     sim.pathLog = [&](const Npc& n, const nav::Result& r, bool stuck) { who[n.name]++; nodes[n.name] += r.expanded; fails[n.name] += !r.reached; stucks[n.name] += stuck; };
     {   // one door, opened and shut ten times
@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
     float h0 = argc > 2 ? (float)std::atof(argv[2]) : 5.0f, h1 = argc > 3 ? (float)std::atof(argv[3]) : 24.0f;
     CALLGRIND_START_INSTRUMENTATION;
     for (float hour = h0; hour < h1; hour += 1.0f) {
-        gClock.time = hour / 24.0f;
+        sim.day.time = hour / 24.0f;
         int before = sim.pathsPlanned;
         auto t0 = std::chrono::steady_clock::now();
         double worst = 0;

@@ -368,9 +368,9 @@ private:
         c.name = name;
         Player& p = session.sim.addPlayer();
         c.player = &p;
-        glm::vec3 spawn = glm::vec3(session.gen->spawnPoint(WORLD_SIZE_X, WORLD_SIZE_Z));
+        glm::vec3 spawn = glm::vec3(session.gen->spawnPoint(session.world->sizeX(), session.world->sizeZ()));
         p.spawnPoint = spawn;
-        p.setMode(gWorldSave.getDefaultMode());
+        p.setMode(session.info.getDefaultMode());
         p.position = spawn + glm::vec3(0.0f, 2.0f, 0.0f);
         std::ifstream f(playerPath(c, false));
         bool returning = (bool)f;
@@ -395,7 +395,7 @@ private:
         c.hands.onSay = [conn](const std::string& s) { conn->send(proto::text(proto::Msg::Notice, s), net::Channel::Reliable); };
         proto::Welcome w;
         w.you = p.uuid;
-        w.worldName = gWorldSave.getName();
+        w.worldName = session.info.getName();
         { std::ifstream wf(session.folder() + "/world.vxrp"); std::stringstream ss; ss << wf.rdbuf(); w.worldInfo = ss.str(); }
         w.player = proto::kvText([&](std::ostream& o) { p.write(o); });
         w.serverTick = serverTick;
@@ -472,7 +472,7 @@ private:
         proto::Snapshot s;
         s.serverTick = serverTick;
         s.ackTick = c.lastUsed;
-        s.clock = gClock.time;
+        s.clock = session.sim.day.time;
         s.you = stateOf(*c.player);
         std::unordered_set<uint64_t> seen;
         auto consider = [&](const Human& h, uint8_t kind, const std::string& name, const std::string& type, const Appearance& look,

@@ -11,6 +11,7 @@
 #include "Roaming.h"
 #include "../physics/IPhysics.h"
 #include "../world/Woodcutting.h"
+#include "../world/PortalLinks.h"
 #include "../chunk/ChunkManager.h"
 #include "../voxel/Voxel.h"
 #include <algorithm>
@@ -58,6 +59,7 @@ struct SimEvent {
         PerfectDodge,       // a: the attacker (now slowed), b: who dodged at the last moment
         Shot,               // a: who loosed an arrow; at (where from), dir (its way), charge (the draw)
         Quake,              // a: who slammed; at (where the shockwave starts), dir (its way), amount (its range)
+        PortalCrossed,      // b: who went through a portal; at (where they came out)
     };
     uint32_t   encounter = 0;
     Kind       kind = Kind::Hit;
@@ -87,6 +89,59 @@ public:
     // ── The world it runs in ──────────────────────────────
     // Set when a world opens, cleared when it closes. Without
     // physics the simulation does nothing.
+    // The world's portals (world/PortalLinks.h; GameSession's): a body
+    // whose middle went into an opening this tick comes out of the
+    // other end, moving and facing the way it was, turned to match
+    PortalLinks* portals = nullptr;
+    // Bodies that went through a portal into another world this tick
+    // (server/Worlds.h moves them there)
+    struct Transfer { EntityId id = 0; std::string world; glm::mat4 through{ 1.0f }; glm::vec3 exitCentre{ 0.0f }, exitNormal{ 0.0f }; };
+    std::vector<Transfer> transfers;
+    std::vector<Transfer> takeTransfers() { std::vector<Transfer> t; t.swap(transfers); return t; }
+    void crossPortals() {
+        // clear of the face it last came out of (or that portal gone): done with it
+        auto clearOfExit = [&](Human& h) {
+            if (glm::length(h.lastExitNormal) < 0.5f) return;
+            glm::vec3 mid = h.position + glm::vec3(0.0f, h.height * 0.5f, 0.0f);
+            if (!portals || portals->empty() || std::fabs(glm::dot(mid - h.lastExitCentre, h.lastExitNormal)) > PortalLinks::BODY_BAND + 0.5f)
+                h.lastExitNormal = glm::vec3(0.0f);
+        };
+        for (auto& p : playerList) clearOfExit(*p);
+        for (auto& n : npcList.all()) clearOfExit(*n);
+        if (!portals || portals->empty()) return;
+        auto cross = [&](Human& h) {
+            if (!h.portalPrevSet || h.dead()) return;
+            glm::vec3 mid = h.position + glm::vec3(0.0f, h.height * 0.5f, 0.0f);
+            PortalLinks::Crossing c = portals->crossed(h.portalPrev, mid);
+            if (!c.link) return;
+            if (!c.world.empty()) {
+                // into another world: whoever holds the worlds moves it
+                // (server/Worlds.h transfer), turned on the way
+                transfers.push_back({ h.uuid, c.world, c.through, c.exitCentre, c.exitNormal });
+                h.portalPrevSet = false;
+                return;
+            }
+            glm::mat3 R(c.through);
+            h.position = glm::vec3(c.through * glm::vec4(h.position, 1.0f));
+            h.velocity = R * h.velocity;
+            glm::vec3 f = R * h.facing; f.y = 0.0f;
+            if (glm::length(f) > 1e-3f) h.facing = glm::normalize(f);
+            if (h.attack.active()) { glm::vec3 d = R * h.attack.dir; d.y = 0.0f; if (glm::length(d) > 1e-3f) h.attack.dir = glm::normalize(d); }
+            h.lastPortal = c.through;
+            h.lastExitCentre = c.exitCentre; h.lastExitNormal = c.exitNormal; h.lastPortalFrom.clear();
+            h.portalTrips++;
+            h.portalPrevSet = false;
+            if (!h.isPlayer()) static_cast<Npc&>(h).prevPosition = h.position;
+            SimEvent e; e.kind = SimEvent::Kind::PortalCrossed; e.b = h.uuid; e.at = h.position; events.push_back(e);
+        };
+        for (auto& p : playerList) cross(*p);
+        for (auto& n : npcList.all()) cross(*n);
+    }
+    // the world's size in chunks (its ChunkManager's; GameSession sets it)
+    int sizeXChunks = DEFAULT_WORLD_SIZE, sizeZChunks = DEFAULT_WORLD_SIZE;
+    // the world's time of day (its own: each world has one); the game
+    // or the server moves it on (advanceDay), saved in time.txt
+    DayClock day;
     void attachWorld(IPhysics* p, Woodcutting* w) {
         physics = p; wood = w;
         fights.hooks.now = [this] { return clock; };
@@ -125,6 +180,24 @@ public:
                          [&](const auto& p) { return p->uuid == id; }), playerList.end());
         intents.erase(id);
         viewDelay.erase(id);
+    }
+    // A player leaving for another world (server/Worlds.h): out of this
+    // simulation, still alive (nullptr if not here); and arriving
+    std::unique_ptr<Player> takePlayer(EntityId id) {
+        for (auto it = playerList.begin(); it != playerList.end(); ++it)
+            if ((*it)->uuid == id) {
+                std::unique_ptr<Player> p = std::move(*it);
+                playerList.erase(it);
+                intents.erase(id);
+                viewDelay.erase(id);
+                for (auto& n : npcList.all()) if (n->target == id) n->target = 0;   // gone from here: nobody's after them
+                return p;
+            }
+        return nullptr;
+    }
+    Player& adoptPlayer(std::unique_ptr<Player> p) {
+        playerList.push_back(std::move(p));
+        return *playerList.back();
     }
     const std::vector<std::unique_ptr<Player>>& players() const { return playerList; }
     NpcManager& npcs() { return npcList; }
@@ -178,6 +251,11 @@ public:
     void step(float dt) {
         if (!physics) return;
         aimAttacks();
+        // where every body's middle is before it moves (portals)
+        if (portals && !portals->empty()) {
+            for (auto& p : playerList) { p->portalPrev = p->position + glm::vec3(0.0f, p->height * 0.5f, 0.0f); p->portalPrevSet = true; }
+            for (auto& n : npcList.all()) { n->portalPrev = n->position + glm::vec3(0.0f, n->height * 0.5f, 0.0f); n->portalPrevSet = true; }
+        }
 
         // players
         for (auto& pp : playerList) {
@@ -211,7 +289,8 @@ public:
         for (auto& p : playerList) if (p->rules().hasBody) where.push_back(p->position);
         npcList.tick(dt, *physics, *this, heard, where);
         spawnerList.tick(dt, *physics, npcList, where);       // spawner structures keep NPCs coming
-        roaming.tick(dt, *physics, npcList, roamers(), gClock.time * 24.0f);   // roaming spawns (when the world has them on)
+        roaming.tick(dt, *physics, npcList, roamers(), day.time * 24.0f);   // roaming spawns (when the world has them on)
+        crossPortals();
         for (EntityId id : npcList.takeClosedMenus()) {
             SimEvent e; e.kind = SimEvent::Kind::MenuClosed; e.a = id;
             events.push_back(e);
@@ -962,7 +1041,7 @@ public:
         return n->type->xp >= 0.0f ? n->type->xp : n->type->health / 4.0f;
     }
     float now() const override { return clock; }
-    float hourOfDay() const override { return gClock.time * 24.0f; }
+    float hourOfDay() const override { return day.time * 24.0f; }
     // Doors for NPCs: the game that owns the structures sets this
     // (server/GameSession.h): open or shut a door by its id
     // (bodyBlocks: is a body in this voxel — a door doesn't swing
@@ -1236,8 +1315,8 @@ private:
     // Fell off the edge of the world → the nearest ground inside
     // it, or the spawn point
     void rescue(Player& p) {
-        float maxX = (float)(WORLD_SIZE_X * VOXEL_DIM) - 8.0f;
-        float maxZ = (float)(WORLD_SIZE_Z * VOXEL_DIM) - 8.0f;
+        float maxX = (float)(sizeXChunks * VOXEL_DIM) - 8.0f;
+        float maxZ = (float)(sizeZChunks * VOXEL_DIM) - 8.0f;
         float x = std::clamp(p.position.x, 8.0f, maxX);
         float z = std::clamp(p.position.z, 8.0f, maxZ);
         glm::vec3 spot;

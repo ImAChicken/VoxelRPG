@@ -315,6 +315,17 @@ public:
     static inline float        fogDensity  = FOG_DENSITY;
 
     const glm::mat4& getViewMatrix() const { return viewMatrix; }
+    // Inside the world pass (after beginWorldDraw): draw with another
+    // projection than the one culling went by (a portal's view: the
+    // near plane leaned onto the far opening, render/PortalView.h)
+    // More planes to cull sections by, until the next beginWorldDraw:
+    // a portal view only sees through its opening
+    void narrowFrustum(const glm::vec4* planes, int n) {
+        for (int i = 0; i < n && frustumPlanes < 11; i++) frustum[frustumPlanes++] = planes[i];
+    }
+    void overrideProjection(const glm::mat4& p) {
+        glUniformMatrix4fv(locProjection, 1, GL_FALSE, glm::value_ptr(p));
+    }
 
     // A block's colour seen from far away: the average of its
     // top tile in the atlas
@@ -392,7 +403,9 @@ private:
     // The six planes of the camera's view volume, each stored
     // as (normal, distance). A point is inside when
     // dot(normal, point) + distance >= 0 for all six.
-    glm::vec4 frustum[6];
+    // (and up to 5 more: narrowFrustum, a portal's opening)
+    glm::vec4 frustum[11];
+    int frustumPlanes = 6;
 
     void extractFrustum(const glm::mat4& m) {
         glm::vec4 r0(m[0][0], m[1][0], m[2][0], m[3][0]);
@@ -405,11 +418,13 @@ private:
         frustum[3] = r3 - r1;   // top
         frustum[4] = r3 + r2;   // near
         frustum[5] = r3 - r2;   // far
+        frustumPlanes = 6;
     }
 
     // True unless the box is entirely behind one of the planes
     bool boxInFrustum(glm::vec3 lo, glm::vec3 hi) const {
-        for (const glm::vec4& p : frustum) {
+        for (int i = 0; i < frustumPlanes; i++) {
+            const glm::vec4& p = frustum[i];
             // The box corner furthest along the plane normal
             glm::vec3 v(p.x >= 0 ? hi.x : lo.x,
                         p.y >= 0 ? hi.y : lo.y,

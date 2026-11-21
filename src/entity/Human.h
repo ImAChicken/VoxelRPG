@@ -3,6 +3,7 @@
 #include "BodyMass.h"
 #include "../physics/Ragdoll.h"
 #include "../game/Combat.h"
+#include <string>
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -164,6 +165,17 @@ public:
     // all grow with it (Appearance::scale is the look's side of it)
     float scale = 1.0f;
     float attackSpeed = 1.0f;          // × how fast its attacks play (a boss's second phase)
+    // Portals (world/PortalLinks.h): its middle before this tick's move,
+    // and the last trip through one (the game turns the camera by it)
+    glm::vec3 portalPrev{ 0.0f };
+    bool      portalPrevSet = false;
+    uint32_t  portalTrips = 0;
+    glm::mat4 lastPortal{ 1.0f };
+    // the face it last came out of (centre, normal; normal 0: none yet),
+    // and the world it went in from ("": the same one): its trailing
+    // half is still drawn going in there (main.cpp's portal bodies)
+    glm::vec3 lastExitCentre{ 0.0f }, lastExitNormal{ 0.0f };
+    std::string lastPortalFrom;
     float radius() const { return RADIUS * scale; }
     void setScale(float s) {
         scale = s;

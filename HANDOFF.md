@@ -20,9 +20,35 @@ For a new Claude session picking this project up. Read this first, then ROADMAP.
 7. **The font has no `( ) ' +`:** reword UI text; draw a plus with rects.
 4. **Style:** keep answers direct and practical.
 
-## Current state (2026-11-20, latest): dungeons, steps 1-5 of docs/dungeons.md
+## Current state (2026-11-20, latest): seamless portals, across worlds too (docs/dungeons.md step 7)
 
-Still not pushed since 912284b; delivered as zips (`VoxelRPG_dungeon4.zip` the latest). Read `docs/dungeons.md` "Build order":
+Still not pushed since 912284b; delivered as zips (`VoxelRPG_portals3.zip` the latest). Read `docs/dungeons.md` "Build order":
+- Across worlds: `Crossing::world` → `Simulation::transfers` → `Worlds::transfer` (and `moveNpcs` in `Worlds::tick`);
+  main.cpp `switchFocus(to)`, `farStreamers` (one per far world, `FAR_MESH_RADIUS`), `makeFarView`;
+  `PortalDirector::syncGates` (links of kind "gate"/"exit"; `Gate::end()`, `Gate::side`); `Worlds::setStreamed`.
+  Gun portal flicker: the opening is a shallow box now (`drawOpening` behind); if it's still reported, look at it again.
+- Both sides: `PortalEnd::back` (Wall/Through/Turn), `PortalLink::faces` (everything goes by faces), `PortalGun::stand`.
+  Bodies at portals: `CharacterRenderer::xform/clip/resetPortal` (and `Placed::xform/clip`), main.cpp `bodyCut`/`addCopies`/
+  `drawCopies`, `Human::lastExitCentre/lastExitNormal/lastPortalFrom` (cleared in `crossPortals`). Culling:
+  `portalview::openingPlanes` → `OpenGLRenderer::narrowFrustum`. The main pass was already frustum-culled in `drawMesh`;
+  there's no occlusion culling or batching yet.
+- `world/PortalLinks.h` (GameSession::portals), `Simulation::crossPortals`, `VoxelPhysics::setPassable`,
+  `render/PortalView.h` + the portal pass in main.cpp's drawWorld (after the enemies), `WorldStreamer::setExtraCentres`,
+  `game/PortalGun.h` (DevToolKind::Portal), `PlayerController::portalTurnDeg`, `OpenGLRenderer::overrideProjection`.
+- Seeing the game here: `VOXELRPG_SCRIPT=<file>` and `shot <file.ppm>`; run it under
+  `MESA_GL_VERSION_OVERRIDE=4.6 MESA_GLSL_VERSION_OVERRIDE=460 LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x720x24"`
+  (about 1 fps). `runCommand(line)` in main.cpp runs a console line.
+- Gone: `WORLD_SIZE_X/Z` (use `ChunkManager::sizeX/sizeZ`), `gWorldSave` (use `GameSession::info`), `gClock`
+  (use `Simulation::day`). `GameSession()` owns its simulation. `server/Worlds.h` holds every open world;
+  main.cpp's `here` is the focus (its parts: `here->world`, `here->sim` …), `worlds.lobby()` when none is open.
+  `Worlds::tick` runs the others each frame; `PortalDirector::wanted` names far sides to preload; `beforeRemove`
+  closes an instance's world before its folder goes. `CommandContext::info` for world settings.
+- Step 6, portals (single player, one world at a time): `world/Realm.h` (realm.dat, instances, clocks,
+  `gDungeonKinds` from data/registry/portals.toml), `game/Gate.h`, `game/Portals.h` (`PortalDirector`:
+  gates, menu, travel requests); main.cpp: `portals`, `writePlayer`, `travelling` / `travelKeep` in
+  `enterWorld`, the fade (`fadePhase`), the gate menu (talk box), `ctx.portal`; `Hud::instanceClock`,
+  `travelFade`; `WorldSaveManager::getSpawnPortal`; block `portal_veil` (id 142, atlas 8,15);
+  `dungeon::Run` entry / exit gates
 - Step 5, the boss: `Appearance::scale` → `CharacterModel::worldScale` (used by `characterRoot`), `Human::scale`
   / `setScale` / `radius()`; moveset `specials` + `HumanIntent::special`; `AttackDef::blade` / `effectReact`;
   `Simulation::quake` / `runWaves` / `waves()` (`SimEvent::Kind::Quake`); `Human::attackSpeed`; `NpcType::boss`,

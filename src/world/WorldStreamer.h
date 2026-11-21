@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <set>
 #include <vector>
 #include "../chunk/ChunkManager.h"
 #include "../render/ChunkMesh.h"
@@ -60,7 +61,10 @@ public:
         , table(std::move(table))
         , lightTable(std::move(lights))
     {
-        slots.resize((size_t)WORLD_SIZE_X * WORLD_SIZE_Z);
+        slots.resize((size_t)world.sizeX() * world.sizeZ());
+        // (every slot starts wanting a mesh: a world that was already
+        // running in the background, server/Worlds.h, gets its loaded
+        // columns meshed like new ones)
 
         int count = workerThreads;
         if (count <= 0) {
@@ -103,6 +107,17 @@ public:
     // flowAt; worker threads call it). Unset: all water is still
     std::function<glm::vec2(int, int)> flowAt;
 
+    // More places to keep meshed, besides round the player: the far
+    // side of a portal in view (world/PortalLinks.h). Chunk columns;
+    // EXTRA_RADIUS round each
+    static constexpr int EXTRA_RADIUS = 3;
+    // Chunks round the centre to mesh (-1: the Settings' chunk distance,
+    // MESH_DISTANCE). A portal's far world is streamed only a little way
+    // round its far end
+    int meshRadius = -1;
+    int meshR() const { return meshRadius > 0 ? meshRadius : MESH_DISTANCE; }
+    void setExtraCentres(std::vector<glm::ivec2> c) { extras = std::move(c); }
+
     void update(int playerCX, int playerCZ) {
         collectResults(playerCX, playerCZ);
         collectEdits();
@@ -113,7 +128,7 @@ public:
     // Mesh for one section of a column, or nullptr if the
     // column is not meshed yet
     const ChunkMesh* getMesh(int cx, int sy, int cz) const {
-        if (!ChunkManager::inWorld(cx, cz) || sy < 0 || sy >= SECTIONS) return nullptr;
+        if (!world.inWorld(cx, cz) || sy < 0 || sy >= SECTIONS) return nullptr;
         const Slot& s = slots[(size_t)world.index(cx, cz)];
         return s.hasMesh ? &s.mesh[sy] : nullptr;
     }
@@ -123,7 +138,7 @@ public:
     // sections that are the same everywhere share a 1³ one), or
     // 0 if the column's light isn't baked yet
     GLuint getLightTexture(int cx, int sy, int cz) {
-        if (!ChunkManager::inWorld(cx, cz) || sy < 0 || sy >= SECTIONS) return 0;
+        if (!world.inWorld(cx, cz) || sy < 0 || sy >= SECTIONS) return 0;
         Slot& s = slots[(size_t)world.index(cx, cz)];
         if (!s.hasLight) return 0;
         if (s.lightTex[sy]) return s.lightTex[sy];
@@ -132,19 +147,19 @@ public:
     // The sky's colour through window glass for one section
     // (light::SectionLight::tint), or 0 where it came through none
     GLuint getTintTexture(int cx, int sy, int cz) const {
-        if (!ChunkManager::inWorld(cx, cz) || sy < 0 || sy >= SECTIONS) return 0;
+        if (!world.inWorld(cx, cz) || sy < 0 || sy >= SECTIONS) return 0;
         return slots[(size_t)world.index(cx, cz)].tintTex[sy];
     }
     // The water flow texture for a column (light::ColumnLight::flow),
     // or 0 if nothing flows there
     GLuint getFlowTexture(int cx, int cz) const {
-        if (!ChunkManager::inWorld(cx, cz)) return 0;
+        if (!world.inWorld(cx, cz)) return 0;
         return slots[(size_t)world.index(cx, cz)].flowTex;
     }
     // The canopy texture for a column (see light::ColumnLight::canopy),
     // or 0 if it has no leaves
     GLuint getCanopyTexture(int cx, int cz) const {
-        if (!ChunkManager::inWorld(cx, cz)) return 0;
+        if (!world.inWorld(cx, cz)) return 0;
         return slots[(size_t)world.index(cx, cz)].canopyTex;
     }
     bool lightIsUniform(int cx, int sy, int cz) const {
@@ -156,7 +171,7 @@ public:
     uint16_t lightAt(float wx, float wy, float wz) const {
         int cx = ChunkManager::chunkCoord((int)std::floor(wx)), cz = ChunkManager::chunkCoord((int)std::floor(wz));
         int y = (int)std::floor(wy);
-        if (!ChunkManager::inWorld(cx, cz) || y < 0 || y >= WORLD_HEIGHT) return light::pack(15, 0, 0, 0);
+        if (!world.inWorld(cx, cz) || y < 0 || y >= WORLD_HEIGHT) return light::pack(15, 0, 0, 0);
         const Slot& s = slots[(size_t)world.index(cx, cz)];
         if (!s.hasLight) return light::pack(15, 0, 0, 0);
         int sy = y / VOXEL_DIM;
@@ -168,7 +183,7 @@ public:
     // 0..1: how much canopy is over a world point (for characters)
     float canopyAt(float wx, float wy, float wz) const {
         int cx = ChunkManager::chunkCoord((int)std::floor(wx)), cz = ChunkManager::chunkCoord((int)std::floor(wz));
-        if (!ChunkManager::inWorld(cx, cz)) return 0.0f;
+        if (!world.inWorld(cx, cz)) return 0.0f;
         const Slot& s = slots[(size_t)world.index(cx, cz)];
         if (s.canopyCpu.empty()) return 0.0f;
         int tx = ((int)std::floor(wx) - cx * VOXEL_DIM) / 2 + 1, tz = ((int)std::floor(wz) - cz * VOXEL_DIM) / 2 + 1;
@@ -188,7 +203,7 @@ public:
 
     // True once a column has meshes on the GPU
     bool hasMesh(int cx, int cz) const {
-        if (!ChunkManager::inWorld(cx, cz)) return false;
+        if (!world.inWorld(cx, cz)) return false;
         return slots[(size_t)world.index(cx, cz)].hasMesh;
     }
 
@@ -278,6 +293,7 @@ private:
     };
 
     ChunkManager& world;
+    std::vector<glm::ivec2> extras;        // setExtraCentres
     ChunkSource   source;
     std::shared_ptr<const BlockRenderTable> table;
     std::shared_ptr<const light::LightTable> lightTable;
@@ -523,8 +539,7 @@ private:
             // were being built (chunk edited, pack reloaded)
             // or whose chunk the player has since left behind;
             // those sections are simply meshed again
-            if (r.version != s.version ||
-                ringDistance(r.cx, r.cz, pcx, pcz) > MESH_DISTANCE + 1) {
+            if (r.version != s.version || !keepMesh(r.cx, r.cz, pcx, pcz)) {
                 s.needMask |= r.mask;
                 s.needLight = true;
                 continue;
@@ -540,8 +555,8 @@ private:
 
     // ── 2. Notice chunks that were edited ─────────────────
     void collectEdits() {
-        for (int cx = 0; cx < WORLD_SIZE_X; cx++)
-        for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
+        for (int cx = 0; cx < world.sizeX(); cx++)
+        for (int cz = 0; cz < world.sizeZ(); cz++) {
             uint8_t m = world.meshDirtySections(cx, cz);
             if (!m) continue;
             world.clearMeshDirty(cx, cz);
@@ -551,7 +566,7 @@ private:
             s.needLight = true;
             // light reaches 32 voxels into the neighbours
             for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) {
-                if ((!dx && !dz) || !ChunkManager::inWorld(cx + dx, cz + dz)) continue;
+                if ((!dx && !dz) || !world.inWorld(cx + dx, cz + dz)) continue;
                 Slot& n = slot(cx + dx, cz + dz);
                 if (n.hasMesh) { n.needLight = true; n.version++; n.needMask |= 0; }
             }
@@ -564,12 +579,11 @@ private:
     // One extra ring of slack so walking back and forth over
     // a chunk border does not rebuild the same meshes
     void unloadFarMeshes(int pcx, int pcz) {
-        for (int cx = 0; cx < WORLD_SIZE_X; cx++)
-        for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
+        for (int cx = 0; cx < world.sizeX(); cx++)
+        for (int cz = 0; cz < world.sizeZ(); cz++) {
             Slot& s = slot(cx, cz);
             if (!s.hasMesh) continue;
-            if (ringDistance(cx, cz, pcx, pcz)
-                    <= MESH_DISTANCE + 1) continue;
+            if (keepMesh(cx, cz, pcx, pcz)) continue;
             s.cleanupMeshes();
             s.freeLight();
             info.erase(world.index(cx, cz));
@@ -584,10 +598,11 @@ private:
         // Chunks with unsaved edits stay until the next save
         // writes them; after that they reload from the save
         // file, and untouched chunks regenerate from the seed.
-        for (int cx = 0; cx < WORLD_SIZE_X; cx++)
-        for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
+        for (int cx = 0; cx < world.sizeX(); cx++)
+        for (int cz = 0; cz < world.sizeZ(); cz++) {
             if (!world.isLoaded(cx, cz)) continue;
-            if (ringDistance(cx, cz, pcx, pcz) <= loadDistance() + UNLOAD_SLACK) continue;
+            if (ringDistance(cx, cz, pcx, pcz) <= meshR() + 1 + UNLOAD_SLACK) continue;
+            if (nearExtra(cx, cz, EXTRA_RADIUS + 1 + UNLOAD_SLACK)) continue;
             const Slot& s = slot(cx, cz);
             if (s.loading || s.meshing || world.isDirty(cx, cz)) continue;
             world.setChunk(cx, cz, nullptr);
@@ -608,23 +623,39 @@ private:
         static const int OFF[8][2] = {{-1,0},{1,0},{0,-1},{0,1},{-1,-1},{1,-1},{-1,1},{1,1}};
         for (const auto& o : OFF) {
             int nx = cx + o[0], nz = cz + o[1];
-            if (ChunkManager::inWorld(nx, nz) &&
+            if (world.inWorld(nx, nz) &&
                 !world.isLoaded(nx, nz))
                 return false;
         }
         return true;
     }
 
+    bool nearExtra(int cx, int cz, int r) const {
+        for (const glm::ivec2& e : extras) if (ringDistance(cx, cz, e.x, e.y) <= r) return true;
+        return false;
+    }
+    bool keepMesh(int cx, int cz, int pcx, int pcz) const {
+        return ringDistance(cx, cz, pcx, pcz) <= meshR() + 1 || nearExtra(cx, cz, EXTRA_RADIUS + 1);
+    }
+
     void scheduleWork(int pcx, int pcz) {
         std::vector<Candidate> candidates;
 
-        for (int cx = pcx - loadDistance();
-                 cx <= pcx + loadDistance(); cx++)
-        for (int cz = pcz - loadDistance();
-                 cz <= pcz + loadDistance(); cz++) {
-            if (!ChunkManager::inWorld(cx, cz)) continue;
+        // round the player, then round each extra centre (a portal's far side)
+        std::vector<std::pair<glm::ivec2, int>> areas = { { glm::ivec2(pcx, pcz), meshR() } };
+        for (const glm::ivec2& e : extras) areas.push_back({ e, EXTRA_RADIUS });
+        std::set<std::pair<int, int>> seen;
+        for (size_t ai = 0; ai < areas.size(); ai++) {
+        const glm::ivec2 ac = areas[ai].first;
+        const int meshR = areas[ai].second, loadR = meshR + 1;
+        for (int cx = ac.x - loadR;
+                 cx <= ac.x + loadR; cx++)
+        for (int cz = ac.y - loadR;
+                 cz <= ac.y + loadR; cz++) {
+            if (!world.inWorld(cx, cz)) continue;
+            if (!seen.insert({ cx, cz }).second) continue;
             const Slot& s = slot(cx, cz);
-            int d = ringDistance(cx, cz, pcx, pcz);
+            int d = ringDistance(cx, cz, ac.x, ac.y) + (ai ? 2 : 0);   // (the player's first)
 
             if (!world.isLoaded(cx, cz)) {
                 if (skipLoad && skipLoad(cx, cz)) continue;      // it comes from elsewhere (a server)
@@ -636,10 +667,11 @@ private:
 
             // A chunk at ring d can be meshed once ring d + 1
             // is loaded, so its mesh sorts just after those
-            if (d <= MESH_DISTANCE && (s.needMask || s.needLight) &&
+            if (ringDistance(cx, cz, ac.x, ac.y) <= meshR && (s.needMask || s.needLight) &&
                 !s.meshing && neighboursLoaded(cx, cz))
                 candidates.push_back(
                     { (d + 1) * 2 + 1, JobKind::Mesh, cx, cz });
+        }
         }
 
         idle = candidates.empty() && uploadQueue.empty();

@@ -50,18 +50,31 @@
 // into its staging folder; commit = true puts it in place. A
 // server checkpoints (commit = false) and commits on shutdown
 // or a forced save; single player commits every time.
+// Every session is one world with everything of its own: its settings
+// (world.vxrp: 'info'), its size, its clock (sim.day), its simulation.
+// Several can be open at once (server/Worlds.h).
 class GameSession {
 public:
+    // its own simulation
+    GameSession() : ownSim(std::make_unique<Simulation>()), sim(*ownSim) {}
+    // a simulation kept by the caller (the tests, the old way)
     explicit GameSession(Simulation& s) : sim(s) {}
     ~GameSession() { close(); }
 
+private:
+    std::unique_ptr<Simulation> ownSim;
+public:
     Simulation& sim;
+    // This world's settings (world.vxrp): type, seed, size, mode,
+    // roaming, portal … read by begin() / made by beginNew()
+    WorldSaveManager info;
     std::unique_ptr<TerrainGenerator> gen;
     std::unique_ptr<ChunkManager>     world;
     std::unique_ptr<IPhysics>         physics;
     std::unique_ptr<WorldEditor>      editor;
     std::unique_ptr<StructureManager> structs;
     ChestStore                        chests;
+    PortalLinks                       portals;     // this world's portals (world/PortalLinks.h)
     std::unique_ptr<Woodcutting>      wood;
     std::function<void(const std::string&)> log = [](const std::string&) {};
     std::string recovered;      // what begin() did about an interrupted save ("" = nothing)
@@ -72,36 +85,39 @@ public:
     // ── Opening ───────────────────────────────────────────
     bool begin(const std::string& name, bool dev) {
         close();
-        if (!gWorldSave.loadWorld(name, dev)) return false;
-        path = gWorldSave.getWorldPath();
+        if (!info.loadWorld(name, dev)) return false;
+        path = info.getWorldPath();
+        worldName = name;
         recovered = savestage::recover(path);
         if (!recovered.empty()) std::cout << name << ": " << recovered << "\n";
-        WORLD_SIZE_X = WORLD_SIZE_Z = gWorldSave.getWorldSize();
         return true;
     }
     // A new world: made on disk, then opened like any other
     bool beginNew(const std::string& name, uint64_t seed, GameMode mode, WorldType type, int size, int biome,
                   TerrainStyle terrain, const WorldGenParams& params, const FlatOptions& flat, bool dev) {
         close();
-        if (!gWorldSave.createWorld(name, seed, mode, type, size, biome, terrain, params, flat, dev)) return false;
-        path = gWorldSave.getWorldPath();
-        WORLD_SIZE_X = WORLD_SIZE_Z = gWorldSave.getWorldSize();
+        if (!info.createWorld(name, seed, mode, type, size, biome, terrain, params, flat, dev)) return false;
+        path = info.getWorldPath();
+        worldName = name;
         return true;
     }
     void buildGenerator() {
-        gen = makeGenerator(gWorldSave.getWorldType(), gWorldSave.getSeed(), gWorldSave.getWorldSize(),
-                            gWorldSave.getWorldBiome(), gWorldSave.getTerrainStyle(), path + "/terrain.bake",
-                            gWorldSave.getGenParams(), gWorldSave.getFlatOptions());
+        gen = makeGenerator(info.getWorldType(), info.getSeed(), info.getWorldSize(),
+                            info.getWorldBiome(), info.getTerrainStyle(), path + "/terrain.bake",
+                            info.getGenParams(), info.getFlatOptions());
     }
+    // the name it was opened by ("<world>" or "<world>/instances/<id>")
+    const std::string& name() const { return worldName; }
     void attach() {
-        world = std::make_unique<ChunkManager>();
+        world = std::make_unique<ChunkManager>(info.getWorldSize(), info.getWorldSize());
+        sim.sizeXChunks = world->sizeX(); sim.sizeZChunks = world->sizeZ();
         physics = std::make_unique<VoxelPhysics>();
         physics->init(*world);
         editor = std::make_unique<WorldEditor>(*world);
         structs = std::make_unique<StructureManager>(*world, *editor, *gen);
         structs->log = log;
         structs->load(path);
-        chests.worldSeed = (uint32_t)gWorldSave.getSeed();
+        chests.worldSeed = (uint32_t)info.getSeed();
         chests.load(path);
         wood = std::make_unique<Woodcutting>();
         wood->load(path);
@@ -122,6 +138,9 @@ public:
         // bodies collide with fallen logs; raycasts hit them
         physics->setLooseSolids([this](int x, int y, int z) { return wood && wood->solidAt(x, y, z); });
         sim.attachWorld(physics.get(), wood.get());
+        // portals: bodies cross them, and walk into the wall behind one
+        sim.portals = &portals;
+        if (auto* vp = dynamic_cast<VoxelPhysics*>(physics.get())) vp->setPassable([this](int x, int y, int z) { return portals.passable(x, y, z); });
         // NPCs open and shut doors (villagers going home)
         sim.doorHook = [this](uint32_t id, bool open, const std::function<bool(glm::ivec3)>& bodyBlocks) {
             StructureInstance* d = structs ? structs->get(id) : nullptr;
@@ -132,9 +151,9 @@ public:
         // roaming spawns (sim/Roaming.h): on or off is the world's
         // setting; the world says what biome a spot is and whether
         // it's no place for one (water, near anything built, a villager)
-        sim.roaming.enabled = gWorldSave.getRoamingSpawns();
+        sim.roaming.enabled = info.getRoamingSpawns();
         sim.roaming.resetTimers();
-        sim.roaming.worldSpawn = glm::vec3(gen->spawnPoint(WORLD_SIZE_X, WORLD_SIZE_Z));
+        sim.roaming.worldSpawn = glm::vec3(gen->spawnPoint(world->sizeX(), world->sizeZ()));
         sim.roaming.hasWorldSpawn = true;
         sim.roaming.biomeAt = [this](int x, int z) {
             int e = gen ? (int)gen->column(x, z).eco : -1;
@@ -176,7 +195,7 @@ public:
             dungeonRun->load(path);
         }
         std::ifstream tf(path + "/time.txt");
-        float t; gClock.time = (tf >> t) ? std::fmod(std::fabs(t), 1.0f) : 0.35f;
+        float t; sim.day.time = (tf >> t) ? std::fmod(std::fabs(t), 1.0f) : 0.35f;
     }
 
     // A server's world, mirrored (client/ClientWorld.h builds gen,
@@ -309,7 +328,7 @@ public:
             village::Plan vp;
             for (int attempt = 0; attempt < 6; attempt++) {
                 village::Options o;
-                o.seed = (uint32_t)gWorldSave.getSeed() * 2654435761u + 977u * (uint32_t)(i + 1) + 7919u * (uint32_t)attempt;
+                o.seed = (uint32_t)info.getSeed() * 2654435761u + 977u * (uint32_t)(i + 1) + 7919u * (uint32_t)attempt;
                 if (sites[i].small) { o.roads = 2 + attempt % 2; o.roadLen = 110 - 10 * (attempt / 2); o.lanes = 2; }
                 else { o.roads = 3 + (int)(o.seed % 2); o.roadLen = 100 - 10 * (attempt / 2); }
                 if (nearest < 160.0f) { o.keepClear = { (int)who.x, (int)who.z }; o.clearRadius = 15; }   // not on top of anyone
@@ -348,8 +367,8 @@ public:
         std::string stage = savestage::stageDir(path).string();
         std::filesystem::create_directories(stage);
         int chunks = 0;
-        for (int cx = 0; cx < WORLD_SIZE_X; cx++)
-            for (int cz = 0; cz < WORLD_SIZE_Z; cz++) {
+        for (int cx = 0; cx < world->sizeX(); cx++)
+            for (int cz = 0; cz < world->sizeZ(); cz++) {
                 if (!world->isDirty(cx, cz)) continue;
                 Chunk* c = world->getChunk(cx, cz);
                 if (!c) continue;
@@ -363,7 +382,7 @@ public:
         ok = chests.save(stage) && ok;
         if (wood) ok = wood->save(stage) && ok;
         sim.npcs().save(stage + "/npcs.dat");
-        { std::ofstream tf(stage + "/time.txt"); tf << gClock.time << "\n"; }
+        { std::ofstream tf(stage + "/time.txt"); tf << sim.day.time << "\n"; }
         {   // the village sites built so far
             std::ofstream vf(stage + "/villages.dat");
             for (size_t i = 0; i < sites.size(); i++) if (sitesBuilt[i]) vf << sites[i].at.x << " " << sites[i].at.y << "\n";
@@ -387,10 +406,13 @@ public:
         world.reset();
         gen.reset();
         path.clear();
+        worldName.clear();
+        portals.clear();
+        sim.portals = nullptr;
     }
 
 private:
-    std::string path;
+    std::string path, worldName;
     std::vector<Spawners::Placed> placed;
     std::vector<glm::vec3> built;              // every piece anyone built (syncSpawners), for roaming spawns
     std::vector<TerrainGenerator::VillageSite> sites;   // the generator's village sites

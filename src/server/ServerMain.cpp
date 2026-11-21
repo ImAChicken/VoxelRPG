@@ -175,12 +175,12 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
-    std::cout << "Opening " << session.folder() << " (" << worldTypeName(gWorldSave.getWorldType()) << ", "
-              << WORLD_SIZE_X << " x " << WORLD_SIZE_Z << " chunks)\n";
+    std::cout << "Opening " << session.folder() << " (" << worldTypeName(session.info.getWorldType()) << ", "
+              << session.world->sizeX() << " x " << session.world->sizeZ() << " chunks)\n";
     session.buildGenerator();
     session.attach();
     ChunkKeeper keeper(*session.world, session.chunkSource());
-    glm::vec3 spawn = glm::vec3(session.gen->spawnPoint(WORLD_SIZE_X, WORLD_SIZE_Z));
+    glm::vec3 spawn = glm::vec3(session.gen->spawnPoint(session.world->sizeX(), session.world->sizeZ()));
     keeper.loadNow({ spawn });
     auto listener = net::enetListen(cfg.port, cfg.maxPlayers);
     if (!listener) { std::cerr << "Couldn't listen on port " << cfg.port << " (is another server running?)\n"; return 1; }
@@ -221,7 +221,7 @@ int main(int argc, char** argv) {
         session.updateEdits(2.0f);
         sim.step(DT);
         session.tickWorld(DT);
-        gClock.update(DT);
+        sim.day.update(DT);
         host.afterStep();
         host.takeEvents();
 
@@ -232,14 +232,14 @@ int main(int argc, char** argv) {
         while (console.next(cmd)) {
             if (cmd == "status") {
                 std::printf("players %zu  npcs %zu  chunks %d (loading %zu)  time %.2f\n", sim.players().size(),
-                            sim.npcs().all().size(), session.world->loadedCount(), keeper.loading(), gClock.time);
+                            sim.npcs().all().size(), session.world->loadedCount(), keeper.loading(), sim.day.time);
                 for (auto& c : host.clients()) if (c->joined) std::printf("  %s  %.0f ms\n", c->name.c_str(), c->conn->pingMs());
             }
             else if (cmd == "save") saveAll(true);
             else if (cmd == "roaming on" || cmd == "roaming off") {         // roaming enemy spawns (sim/Roaming.h)
                 sim.roaming.enabled = cmd == "roaming on";
                 sim.roaming.resetTimers();
-                gWorldSave.setRoamingSpawns(sim.roaming.enabled);
+                session.info.setRoamingSpawns(sim.roaming.enabled);
                 std::cout << "roaming spawns " << (sim.roaming.enabled ? "on" : "off") << "\n";
             }
             else if (cmd == "roaming reload") std::cout << (gRoaming.load() ? "roaming.toml reloaded\n" : "roaming.toml didn't load\n");

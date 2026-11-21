@@ -4,6 +4,19 @@ Living list of planned work. Sections marked **Tabled** are agreed
 ideas parked for later; add to them as new ideas come up.
 
 ## Recently done
+- Portals from both sides (2026-11-20): an end's back can be a wall, go straight through, or turn round to the far front; the portal gun stands ends on the ground, open both sides; dungeon gates open from behind too. Bodies part way through show on both sides (cut at the surface, a copy coming out). Portal views only draw what's seen through the opening. `seamless_test`.
+- Seamless dungeon gates (2026-11-20): the gate by the spawn shows the crypt through its arch once open, and you walk in and out with no fade; NPCs follow through. Bodies move between worlds (`Worlds::transfer`). `seamless_test`.
+- Seamless portals, first piece (2026-11-20): the portal gun (dev kit) puts the two ends of a portal on walls; you see through one into the room at the other (it moves with you) and walk straight through, turned to match, still moving. One way or two way. Same world only so far. `seamless_test`; `VOXELRPG_SCRIPT` test scripts with screenshots.
+- Several worlds at once (2026-11-20), step 7 of `docs/dungeons.md` begun:
+  - Every open world has its own size, settings (world.vxrp), clock and simulation; `server/Worlds.h` runs them together (the one you're in drawn, the rest headless), sleeps and closes empty ones after a minute, keeps the realm's main world open.
+  - Gates open their far side as you walk up, so going through is a blink; the world you left keeps running.
+  - Gates can be used from further off (12 voxels, 36 looking at one), with a prompt.
+  - `worlds_test`.
+- Portals and instances, step 6 of `docs/dungeons.md` (2026-11-20), single player:
+  - A gate by the spawn (New World > Portal), opened at its menu onto a fresh Undead Crypt instance; walk through with a fade and back by the crypt's own gate (or its exit once the boss falls).
+  - Instances live in the save (`instances/<id>`), last an hour (5 minutes after the boss, 30 s once closed), warn at 10 and 1 minute, show their clock, move you out and delete themselves.
+  - Older worlds get a gate by their spawn too (set `portal=off` in world.vxrp to stop that).
+  - `portal_test`.
 - The first boss, step 5 of `docs/dungeons.md` (2026-11-20):
   - Giant bodies: `look_scale` makes a person bigger in every way (drawn, hit, collision, ragdoll, weapon, steps, mass).
   - The Crypt Lord: 1.6x, a greatsword with wide sweeps, a slam whose shockwave runs along the ground (jump it), a charge from afar; a faster second phase below half health.
@@ -249,6 +262,33 @@ ideas parked for later; add to them as new ideas come up.
 - Console: spawn <type> [count] [distance], smite [radius], rep [faction] [value], debug [layer] [on|off]
 - tests/npc_test.cpp: types, sight / alert / battle cry, hearing, factions and reputation, menus, search and leash, pathfinding, encounters (slots, tokens, merge, review, escape, tracking), saving and tiers
 - tests/combat_test.cpp: costs, combo, reach and arc, heavy knockdown, poise, guard and guard break, roll i-frames, stamina, air lurch and plunge slam, death, line of sight, the enemy brain using the same moves
+
+## Eddie's list (2026-11-20): worlds, portals and what they open up
+Wanted down the road (not started unless marked). Portals first: the
+rest builds on seamless portals and several worlds at once.
+- **Portal gun (testing):** a dev tool that puts the two ends of a
+  portal on walls, to try seamless portals anywhere. Done (walls only).
+- **Seamless portals:** the view through the opening and walking
+  through without a fade (same world and between worlds: done, the
+  dungeon gates); NPCs cross too (done); projectiles next.
+- **Join portals:** a home island with a portal to every world. Join
+  portals may be one way, showing the far side from one wall only; a
+  call to make a portal two way.
+- **Non-Euclidean dungeons and puzzles:** rooms stitched seamlessly
+  between connected layers (same-world portals; tiles whose doors lead
+  elsewhere).
+- **Level editors in game** for designing those non-Euclidean tiles.
+- **Builder's tool marks doors and windows as portals:** a built door
+  or window joined to another place, seamless.
+- **Interior facades:** a building's windows and doors show (and lead
+  into) an interior kept elsewhere, for buildings we don't design
+  inside.
+- **Corruption events:** a new biome ("hell") takes over part of the
+  main world for a while, its chunks swapped for temporary ones; a time
+  limit or beating its boss restores the world. Built like an instance
+  dungeon laid over the world.
+- **Terrain that feels less blocky:** shaders and terrain smoothing.
+- **Foundations off the grid:** foundation pieces placed at an angle.
 
 ## Server split (planned, agreed 2026-11-16; after icons / gear and combat)
 Target: at least 20 players per server for now.
