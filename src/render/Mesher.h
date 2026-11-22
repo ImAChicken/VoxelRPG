@@ -417,7 +417,10 @@ private:
     //   face   6 or 7 (which diagonal)
     //   pad0   bit 0 glow, bit 1 mirror the picture, bits 2-3 half
     //          the footprint's width (so the shader can find the
-    //          plant's middle: its off-grid nudge and wind)
+    //          plant's middle: its off-grid nudge and wind), bits 4-7
+    //          this corner's height above the plant's root (voxels,
+    //          0-15: counting other sprite blocks under the stack, so
+    //          a flower head on a stem bends with the stem's top)
     //   pad1   bit 0 corner u, bit 1 corner v (top),
     //          bits 2-3 tiles wide - 1, bits 4-6 tiles tall - 1
     static void sprites(const MeshInput& in, Scratch& s, const BlockRenderTable& table) {
@@ -440,11 +443,15 @@ private:
                     int x0 = x - k2 + 8, x1 = x + 1 + k2 + 8, z0 = z - k2 + 8, z1 = z + 1 + k2 + 8;
                     uint32_t hsh = (uint32_t)(x * 73856093) ^ (uint32_t)(z * 19349663) ^ (uint32_t)(y * 83492791);
                     uint8_t p0 = (uint8_t)((info.glow ? 1 : 0) | ((hsh >> 7) & 1 ? 2 : 0) | ((k2 & 3) << 2));
+                    // how far the stack stands above the plant's root (sprite blocks of any kind below it)
+                    int rootDepth = 0;
+                    while (rootDepth < 15 && y - 1 - rootDepth >= -1 && table.get(s.vol[(size_t)pidx(x, y - 1 - rootDepth, z)]).sprite) rootDepth++;
                     uint8_t span = (uint8_t)(((info.spanW - 1) & 3) << 2 | ((info.spanH - 1) & 7) << 4);
                     auto quad = [&](uint8_t face, int ax, int az, int bx, int bz) {
                         auto v = [&](int cu, int cv) {
                             return ChunkVertex{ (uint8_t)(cu ? bx : ax), (uint8_t)(y + (cv ? h : 0)), (uint8_t)(cu ? bz : az),
-                                                face, info.tileX[FACE_NORTH], info.tileY[FACE_NORTH], p0,
+                                                face, info.tileX[FACE_NORTH], info.tileY[FACE_NORTH],
+                                                (uint8_t)(p0 | (std::min(15, rootDepth + (cv ? h : 0)) << 4)),
                                                 (uint8_t)(span | (cu ? 1 : 0) | (cv ? 2 : 0)) };
                         };
                         ChunkVertex a = v(0, 0), b = v(1, 0), c = v(1, 1), d = v(0, 1);

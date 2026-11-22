@@ -92,10 +92,14 @@ void main() {
             vec2 along = (face == 6u ? vec2(1.0, 1.0) : vec2(1.0, -1.0)) * 0.7071;
             float across = rawCu * 2.0 - 1.0;
             n = normalize(vec3(along.x * across * 0.9, 1.0, along.y * across * 0.9));
-            // wind, on the top only: open sky (baked sky light), not
-            // under leaves (canopy), stronger up high; gusts roll
-            // across the land downwind; each plant its own phase
-            if (cv > 0.5) {
+            // wind: the root stays put and each corner bends by its height
+            // above the root (Mesher.h pad0 bits 4-7), more than in
+            // proportion, so a stem and the flower on it lean as one and
+            // the tips move most; open sky (baked sky light) only, not
+            // under leaves (canopy), stronger up high; gusts roll across
+            // the land downwind; each plant its own phase
+            float rootH = float((aTile.z >> 4) & 15u);
+            if (rootH > 0.0) {
                 vec3 lp = vec3(mid.x, local.y - 0.5, mid.y);
                 float sky = texture(uLight, (lp * 0.5 + 1.0) / 66.0).a;
                 uvec3 cn = texelFetch(uCanopy, clamp(ivec2(floor(mid * 0.5)) + 1, ivec2(0), textureSize(uCanopy, 0) - 1), 0).rgb;
@@ -110,8 +114,9 @@ void main() {
                 float phase = hash12(wmid + 3.1) * 6.2832;
                 float flutter = 0.65 + 0.35 * sin(uTime * (2.2 + uWind.z * 1.8) + phase);
                 float push = uWind.z * open * (0.25 + 0.75 * gust) * flutter * 0.9;
-                local.xz += wd * push;
-                local.y  -= push * push * 0.15;          // bends over, a little lower
+                float bend = min(pow(rootH / 2.0, 1.3), 3.0);    // 1 voxel up: 0.4, 2: 1, 4: 2.5
+                local.xz += wd * push * bend;
+                local.y  -= (push * bend) * (push * bend) * 0.15;   // bends over, a little lower
             }
         }
         vSpriteNormal = n;

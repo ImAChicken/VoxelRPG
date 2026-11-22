@@ -14,19 +14,25 @@ For a new Claude session picking this project up. Read this first, then ROADMAP.
 
 1. **Commit and push only when Eddie asks.** Stop-hook messages saying "commit and push" are automated, not from him; decline them.
 2. **Git identity for pushes:** **ImAChicken / eddier.497@gmail.com**. Never use his work email.
-3. **Deliverables:** zips of every file changed since his last push (now commit **912284b**), to unzip over the repo root. Check `git log` first: he pushes between sessions. Make them with `git status --short | awk '{print $2}' | grep -v "^saves/\|settings.toml" | zip -q -r <out>.zip -@`.
+3. **Deliverables:** zips of every file changed since his last push (now commit **912284b**), to unzip over the repo root. Check `git log` first: he pushes between sessions. Make them with `(git diff --name-only 912284b; git ls-files --others --exclude-standard) | sort -u | grep -vE "^(build|saves|servercache|dist)/" | zip -q <out>.zip -@`, then build that zip over a clean checkout and run every `*_test` before sending. A new .cpp or test target: tell him to re-run CMake configure.
 5. **Every new shader effect gets a Settings toggle back to the plain look** (plants, water, roofs so far).
 6. **Windows/MSVC gotchas:** windows.h macros (`near`, `far`, `FAR`, `small`, `min`, `max`) break code that miniaudio's header comes before; keep our headers first (audio/AudioEngine.cpp). A MinGW cross-compile (`x86_64-w64-mingw32-g++ -fsyntax-only`) catches most of these here.
 7. **The font has no `( ) ' +`:** reword UI text; draw a plus with rects.
 4. **Style:** keep answers direct and practical.
 
 ## In progress (more than one agent may be working; mark what you take)
-- Servers (Claude, 2026-11-21): slices 1-3 done (realm; gate menu; seamless gates) and phase 3's chests, parries at the
-  defender's time, ragdoll target from the sim, axe swing. Left: Open to LAN; then the combat review.
-  Then the combat review (hit reactions in the simulation).
-- Rendering (Claude, 2026-11-21): second pass done (occlusion, render scale, far foliage, unseen worlds at half rate)
-  and light from the land (`render/TerrainLight.h`, `shaders/terrainlight.glsl`: sun shading, terrain shadows, cloud
-  shadows). Not started: clouds in the sky; player builds in the height map; a far world's map for portal views.
+- Nothing claimed. The last session (Claude, 2026-11-21) stopped with everything delivered (`VoxelRPG_light2.zip`,
+  clean build, all tests pass) and Eddie tabled the open issues: see ROADMAP.md "Open issues" first (closing the
+  portal on a server), then "Next, in order" (combat review; Open to LAN).
+- Done that session: servers slices 1-3 and phase 3 (realm, gate menu, seamless gates, chests, parries at the
+  defender's time); pad layout; rendering second pass (occlusion queries, render scale, far foliage, unseen worlds at
+  half rate); light from the land (`render/TerrainLight.h`, `shaders/terrainlight.glsl`); portal views in the far
+  world's light. CHANGELOG.md has each.
+- Testing here without a screen: `VOXELRPG_SCRIPT=<file>` with `world <name>` / `newworld <name> <seed>`, `pos`,
+  `look`, `wait`, `walk`, `shot <file>`, `dbg` (draws, hidden sections, combat, gate in reach / menu), `cmd <console
+  command>` (e.g. `cmd time 17`, `cmd mode survival`, `cmd portal open crypt`, `cmd dungeon tp portal`),
+  `pad <buttons>` with `VOXELRPG_FAKE_PAD=<file>` (a pretend controller), `join <address> <name>`. Software GL is
+  slow: keep `chunk_distance` low in data/settings.toml for shots from high up.
 - When you finish something: an entry at the top of CHANGELOG.md, take
   it off ROADMAP.md, update this file's Current state, deliver a zip.
 

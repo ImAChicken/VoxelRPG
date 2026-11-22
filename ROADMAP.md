@@ -6,6 +6,198 @@ to them as new ideas come up. More than one agent may be working at
 once: before starting an item, check HANDOFF.md "In progress" and
 mark yours there.
 
+## Open issues (tabled by Eddie, 2026-11-21: look at these first)
+- **Can't close the portal on a server.** The gate menu opens there
+  (also in combat now), but "Close" doesn't close the instance.
+  Start at main.cpp's gate menu pick (`remote->gate(a)`, `Msg::Gate`)
+  → `ServerHost::onGate` → `RealmServer::gateAction` "close"; with
+  someone inside it only starts the closing countdown (by design),
+  so check whether that's what Eddie saw, and that the countdown and
+  the closed state reach the client (`Msg::RealmState`).
+- **Artifacts spinning the camera near a gate on a server** (Eddie,
+  2026-11-21; walking through is fine now). Not looked at. Suspects:
+  hidden chunk culling (its answers are a frame late, and a fast turn
+  shows sections that were behind you: try Settings > Hidden chunk
+  culling Off first), the portal view's opening box / tunnel at the
+  camera (`portalview::begin`, the `tunnel` / `justOut` cases), and on
+  a server the watched world streaming round the far end.
+- **The canyon village** (island generator, older): check its look in
+  game (seed 42, world 5056, 9280); its plaza was a grey disc with a
+  river through it. See HANDOFF.md "In progress when this session
+  stopped".
+- Interacting with a gate in combat on a server: Eddie saw it fail
+  once, then work. Couldn't reproduce here (single player, pad and
+  keys, main gate and crypt gate). Watch for it.
+- Untested in game: portal views lit by the far world's time of day;
+  light from the land on a real GPU (shadow edges, the bias in
+  shaders/terrainlight.glsl); render scale Auto's steering; hidden
+  chunk culling's one-frame pop-in coming round a hill.
+
+## Eddie's list (2026-11-21): the look of the land, villages, the sky expanse
+Talked through at the end of the 2026-11-21 session; not started.
+Every visual piece gets a setting back to the plain look. Build order
+inside each part as listed.
+
+**Shared world maps and wind** (builds on `render/TerrainLight.h`)
+1. One "world maps" shader include (grown from `shaders/terrainlight.glsl`):
+   height, sun shadow, wind (later wetness, snow), on fixed texture
+   units, bound once a frame. The CPU side split from the GL side so
+   the headless server can build the same maps.
+2. Terrain wind field: one sweep over the height map toward the wind
+   (like the shadow sweep): lee behind ridges, speed-up on crests,
+   turned along valleys; gusts as noise moving through it with time.
+   Direction and gusts from the seed and the world clock, so every
+   client and the server agree. Remade on a thread when the
+   prevailing wind turns. (Replaces the roadmap's "lee behind hills".)
+3. Everything reads it: plants and grass, leaves, water ripples,
+   clouds and cloud shadows (and clouds drawn in the sky), particles;
+   physics items (banners, cloth, arrows, loose leaves) from the CPU
+   copy, server-side where it affects play.
+4. Far-land shaders: grass waves moving with the gusts, darker lee
+   side on the canopy bump, morning mist in low ground.
+
+**Smooth terrain and foliage** (one code path: a density field + Surface Nets)
+1. Rounded voxel edges in the shader (normals bent near face edges,
+   a little contact darkening): cheap, try first.
+2. Density field + Surface Nets meshing, shared by the next two.
+3. Terrain skin: blocks tagged `smooth` in blocks.toml (grass, dirt,
+   sand, stone, snow) meshed as a smooth surface; buildings and
+   placed pieces stay crisp voxels (the skin tucks under them).
+   Material per vertex, triplanar blending between blocks. The
+   character controller walks on the skin's height where the ground
+   is smooth; edits stay voxel and remesh the skin. Makes the seam
+   to the far terrain nearly vanish.
+4. Leaves: the crown's leaf density blurred into a hull (Surface
+   Nets), drawn as a dark inner shell; leaf sprites scattered over it
+   (hash-placed, tilted along the hull normal, the leaf block's own
+   colour), lit as soft clumps, backlit at the edges, swaying with
+   the wind map (outer more). Collision, chopping and light keep the
+   real leaf voxels. Felled trees (woodcutting props) the same.
+   Estimated: about the same triangles, 1.5-3x the pixel cost up
+   close (overdraw: alpha-to-coverage, fewer bigger sprites far).
+   Measure with F3 against plain cubes on a test tree.
+5. Better crowns in the recipes (Decorations.h `clump`): more,
+   smaller clumps with gaps, lacy edges. Later: recipes record their
+   clumps for exact normals and per-clump colour.
+6. Parallax occlusion (with silhouettes) on chosen building materials
+   (`parallax = true`, height maps in the resource pack), fading by
+   distance.
+
+**Impostors baked from the registry**
+- On loading decorations (and F6), render every tree, rock and
+  landmark variant offscreen from ~8 sides and above (colour, normal,
+  depth), like `buildItemIcons`; cached on disk by the data's hash.
+  Lit live, swaying with the wind map; a dither fade at the swap.
+- Mid range (~150 vox out) trees become one quad each.
+- The far terrain scatters them where the generator puts its trees
+  (`treeInCell`): real maples and birches in the distance. Visited
+  chunks remember which trees still stand (lowres.dat). Later
+  buildings from blueprints, so villages show from afar.
+
+**Villages: more to them** (Eddie: "roles and jobs need work")
+- Roles with real jobs (smith at the anvil, farmer in the fields,
+  storekeeper trading, guards on rounds), dialogue that does things
+  (quests, trade), villages placed by the island generator at its
+  sites, lots on slopes, fences, fields, markets, more buildings. See
+  "Villagers next" / "Villages next" below.
+
+**A new world type: the sky expanse**
+- A floating expanse of fantasy mushroom-covered islands in the sky,
+  reached through a portal. Alien, fungal biomes; their resources
+  feed magic (new blocks, items, spells).
+- A network of portals between the islands, unlocked as the player
+  finds them; gate sites placed by the generation rules (like the
+  chart's sites; `PortalDirector` gates, `Gate.h`).
+- Falling far enough: a seamless teleport back to the top (a
+  horizontal portal plane under the world linked to one above it:
+  needs "portals on floors and ceilings").
+- Notes for building it: the generator needs 3D shapes (an island
+  has an underside; `TerrainColumn` is one ground per column), so it
+  fills sections from a density (shared with the Surface Nets work);
+  the far view needs per-island meshes or impostors instead of the
+  height-map `FarTerrain`; the shadow map's top heights already shade
+  islands under islands; glowing mushrooms use emissive blocks and
+  the distant lights; a sea of cloud below. A persistent world (like
+  the main one), not a timed instance: `Worlds` keeps several open.
+- The height-map far terrain stays the far view for worlds that
+  aren't floating, and a lower-detail option anywhere (Eddie): on the
+  sky expanse it draws islands by their tops only (no undersides),
+  cheap, for weak machines or the far ring past the island impostors.
+- Its own sky (Eddie: "we may have a very different sky for our
+  mushroom world"): skies as data, `data/registry/skies.toml`, as
+  proposed in docs/dungeons.md "Skybox blocks" (colours by time of
+  day, suns and moons or none, stars, clouds, fixed time or the day
+  cycle, the light it gives); each world names its sky. Everything
+  that shows another world draws that world's sky, live (its clock,
+  its clouds): portal views (they already take the far world's time
+  of day, 2026-11-21) and skybox blocks, so a room in the main world
+  or a crypt can open onto the sky expanse's sky and be lit by it.
+  Later: a skybox block showing that world's distant islands too
+  (their impostors against its sky), a window onto another world.
+
+
+## Spells: a big selection, built from parts (Eddie, 2026-11-21)
+Now: two spells (windburst, ice spike), each a hand-written effect
+in `Simulation` picked by name (Simulation.h, `d.effect == ...`);
+a spellbook item names a 'cast' attack in movesets.toml. That
+doesn't scale to many spells. Plan:
+- **Spells as data,** `data/registry/spells.toml`. A spell =
+  - delivery: self, touch, cone, projectile (speed, gravity, homing,
+    bounces, pierce), beam, area at a point, wall or line, rune or
+    trap left on the ground, summon;
+  - shape: range, radius, width, duration, count (a fan of three);
+  - effects, a list: damage (with a type: fire, frost, shock,
+    arcane, against resistances), push and pull, status (burn,
+    slow, freeze, poison, stagger, silence), heal, ward or shield,
+    light, terrain (freeze water, place ice or stone, burn grass,
+    grow plants, break weak blocks), blink or a short portal;
+  - triggers: on cast, on hit, on expire, every N seconds; a trigger
+    can start another spell, so spells chain (a fireball that
+    bursts into sparks; an ice spike that leaves a frozen patch);
+  - look and sound: particles (particles.toml), trail, light colour,
+    sounds, the cast animation (movesets.toml), the book's model;
+  - cost: mana or stamina, cooldown, cast time, channelled or not.
+- **The effects are C++ primitives written once** (a damage, a push,
+  a status, a block change); spells only combine them. New spells
+  need no code. The two spells today become the first entries.
+- Spellbooks (items.toml) name a spell id; NPCs use the same spells
+  (spellbooks NPCs can use is already on the list); icons drawn
+  from the spell's colour and element.
+- Simulated in `Simulation` (deterministic), so servers run them and
+  other players see the projectiles (already on the list).
+- Later: players compose spells from parts they've found (the sky
+  expanse's fungal resources as reagents), as a crafting system on
+  the same data. A test command to cast any spell by id, and a dev
+  showcase of every spell.
+- Later (Eddie): spells unlocked through a skill tree instead of
+  found as spellbooks; memorized at a table (a station) to equip
+  them in the combat slots. Not until combat and skills exist to
+  balance the tree against. Keep the slot / equip code independent
+  of the book item so the switch is small: a slot holds a spell id,
+  whether it came from a book or from memory.
+
+## Vehicles (Eddie, 2026-11-21; later down the line)
+- Horse-drawn carriages and cars, with physics. Tyre grip by the
+  ground's material (grass, gravel road, sand, mud, ice, stone):
+  a friction / rolling-resistance table per material (beside
+  data/audio/materials.toml, or in blocks.toml).
+- Modular, interchangeable parts: chassis, wheels and axles,
+  engine or harness, seats, body panels, storage; each a part with
+  stats (mass, grip, power, durability), snapped together on a grid
+  like the hammer's pieces (game/PieceSpec.h, Blueprint.h). Saved
+  as vehicle blueprints.
+- Its own builder wand (a vehicle bench or tool, like the Builder's
+  Hammer), with the parts' stats shown as you build.
+- Physics: a rigid body (the felled tree's shape-matched body,
+  physics/RigidVoxelBody.h, is a starting point) with per-wheel ray
+  or sphere contacts: suspension, steering, grip from the ground
+  under each wheel; collisions with the voxel world; damage to
+  parts. Horses as animals pulling through a harness joint (needs
+  the second, animal skeleton already planned).
+- On a server: the server simulates vehicles; the driver predicts
+  their own like their movement; passengers ride on it (positions
+  relative to the vehicle). After Open to LAN and the combat review.
+
 ## Next, in order (Eddie, 2026-11-20)
 1. **Combat review.** Eddie: "combat still feels a bit off, probably
    because of ragdoll jank". A hit-reaction animation set in place of
