@@ -1,8 +1,10 @@
 # AGENTS.md: a map of VoxelRPG for coding agents
 
 Read this before anything else. It tells you where things are so you can open
-the right three files instead of thirty. Then read `ROADMAP.md` (what's done,
-what's next, Eddie's design direction) and, if you need history, `HANDOFF.md`.
+the right three files instead of thirty. Then `HANDOFF.md` (what's happening
+now: rules, what's claimed, current state), `ROADMAP.md` (what's next, Eddie's
+design direction) and `CHANGELOG.md` (what's built, newest first). Older session
+notes: `docs/handoff-history.md`.
 
 ## Rules from the owner (Eddie)
 
@@ -15,7 +17,8 @@ what's next, Eddie's design direction) and, if you need history, `HANDOFF.md`.
    `src/chunk/PasteSystem.h`, `src/chunk/ChunkGenerator.h`, a few `.cpp`):
    keep their line endings when editing.
 4. Answers: direct and practical. Deliverables are pushed commits (when asked)
-   or a zip of changed files.
+   or a zip of changed files (HANDOFF.md rule 3 says how). Say in CHANGELOG.md
+   who made a change.
 5. **Data over code.** Tunable things (blocks, items, structures, costs,
    movesets, NPCs, loot, decorations) live in `data/registry/*.toml` and reload
    with **F6** in game. Prefer adding a field there over a constant in C++.
@@ -76,7 +79,8 @@ DISPLAY=:99 import -window root shot.png                    # then view shot.png
 - Multi-block things are **structure instances** (`world/StructureManager.h`):
   ordinary voxels in the world plus a record of type, origin, rotation, state
   and what supports them.
-- The UI font has no `& ( ) | +`: keep them out of on-screen labels.
+- The UI font: `' ( ) + & ? ;` were added by `tools/gen_font_glyphs.py`; `\` and `^` are still blank.
+  Look at any other symbol on screen before putting it in a label.
 - Comments explain *why* in plain words; each file opens with a banner
   describing the system. Keep that style.
 
@@ -84,8 +88,8 @@ DISPLAY=:99 import -window root shot.png                    # then view shot.png
 
 Big files: **don't read them whole.** Use `grep -n "// ──"` to list their
 sections, then read only the range you need.
-`main.cpp` 2.2k lines, `IslandGenerator.h` 2.3k, `Decorations.h` 1k,
-`CharacterModel.h` 1k, `PlayerInteraction.h` 0.9k, `MainMenuScreen.h` 0.9k.
+`main.cpp` 3.9k lines, `IslandGenerator.h` 2.3k, `MainMenuScreen.h` 1k,
+`Decorations.h` 1k, `CharacterModel.h` 1k, `PlayerInteraction.h` 0.9k.
 
 | Folder | What's in it | Start with |
 |---|---|---|
@@ -165,7 +169,7 @@ sections, then read only the range you need.
   - flat: `FlatGenerator.h`
   - plants, trees, landmarks: `world/Decorations.h` + `decorations.toml`
 - **Saving:** `world/WorldSaveManager.h` (`saves/` and `devworlds/`), `server/SaveStaging.h`. Per-world files: `world.vxrp`, chunk edits, `structures.dat`, `containers.dat`, `npcs.dat`, `player.dat`, `lowres.dat`.
-- **Shader effects and their toggles:** every effect must have a plain option (Eddie): `gSettings.plantStyle`, `waterStyle` (Settings screen, settings.toml `[world]`) → uniforms `uPlantStyle`, `uWaterStyle` set in `renderer/OpenGLRenderer.h`. Plants: `shaders/chunk.vert` sprite branch (offset, bent normal, wind from `render/Wind.h`); water: `shaders/chunk.frag` (flow map `uFlow` from `TerrainGenerator::flowAt` via `WorldStreamer::bakeFlow`)
+- **Shader effects and their toggles:** every effect must have a plain option (Eddie). In `game/Settings.h` (Settings screen; settings.toml `[world]` / `[view]`): `plantStyle`, `waterStyle`, `glassStyle`, `roofStyle`, `sunShading`, `terrainShadows`, `cloudShadows`, plus `renderScale` and `occlusion` (hidden chunk culling). `uPlantStyle`, `uWaterStyle` are set in `renderer/OpenGLRenderer.h`; glass changes the mesher's table (main.cpp rebuilds it), roofs switch `RoofRenderer` on or off, the terrain light ones are in `render/TerrainLight.h` / `shaders/terrainlight.glsl`. Plants: `shaders/chunk.vert` sprite branch (offset, bent normal, wind from `render/Wind.h`); water: `shaders/chunk.frag` (flow map `uFlow` from `TerrainGenerator::flowAt` via `WorldStreamer::bakeFlow`)
 - **Light:** `world/LightBake.h` (baked RGB + sky cells), `render/Sky.h`, `world/DayClock.h`
 
 ## Data (`data/`)

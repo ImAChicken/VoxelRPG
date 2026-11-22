@@ -23,8 +23,11 @@ mark yours there.
   a server the watched world streaming round the far end.
 - **The canyon village** (island generator, older): check its look in
   game (seed 42, world 5056, 9280); its plaza was a grey disc with a
-  river through it. See HANDOFF.md "In progress when this session
-  stopped".
+  river through it. See docs/handoff-history.md "In progress when this
+  session stopped".
+- **F2 (Screenshot) does nothing:** the key is bound (keyboard.toml, `InputAction::Screenshot`) but no code handles
+  it. The friends' readme says to use Windows' own screenshot keys for now; wire it up (save a PNG next to the
+  game) or drop the binding.
 - Interacting with a gate in combat on a server: Eddie saw it fail
   once, then work. Couldn't reproduce here (single player, pad and
   keys, main gate and crypt gate). Watch for it.
@@ -389,10 +392,10 @@ Ordered roughly by when; see the notes under each.
 
 ## Known gaps
 - Caves are only pits at cave cells
-- Water and lava are static (no flow)
-- The island generator's settlements are still flattened plazas: the village generator (game/Village.h) isn't hooked into world generation yet; use the `village` command
+- Water and lava don't spread: rivers only look like they run (the chunk shader moves the surface along the generator's flow); water or lava a player places stays where it's put
+- Island villages are built at the generator's sites (`GameSession::tickVillages`), but the canyon village's plaza still needs a look (see Open issues)
 - Distant terrain shows player edits only for chunks that have been loaded at least once (remembered in lowres.dat)
-- No real-time shadows: shading is baked sky light plus sun facing
+- No real-time shadows from buildings, trees or bodies: shading is baked sky light, sun facing and the coarse terrain shadows (hills shade, houses don't)
 - Light bake is 50–110 ms per column on one worker; fine for streaming, could be trimmed
 - Canyon rivers fill the whole floor in the deepest gorges; a dry gravel strip beside the water would read better
 - Side canyons (shorter branches joining the main ones) not done yet

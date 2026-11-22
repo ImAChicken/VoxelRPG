@@ -35,8 +35,8 @@ MAKE THE DOWNLOADS FOR FRIENDS
 
 TESTS
 -----
-All of them (hit_test takes a few minutes):
-    foreach ($t in "ragdoll","woodcut","combat","sim","npc","anim","inventory","hit","flat","spawner","chest","icon","build","server","net") { & ".\build\bin\Release\${t}_test.exe" | Select-Object -Last 1; "$t" }
+All of them (hit_test takes a few minutes), every *_test in the folder:
+    Get-ChildItem .\build\bin\Release\*_test.exe | ForEach-Object { & $_.FullName | Select-Object -Last 1; $_.BaseName }
   Each should end with "all passed".
 One of them, with every line:
     .\build\bin\Release\net_test.exe
