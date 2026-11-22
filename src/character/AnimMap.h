@@ -17,6 +17,12 @@ struct AnimMap {
         combatIdle = -1, airUp = -1, airDown = -1, roll = -1, guard = -1, guardShield = -1;
     float walkSpeed = 9.6f, runSpeed = 52.7f, sprintSpeed = 81.2f, crouchSpeed = 7.4f;   // the clips' own speeds
     float walkToRun = 18.0f, runToSprint = 46.0f, blendWidth = 5.0f;                       // where they hand over
+    // Hit reactions (CharacterAnimator's reaction layer): a stumble
+    // (high: hit on the head), a broken guard, parried and open, the
+    // fall's shape while knocked down, dying, getting up off the back
+    int stagger = -1, staggerHigh = -1, guardBreak = -1, exposed = -1, knockdown = -1, death = -1, getUp = -1;
+    float getUpFrom = 0.1f;            // s into the get-up clip it starts (the clip's first moment just lies there)
+    float lean = 1.0f;                 // × how far hits lean the body (the lean spring; 0: off)
     std::unordered_map<std::string, int> attacks;      // moveset attack id → clip
     // Where each attack clip strikes (fractions of the clip): the
     // clip is played so this part fills the attack's hit window
@@ -38,6 +44,16 @@ struct AnimMap {
             idle = clip("idle"); walk = clip("walk"); run = clip("run"); sprint = clip("sprint");
             crouchIdle = clip("crouch_idle"); crouchWalk = clip("crouch_walk"); combatIdle = clip("combat_idle");
             airUp = clip("air_up"); airDown = clip("air_down"); roll = clip("roll"); guard = clip("guard"); guardShield = clip("guard_shield");
+            auto react = [&](const char* key) {
+                std::string n = t["reactions"][key].value_or(std::string());
+                int c = n.empty() ? -1 : gAnims.find(n);
+                if (!n.empty() && c < 0) std::cerr << path << ": no clip '" << n << "' (reactions." << key << ")\n";
+                return c;
+            };
+            stagger = react("stagger"); staggerHigh = react("stagger_high"); guardBreak = react("guard_break");
+            exposed = react("exposed"); knockdown = react("knockdown"); death = react("death"); getUp = react("get_up");
+            getUpFrom = std::max(0.0f, (float)t["reactions"]["get_up_from"].value_or(0.1));
+            lean = std::max(0.0f, (float)t["reactions"]["lean"].value_or(1.0));
             walkSpeed = (float)t["speeds"]["walk"].value_or(9.6);
             runSpeed = (float)t["speeds"]["run"].value_or(52.7);
             sprintSpeed = (float)t["speeds"]["sprint"].value_or(81.2);

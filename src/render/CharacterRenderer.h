@@ -12,6 +12,7 @@
 #include "../character/CharacterAnimator.h"
 #include "../character/HeldItemModel.h"
 #include "../character/FaceComposer.h"
+#include "../character/MonsterModel.h"
 
 // ══════════════════════════════════════════════════════════
 // Character — one human's look, meshes, face and animation
@@ -312,6 +313,52 @@ layout(location = 1) out vec4 outAlbedo;   // a = which part (body, hair, hat �
 layout(location = 2) out vec4 outGlow;
 void main() { outNormal = vec4(normalize(vN) * 0.5 + 0.5, 1.0); outAlbedo = vec4(vColor, vPart / 255.0); outGlow = uGlow; }
 )");
+        // ── Monsters (character/MonsterModel.h): a mesh skinned to its own
+        // skeleton, up to 4 bones a vertex; the same toon bands, and into
+        // the same edge buffer as the characters
+        static const char* MON_VS = R"(#version 460 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec3 aColor;
+layout(location = 3) in uvec4 aBone;
+layout(location = 4) in vec4 aWeight;
+uniform mat4 uViewProj; uniform mat4 uView; uniform vec3 uCamPos; uniform vec4 uClip;
+uniform mat4 uSkin[64];          // per bone: rest → posed, in the world
+out vec3 vColor; out vec3 vNormal; out vec3 vViewN; out float vDist;
+void main() {
+    mat4 M = uSkin[aBone.x] * aWeight.x + uSkin[aBone.y] * aWeight.y + uSkin[aBone.z] * aWeight.z + uSkin[aBone.w] * aWeight.w;
+    vec4 world = M * vec4(aPos, 1.0);
+    gl_ClipDistance[0] = dot(vec4(world.xyz, 1.0), uClip);
+    vNormal = mat3(M) * aNormal;
+    vViewN = mat3(uView) * vNormal;
+    vColor = aColor; vDist = length(world.xyz - uCamPos);
+    gl_Position = uViewProj * world;
+})";
+        monBody = link(MON_VS, R"(#version 460 core
+in vec3 vColor; in vec3 vNormal; in vec3 vViewN; in float vDist;
+uniform vec3 uFogColor; uniform float uFogDensity;
+uniform vec3 uLightDir; uniform vec3 uSkyTint; uniform vec3 uBlockTint;
+uniform vec4 uFlash;             // rgb, a = how much (a hit's flash)
+out vec4 outColor;
+void main() {
+    // (the characters' toon light: three hard steps of the sun or moon over a soft fill)
+    vec3 n = normalize(vNormal);
+    float d = max(dot(n, uLightDir), 0.0);
+    float ramp = d < 0.25 ? 0.49 : (d < 0.5 ? 0.76 : 1.0);
+    vec3 fill = mix(vec3(0.80, 0.75, 0.93), vec3(1.0), n.y * 0.5 + 0.5);
+    vec3 c = vColor * (uSkyTint * fill * (0.55 + 0.45 * ramp) + uBlockTint);
+    c = mix(c, uFlash.rgb, uFlash.a);
+    float fog = 1.0 - exp(-vDist * uFogDensity);
+    outColor = vec4(mix(c, uFogColor, fog), 1.0);
+})");
+        monNormals = link(MON_VS, R"(#version 460 core
+in vec3 vColor; in vec3 vNormal; in vec3 vViewN; in float vDist;
+uniform vec4 uGlow;
+layout(location = 0) out vec4 outNormal;
+layout(location = 1) out vec4 outAlbedo;
+layout(location = 2) out vec4 outGlow;
+void main() { outNormal = vec4(normalize(vViewN) * 0.5 + 0.5, 1.0); outAlbedo = vec4(vColor, 0.0); outGlow = uGlow; }
+)");
         edges = link(R"(#version 460 core
 const vec2 P[3] = vec2[3](vec2(-1,-1), vec2(3,-1), vec2(-1,3));
 void main() { gl_Position = vec4(P[gl_VertexID], 0.0, 1.0); }
@@ -389,7 +436,7 @@ void main() {
     gl_FragDepth = depth - 0.00002;
     outColor = c;
 })");
-        if (!body || !face || !normals || !edges) return false;
+        if (!body || !face || !normals || !edges || !monBody || !monNormals) return false;
 
         // face card corners
         const float q[12] = { -0.5f,-0.5f, 0.5f,-0.5f, 0.5f,0.5f, -0.5f,-0.5f, 0.5f,0.5f, -0.5f,0.5f };
@@ -405,8 +452,10 @@ void main() {
     }
 
     void cleanup() {
-        for (GLuint p : { body, face, normals, edges }) if (p) glDeleteProgram(p);
-        body = face = normals = edges = 0;
+        for (GLuint p : { body, face, normals, edges, monBody, monNormals }) if (p) glDeleteProgram(p);
+        body = face = normals = edges = monBody = monNormals = 0;
+        for (auto& [m, g] : monMeshes) { if (g.vbo) glDeleteBuffers(1, &g.vbo); if (g.vao) glDeleteVertexArrays(1, &g.vao); }
+        monMeshes.clear();
         if (quadVbo) glDeleteBuffers(1, &quadVbo);
         if (quadVao) glDeleteVertexArrays(1, &quadVao);
         if (emptyVao) glDeleteVertexArrays(1, &emptyVao);
@@ -488,10 +537,40 @@ void main() {
     }
 
     // (xform, clip: as above, for a body at a portal)
+    // A monster instead of a character: its model and its bones'
+    // skinning matrices in the world (ch null)
     struct Placed {
         const Character* ch; glm::vec3 feet; glm::vec4 glow = glm::vec4(0.0f);
         glm::mat4 xform = glm::mat4(1.0f); glm::vec4 clip = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        const MonsterModel* mon = nullptr; const std::vector<glm::mat4>* skin = nullptr;
     };
+
+    // Colour pass for a monster: skin = each bone's rest → posed matrix
+    // in the world (MonsterModel::skin, then placed); flash: a hit's
+    // flash (rgb, a = how much)
+    void drawMonster(const MonsterModel& m, const std::vector<glm::mat4>& skin, const glm::mat4& viewProj,
+                     glm::vec3 camPos, glm::vec3 fogColor, float fogDensity, glm::vec4 flash = glm::vec4(0.0f)) {
+        const MonGpu* g = monMesh(m);
+        if (!monBody || !g || skin.empty()) return;
+        glEnable(GL_CLIP_DISTANCE0);
+        glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS);
+        glEnable(GL_CULL_FACE); glCullFace(GL_BACK); glFrontFace(GL_CCW);
+        glUseProgram(monBody);
+        glUniformMatrix4fv(loc(monBody, "uViewProj"), 1, GL_FALSE, glm::value_ptr(viewProj));
+        glUniform3f(loc(monBody, "uCamPos"), camPos.x, camPos.y, camPos.z);
+        glUniform3f(loc(monBody, "uFogColor"), fogColor.r, fogColor.g, fogColor.b);
+        glUniform1f(loc(monBody, "uFogDensity"), fogDensity);
+        glUniform3f(loc(monBody, "uLightDir"), lightDir.x, lightDir.y, lightDir.z);
+        glUniform3f(loc(monBody, "uSkyTint"), skyTint.x, skyTint.y, skyTint.z);
+        glUniform3f(loc(monBody, "uBlockTint"), blockTint.x, blockTint.y, blockTint.z);
+        glUniform4fv(loc(monBody, "uClip"), 1, glm::value_ptr(clip));
+        glUniform4fv(loc(monBody, "uFlash"), 1, glm::value_ptr(flash));
+        uploadSkin(monBody, skin);
+        glBindVertexArray(g->vao);
+        glDrawArrays(GL_TRIANGLES, 0, g->count);
+        glBindVertexArray(0);
+        glDisable(GL_CLIP_DISTANCE0);
+    }
 
     // Edge lines for the characters just drawn. The viewport is
     // the one they were drawn in; fbW/fbH the whole framebuffer.
@@ -524,6 +603,20 @@ void main() {
         GLint lc = loc(normals, "uClip");
         glEnable(GL_CLIP_DISTANCE0);
         for (const Placed& p : list) {
+            if (p.mon && p.skin) {                     // a monster: its own program
+                const MonGpu* g = monMesh(*p.mon);
+                if (!g) continue;
+                glUseProgram(monNormals);
+                glUniformMatrix4fv(loc(monNormals, "uViewProj"), 1, GL_FALSE, glm::value_ptr(vp));
+                glUniformMatrix4fv(loc(monNormals, "uView"), 1, GL_FALSE, glm::value_ptr(view));
+                glUniform4fv(loc(monNormals, "uGlow"), 1, glm::value_ptr(p.glow));
+                glUniform4fv(loc(monNormals, "uClip"), 1, glm::value_ptr(p.clip));
+                uploadSkin(monNormals, *p.skin);
+                glBindVertexArray(g->vao);
+                glDrawArrays(GL_TRIANGLES, 0, g->count);
+                glUseProgram(normals);
+                continue;
+            }
             if (!p.ch || !p.ch->ready()) continue;
             glUniform4fv(lg, 1, glm::value_ptr(p.glow));
             glUniform4fv(lc, 1, glm::value_ptr(p.clip));
@@ -602,7 +695,34 @@ void main() {
     }
 
 private:
-    GLuint body = 0, face = 0, normals = 0, edges = 0;
+    GLuint body = 0, face = 0, normals = 0, edges = 0, monBody = 0, monNormals = 0;
+    // each monster model's mesh on the GPU, made the first time it's drawn
+    struct MonGpu { GLuint vao = 0, vbo = 0; GLsizei count = 0; };
+    std::map<const MonsterModel*, MonGpu> monMeshes;
+    const MonGpu* monMesh(const MonsterModel& m) {
+        auto it = monMeshes.find(&m);
+        if (it != monMeshes.end()) return it->second.count ? &it->second : nullptr;
+        MonGpu& g = monMeshes[&m];
+        if (m.verts.empty()) return nullptr;
+        glGenVertexArrays(1, &g.vao); glGenBuffers(1, &g.vbo);
+        glBindVertexArray(g.vao);
+        glBindBuffer(GL_ARRAY_BUFFER, g.vbo);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(m.verts.size() * sizeof(MonsterVertex)), m.verts.data(), GL_STATIC_DRAW);
+        const GLsizei st = sizeof(MonsterVertex);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, st, (void*)offsetof(MonsterVertex, x));
+        glVertexAttribPointer(1, 3, GL_BYTE, GL_TRUE, st, (void*)offsetof(MonsterVertex, nx));
+        glVertexAttribPointer(2, 3, GL_UNSIGNED_BYTE, GL_TRUE, st, (void*)offsetof(MonsterVertex, r));
+        glVertexAttribIPointer(3, 4, GL_UNSIGNED_BYTE, st, (void*)offsetof(MonsterVertex, bone));
+        glVertexAttribPointer(4, 4, GL_UNSIGNED_BYTE, GL_TRUE, st, (void*)offsetof(MonsterVertex, weight));
+        for (int i = 0; i < 5; i++) glEnableVertexAttribArray(i);
+        glBindVertexArray(0);
+        g.count = (GLsizei)m.verts.size();
+        return &g;
+    }
+    void uploadSkin(GLuint prog, const std::vector<glm::mat4>& skin) {
+        GLsizei n = (GLsizei)std::min<size_t>(skin.size(), 64);
+        glUniformMatrix4fv(loc(prog, "uSkin"), n, GL_FALSE, glm::value_ptr(skin[0]));
+    }
     GLuint quadVao = 0, quadVbo = 0, emptyVao = 0;
     GLuint fbo = 0, texNormal = 0, texAlbedo = 0, texDepth = 0, texGlow = 0;
     int    fbW = 0, fbH = 0;

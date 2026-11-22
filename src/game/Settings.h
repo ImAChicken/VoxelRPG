@@ -55,6 +55,7 @@ struct GameSettings {
     int controlHints = 1;    // 0 off, 1 on: what the buttons do now, bottom right (out of combat)
     float cameraShake = 1.0f; // 0 off .. 2 double: hits shake the camera (render/CameraShake.h)
     int damageNumbers = 1;   // 0 off, 1 on: damage pops up where a hit lands (yours and on you)
+    int hitPhysics    = 1;   // 0 off, 1 light, 2 full: how much a hit that doesn't knock the body down shakes its ragdoll (physics/Ragdoll.h)
     int rumble    = 2;       // 0 off, 1 light, 2 full: the controller shakes on hits (input/Rumble.h)
     int lightCurve = 1;      // 0 classic, 1 gentle: how torch light fades with distance (the shaders' blockCurve)
     int particles = 2;       // 0 off, 1 fewer, 2 all: sparks, dust and splats (render/Particles.h)
@@ -85,7 +86,7 @@ struct GameSettings {
         plantStyle = 1; waterStyle = 1; roofStyle = 1; glassStyle = 1;
         autosave = 1;
         controlHints = 1;
-        rumble = 2; particles = 2; lightCurve = 1; occlusion = 1; renderScale = 0; sunShading = 1; terrainShadows = 1; cloudShadows = 0; cameraShake = 1.0f; damageNumbers = 1;
+        rumble = 2; particles = 2; lightCurve = 1; occlusion = 1; renderScale = 0; sunShading = 1; terrainShadows = 1; cloudShadows = 0; cameraShake = 1.0f; damageNumbers = 1; hitPhysics = 1;
         masterVolume = 0.8f; effectsVolume = 1.0f; voiceVolume = 1.0f; ambienceVolume = 0.7f; soundWalls = 1;
     }
 
@@ -108,6 +109,7 @@ struct GameSettings {
         rumble        = std::clamp(rumble, 0, 2);
         cameraShake   = std::clamp(cameraShake, 0.0f, 2.0f);
         damageNumbers = std::clamp(damageNumbers, 0, 1);
+        hitPhysics    = std::clamp(hitPhysics, 0, 2);
         particles     = std::clamp(particles, 0, 2);
         lightCurve    = std::clamp(lightCurve, 0, 1);
         occlusion     = std::clamp(occlusion, 0, 1);
@@ -141,6 +143,7 @@ struct GameSettings {
             rumble        = (int)t["game"]["rumble"].value_or((int64_t)rumble);
             cameraShake   = (float)t["game"]["camera_shake"].value_or((double)cameraShake);
             damageNumbers = (int)t["game"]["damage_numbers"].value_or((int64_t)damageNumbers);
+            hitPhysics    = (int)t["game"]["hit_physics"].value_or((int64_t)hitPhysics);
             particles     = (int)t["game"]["particles"].value_or((int64_t)particles);
             lightCurve    = (int)t["game"]["light_fade"].value_or((int64_t)lightCurve);
             occlusion     = (int)t["view"]["occlusion"].value_or((int64_t)occlusion);
@@ -194,6 +197,7 @@ struct GameSettings {
           << "rumble = " << rumble << "   # 0 off, 1 light, 2 full: the controller shakes on hits\n"
           << "camera_shake = " << cameraShake << "   # 0 off .. 2 double: hits shake the camera\n"
           << "damage_numbers = " << damageNumbers << "   # 0 off, 1 on: damage pops up where a hit lands\n"
+          << "hit_physics = " << hitPhysics << "   # 0 off, 1 light, 2 full: how much a hit that doesn't knock you down shakes the body\n"
           << "particles = " << particles << "   # 0 off, 1 fewer, 2 all: sparks, dust and splats\n"
           << "light_fade = " << lightCurve << "   # 0 classic (squared), 1 gentle: how torch light fades\n\n"
           << "[sound]\n"

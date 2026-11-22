@@ -455,7 +455,7 @@ public:
             if (findStandingSpot(p.x, p.z, Human::RADIUS, Human::STAND_HEIGHT, spot))
                 h.position = spot;
             h.velocity = glm::vec3(0.0f);
-            h.getUpGrace = Ragdoll::RECOVER_TIME + combat::GETUP_GRACE;   // untouchable getting up, and a moment after
+            h.getUpGrace = rd.recoverTime() + combat::GETUP_GRACE;   // untouchable getting up, and a moment after
         }
     }
 

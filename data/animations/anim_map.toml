@@ -24,6 +24,31 @@ roll          = "Roll"
 guard         = "Sword_Block"
 guard_shield  = "Idle_Shield_Loop"   # guarding with a shield in the off hand
 
+# Hit reactions (character/CharacterAnimator.h). The simulation picks
+# the reaction (game/CombatHits.h); these say how it looks. Every hit
+# also kicks a lean spring (the body rocks away from it, the head a
+# beat later), so a flinch needs no clip.
+#   stagger       a stumble (a heavy, a broken poise)
+#   stagger_high  … from a hit on the head
+#   guard_break   the guard knocked open
+#   exposed       parried: reeling, open to a riposte
+#   knockdown     the shape the ragdoll's limbs reach for as it falls
+#   death         the same, dying
+#   get_up        getting up off its back (a body face down still
+#                 pushes itself up the old way)
+#   get_up_from   s into get_up to start (it lies still at first)
+#   lean          × how far hits lean the body (0: no lean)
+[reactions]
+stagger      = "Hit_Chest"
+stagger_high = "Hit_Head"
+guard_break  = "Idle_Shield_Break"
+exposed      = "Hit_Chest"
+knockdown    = "Hit_Knockback"
+death        = "Death01"
+get_up       = "LayToIdle"
+get_up_from  = 0.1
+lean         = 1.0
+
 # How fast (vox/s) the body moves when each moving clip plays at
 # its normal speed (measured from the packs' root-motion
 # versions). A clip plays faster or slower to match the real

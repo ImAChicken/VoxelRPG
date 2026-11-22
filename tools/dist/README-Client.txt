@@ -5,7 +5,7 @@ most useful thing you can do (see "Reporting a problem" at the end).
 
 1. Unzip this folder anywhere (Desktop is fine). Keep the files together.
 2. Double-click VoxelRPG.exe. A text window opens beside the game: leave
-   it open, it's the game's log.
+   it open. Everything it says is also saved in the logs folder.
    Windows may say "Windows protected your PC" the first time, because the
    game isn't signed: click "More info", then "Run anyway".
 
@@ -51,7 +51,7 @@ Tab      lock on       E      interact    I     inventory
 1 2      off-hand slots    3-0 / wheel  hotbar
 In combat: 1 2 3 use your abilities, 4 5 6 the next one in each
            slot, hold Alt and press 1-8 for quick spells
-F5       camera        Esc    menu
+F5       camera        F2     screenshot  Esc   menu
 Change them in Esc -> Controls.
 
 Controller
@@ -86,13 +86,15 @@ Known problems (no need to report these)
 - On a server, "Close" in the gate's menu doesn't close the dungeon.
 - Turning the camera fast near a gate on a server can show flickering
   bits of the world for a moment.
-- F2 doesn't take a screenshot yet: use Windows' own (Win + Shift + S).
 
 Reporting a problem
 -------------------
 Send the host (or whoever gave you the game):
 - what you were doing, and what happened instead
-- a screenshot (Win + Shift + S) if it's something you can see
-- the last lines of the text window that opened with the game (select
-  them and press Enter to copy, or take a screenshot of it)
-- the contents of version.txt, which says which build this is
+- a screenshot if it's something you can see: press F2 in game, it's
+  saved in the screenshots folder next to the game
+- logs\game.txt from the game's folder (logs\game-previous.txt is the
+  time before, if you've started the game again since)
+- if the game crashed: the logs\crash-....txt it left (a message box
+  says which), and the crash-....dmp beside it if they ask for it
+- version.txt, which says which build this is

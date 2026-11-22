@@ -264,6 +264,7 @@ inline float startReaction(Human& b, React r, glm::vec3 push, glm::vec3 point, f
     if (b.isPlayer()) stun *= PLAYER_STUN;
     b.hitstun = std::max(b.hitstun, stun);
     b.react = r; b.reactDir = flat; b.reactAge = 0.0f;
+    b.reactBone = ev.bone; b.guardBroke = ev.guardBroken;     // (for the animation: a high hit, a broken guard)
     ev.hitstun = b.hitstun;
     // a heavier body is thrown less
     float weight = std::clamp(75.0f / std::max(b.mass, 20.0f), 0.6f, 1.3f);
@@ -287,7 +288,7 @@ inline float startReaction(Human& b, React r, glm::vec3 push, glm::vec3 point, f
     b.pendingSlide = REACT_SLIDE[ri];
     // the limbs give way with it (the ragdoll shakes, never falls)
     glm::vec3 wob = glm::normalize(flat + glm::vec3(0.0f, r == React::Launch ? 0.6f : 0.15f, 0.0f));
-    float sp = Ragdoll::KNOCKDOWN_DV * REACT_WOBBLE * (r == React::Flinch ? 0.6f : 1.0f);
+    float sp = Ragdoll::KNOCKDOWN_DV * REACT_WOBBLE[ri];
     b.hit(point, wob * sp * std::max(b.mass, 1.0f), true);
     return 0.0f;
 }
@@ -348,6 +349,7 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
         a.exposed = EXPOSED_TIME;
         glm::vec3 back = -away;
         knockBody(a, a.bodyPoint(0.7f), back, 0.1f, PARRY_KNOCK);
+        a.hurt(a.bodyPoint(0.8f), back, HURT_PARRIED);
         b.guardTime = gs.parry + 1.0f;               // one parry per raise
         a.hitStop = b.hitStop = HITSTOP_PARRY;       // the clash holds both
         return ev;
@@ -411,6 +413,9 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
         b.ragdoll.stayDown = true;
     }
     knockBody(b, ev.point - push * 1.0f, push, d.lift, knock);
+    // the lean spring: how big a hit it looks (a fall is the ragdoll's)
+    if (!ev.knockedDown && !ev.killed)
+        b.hurt(ev.point, push, ev.blocked && !ev.guardBroken ? HURT_BLOCKED : HURT_SIZE[(int)ev.react]);
     // a bigger reaction holds a little longer
     if (ev.react == React::Launch || ev.react == React::Slam) stopFor *= 1.3f;
     // both bodies hold for a moment (the attacker's swing too); then
@@ -453,6 +458,7 @@ inline bool shotHit(Human& b, uint64_t attacker, float dmg, float poiseDmg, floa
         if (b.stamina < 0.0f) { b.stamina = 0.0f; ev.guardBroken = true; startReaction(b, React::Stumble, flat, point, -1.0f, 0.0f, ev); }
         ev.damage = 0.0f;
         b.hitStop = std::max(b.hitStop, HITSTOP_LIGHT * HITSTOP_BLOCKED);
+        b.hurt(point, flat, ev.guardBroken ? HURT_SIZE[(int)React::Stumble] : HURT_BLOCKED);
         return true;
     }
     b.health = std::max(0.0f, b.health - dmg);
@@ -471,6 +477,7 @@ inline bool shotHit(Human& b, uint64_t attacker, float dmg, float poiseDmg, floa
     else if (ev.poiseBroken || (!armoredNow && reactTier(r) > b.armor)) k = startReaction(b, r, flat, point, -1.0f, charge, ev);
     else k = std::min(knock, FLINCH_KNOCK);
     knockBody(b, point, flat, 0.1f, k);
+    if (!ev.knockedDown) b.hurt(point, flat, HURT_SIZE[(int)ev.react]);
     b.sinceHurt = 0.0f;
     b.lastHitBy = attacker;
     b.hitStop = std::max(b.hitStop, HITSTOP_LIGHT * (1.0f + 0.5f * charge));

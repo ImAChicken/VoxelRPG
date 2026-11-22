@@ -169,6 +169,11 @@ public:
     float       stuckFor = 0.0f;
     bool        untouchable = false;   // in a protected menu: hits don't land
     float       contactReadyAt = 0.0f; // world time it may hurt by touch again (Simulation::contactDamage)
+    // A swing (NpcType::swings; Simulation::swingTick): which one (-1:
+    // none), s into its clip, and whether it has hit yet
+    int         swing = -1;
+    float       swingT = 0.0f;
+    bool        swingDone = false;
 
     // ── Context steering in a fight (npc/ContextSteering.h) ─
     steer::Map  steerMap;              // the last answer (shown by 'debug steering')

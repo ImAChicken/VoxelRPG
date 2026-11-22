@@ -391,8 +391,17 @@ private:
         // touching (Simulation::contactDamage). The lunge decides
         // its fighting range
         const bool hopper = n.hop.on;
-        const float reach = hopper && n.type ? std::max(6.0f, n.type->lungeRange * 0.85f) : FIGHT_RANGE * n.scale;
+        // a swinger (a monster model with swings): no weapon, no guard,
+        // no rolls; it swings what it has (Simulation::swingTick)
+        const bool swinger = n.type && !n.type->swings.empty();
+        float reach = hopper && n.type ? std::max(6.0f, n.type->lungeRange * 0.85f) : FIGHT_RANGE * n.scale;
+        if (swinger) {
+            reach = 0.0f;
+            for (const NpcType::Swing& sw : n.type->swings) reach = std::max(reach, sw.reach);
+            reach *= 0.8f;
+        }
         if (hopper) in.sprint = false;                 // (sprint is its lunge: only the attack asks)
+        if (swinger && n.swing >= 0) { in.move = glm::vec2(0.0f); return; }   // mid-swing: planted
         bool busy = n.attack.active() || n.move != Human::Move::None || n.hop.lunging;
         float aggression = n.type ? n.type->aggression : 0.7f;
         const bool horde = n.type && n.type->style == "horde";
@@ -404,7 +413,7 @@ private:
         glm::vec3 spot = tp;
         bool engage = true;
         bool slotted = n.seesTarget && w.slotSpot(n, t, spot, engage, dt);
-        bool attackingNow = n.attack.active() || n.hop.lunging;
+        bool attackingNow = n.attack.active() || n.hop.lunging || n.swing >= 0;
         if (!attackingNow && wasAttacking) { w.releaseAttack(n); }
         wasAttacking = attackingNow;
 
@@ -412,7 +421,7 @@ private:
         // Like a person: it has to see the swing coming for a moment
         // first (reaction: a quick light is on it before it can), and
         // it sizes each swing up once (read_chance), not every tick
-        if (!hopper && !busy && t.attack.active() && dist < FIGHT_RANGE + 4.0f && n.seesTarget) {
+        if (!hopper && !swinger && !busy && t.attack.active() && dist < FIGHT_RANGE + 4.0f && n.seesTarget) {
             const AttackDef& d = t.attack.def();
             bool fresh = readDef != &d || t.attack.t < readT;
             float until = d.activeStart - t.attack.t;
@@ -480,9 +489,9 @@ private:
             if ((slotted && offSpot > 12.0f) || (!slotted && dist > reach + 12.0f)) { to(Sub::Approach, 0); break; }
             if (subTime <= 0.0f) {
                 float r = n.rand01();
-                if (n.stamina < 35.0f && !hopper && !horde) to(Sub::Guard, 1.0f);
+                if (n.stamina < 35.0f && !hopper && !horde && !swinger) to(Sub::Guard, 1.0f);
                 else if (!targetDown && r < aggression && w.requestAttack(n)) to(Sub::Attack, hopper ? 4.0f : 2.0f);   // its turn (a hopper's hops take longer)
-                else if (hopper || horde) to(Sub::Circle, n.randRange(0.2f, 0.6f));
+                else if (hopper || horde || swinger) to(Sub::Circle, n.randRange(0.2f, 0.6f));
                 else if (n.rand01() < 0.25f) to(Sub::Guard, n.randRange(0.5f, 1.0f));
                 else {
                     // not its turn: keeps moving round, watching (now
@@ -511,6 +520,21 @@ private:
                 in.sprint = true;
                 break;
             }
+            if (swinger) {
+                // close in, then one of its swings, picked by weight
+                if (dist > reach) { n.walkTo(w, tp, 1.0f, false, reach - 2.0f); n.facing = glm::vec3(dir.x, 0, dir.y); break; }
+                const auto& sws = n.type->swings;
+                float total = 0.0f;
+                for (const NpcType::Swing& sw : sws) total += sw.weight;
+                float r = n.rand01() * total;
+                int k = 0;
+                for (; k + 1 < (int)sws.size(); k++) { if (r < sws[k].weight) break; r -= sws[k].weight; }
+                n.facing = glm::vec3(dir.x, 0, dir.y);
+                n.swing = k; n.swingT = 0.0f; n.swingDone = false;
+                wasAttacking = true;
+                to(Sub::Recover, n.randRange(0.4f, 0.9f));
+                break;
+            }
             if (dist > reach - 2.0f) { n.walkTo(w, tp, 1.0f, false, reach - 3.0f); n.facing = glm::vec3(dir.x, 0, dir.y); break; }
             if (n.rand01() < 0.25f) in.attackHeavy = true;
             else { in.attackLight = true; comboLeft = n.rand01() < 0.5f ? 1 : 0; }
@@ -518,7 +542,7 @@ private:
             to(Sub::Recover, n.randRange(0.3f, 0.8f));
             break;
         case Sub::Guard:
-            if (hopper || horde) { to(Sub::Circle, 0.3f); break; }
+            if (hopper || horde || swinger) { to(Sub::Circle, 0.3f); break; }
             in.guard = true;
             in.move = left * side * 0.4f;
             if (subTime <= 0.0f) to(Sub::Circle, n.randRange(0.4f, 1.0f));

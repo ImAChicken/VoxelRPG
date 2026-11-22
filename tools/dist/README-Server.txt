@@ -44,5 +44,9 @@ Using a world you made in the game: copy its folder from the game's
 saves/ (or devworlds/) into the same place here, and set 'world' to its name.
 Or run the server from the game's own folder.
 
+Something wrong? logs/server.txt has everything the window printed
+(logs/server-previous.txt the run before), and a crash leaves
+logs/crash-....txt: send those to whoever made the build.
+
 Players are saved by name in saves/<world>/players/. The last three saves
 are kept beside the world as .backup-1 to .backup-3.

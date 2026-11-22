@@ -91,6 +91,73 @@ int main() {
         check(hi - lo > 10.0f, "the sword hand sweeps across the body (" + std::to_string(hi - lo) + " in)");
     }
 
+    // ── Hit reactions (CharacterAnimator::reactions) ──
+    std::printf("hit reactions\n");
+    {
+        check(gAnimMap.load("data/animations/anim_map.toml"), "anim_map.toml loads");
+        check(gAnimMap.stagger >= 0 && gAnimMap.getUp >= 0 && gAnimMap.knockdown >= 0 && gAnimMap.guardBreak >= 0,
+              "the reaction clips are there (stagger, get up, knockdown, guard break)");
+        const float DT = 1.0f / 60.0f;
+        // facing +X (yaw 0): a hit from in front pushes toward -X
+        auto settle = [&](CharacterAnimator& an, AnimInput& in) { for (int i = 0; i < 60; i++) an.update(model, in, DT); };
+        {
+            CharacterAnimator an; AnimInput in; settle(an, in);
+            float rest = an.current().rot[B_SPINE].x;
+            in.hurtCount = 1; in.hurtDir = glm::vec3(-1, 0, 0); in.hurtOffset = glm::vec3(0, 4.0f, 0); in.hurtSize = 1.0f;
+            float most = 0.0f;
+            for (int i = 0; i < 12; i++) { an.update(model, in, DT); most = std::min(most, an.lean().x); }
+            std::printf("    a hit from in front: leans back %.1f deg (spine %.1f -> %.1f)\n", -most, rest, an.current().rot[B_SPINE].x);
+            check(most < -6.0f && most > -25.0f, "a hit from in front leans the body back, a little");
+            for (int i = 0; i < 60; i++) an.update(model, in, DT);
+            check(std::fabs(an.lean().x) < 1.0f, "and it settles within a second");
+        }
+        {
+            CharacterAnimator an; AnimInput in; settle(an, in);
+            // pushed toward the body's left (model +X = world -Z at yaw 0)
+            in.hurtCount = 1; in.hurtDir = glm::vec3(0, 0, -1); in.hurtSize = 1.0f;
+            float most = 0.0f;
+            for (int i = 0; i < 12; i++) { an.update(model, in, DT); most = std::min(most, an.lean().z); }
+            check(most < -5.0f, "a push to the left tips the body to the left (roll " + std::to_string(most) + ")");
+            // the same count again: no new kick
+            for (int i = 0; i < 90; i++) an.update(model, in, DT);
+            check(glm::length(an.lean()) < 1.0f, "no kick while the count stays the same");
+        }
+        {
+            // a stumble: the clip shows (differs from the stance), gone at the end
+            CharacterAnimator base, an; AnimInput in; in.combat = true;
+            settle(base, in); settle(an, in);
+            in.react = React::Stumble; in.reactDir = glm::vec3(-1, 0, 0);
+            const float full = 0.65f;
+            float most = 0.0f;
+            for (int i = 0; i * DT < full; i++) {
+                in.reactAge = i * DT; in.reactLeft = full - in.reactAge;
+                const Pose& p = an.update(model, in, DT);
+                AnimInput b2 = in; b2.react = React::None;
+                const Pose& q = base.update(model, b2, DT);
+                for (int b = 0; b < BONE_COUNT; b++) most = std::max(most, glm::length(CharacterAnimator::angleDiff(p.rot[b], q.rot[b])));
+            }
+            check(most > 8.0f, "a stumble plays its clip (" + std::to_string(most) + " deg off the stance)");
+            in.react = React::None; in.reactAge = 0.0f; in.reactLeft = 0.0f;
+            for (int i = 0; i < 30; i++) { an.update(model, in, DT); base.update(model, in, DT); }
+            float after = 0.0f;
+            for (int b = 0; b < BONE_COUNT; b++) after = std::max(after, glm::length(CharacterAnimator::angleDiff(an.current().rot[b], base.current().rot[b])));
+            check(after < 2.0f, "and back to the stance after (" + std::to_string(after) + ")");
+        }
+        {
+            // getting up off the back: lying at the start, standing at the end
+            CharacterAnimator an; AnimInput in; settle(an, in);
+            in.getUp = 0.0f; in.facingYawDeg = 90.0f;
+            const Pose& p0 = an.update(model, in, DT);
+            float lowY = posOf(model, p0, B_HEAD).y;
+            check(std::fabs(p0.bodyYaw - 90.0f) < 0.5f, "it turns to lie the way the body lies at once");
+            for (int i = 0; i <= 66; i++) { in.getUp = std::min(1.0f, i / 66.0f); an.update(model, in, DT); }
+            float highY = posOf(model, an.current(), B_HEAD).y;
+            std::printf("    getting up: head %.1f in -> %.1f in\n", lowY, highY);
+            check(lowY < model.heightIn * 0.35f, "it starts lying down");
+            check(highY > model.heightIn * 0.75f, "and ends on its feet");
+        }
+    }
+
     std::printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);
     return failures ? 1 : 0;
 }

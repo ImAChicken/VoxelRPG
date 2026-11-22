@@ -33,6 +33,25 @@ inline AnimInput animInputFor(const Human& h, bool combat, float pitch) {
     in.attackT      = h.attack.t;
     in.guard        = h.guarding;
     in.shield       = h.guardStyle.shield;
+    // hit reactions (game/CombatHits.h decides them; the animator shows them)
+    in.react       = h.react;
+    in.reactAge    = h.reactAge;
+    in.reactLeft   = h.hitstun;
+    in.reactDir    = h.reactDir;
+    in.reactHigh   = h.reactBone == B_HEAD;
+    in.guardBroken = h.guardBroke;
+    in.exposed     = h.exposed;
+    in.exposedFull = combat::EXPOSED_TIME;
+    in.hurtCount   = h.hurtCount;
+    in.hurtDir     = h.hurtDir;
+    in.hurtOffset  = h.hurtPoint - h.position;
+    in.hurtSize    = h.hurtSize;
+    in.dead        = h.dead();
+    if (h.ragdoll.isLimp()) in.down = h.ragdoll.limpTime();
+    if (h.ragdoll.gettingUpFaceUp()) {
+        in.getUp = h.ragdoll.recoverProgress();
+        in.facingYawDeg = h.ragdoll.upYawDeg();          // the clip lies feet first, head behind
+    }
     switch (h.move) {
     case Human::Move::Roll:
         in.move = AnimInput::Move::Roll;

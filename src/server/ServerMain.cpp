@@ -26,6 +26,9 @@
 //   stop          save, commit and quit   (Ctrl+C does the same)
 //   quit-nosave   quit without committing (the checkpoints are
 //                 set aside next time the world opens)
+#include "app/CrashReport.h"
+#include "app/Log.h"
+#include <ctime>
 #include "GameSession.h"
 #include "ChunkKeeper.h"
 #include "ServerHost.h"
@@ -152,6 +155,16 @@ int main(int argc, char** argv) {
         else if (a == "--port" && i + 1 < argc) cfg.port = std::atoi(argv[++i]);
         else if (a == "--ticks" && i + 1 < argc) maxTicks = std::atol(argv[++i]);
         else if (a.rfind("--", 0) != 0) cfg.world = a;
+    }
+    // logs/server.txt and crash reports in logs/ (app/Log.h, app/CrashReport.h);
+    // not for test runs (--ticks), which would fill the repo's logs/
+    if (maxTicks < 0) applog::start("server.txt");
+    crash::install("VoxelRPG-Server", false);
+    {
+        std::time_t now = std::time(nullptr);
+        char when[32];
+        std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
+        std::cout << "VoxelRPG server started " << when << ", network version " << proto::VERSION << "\n";
     }
     if (!loadData()) { std::cerr << "Couldn't load data/ (run from the game folder)\n"; return 1; }
 

@@ -176,7 +176,15 @@ struct AnimLibrary::Impl {
 };
 
 AnimLibrary::AnimLibrary() : impl(std::make_unique<Impl>()) {}
-AnimLibrary::~AnimLibrary() = default;
+// gAnims lives until the program ends, and the clips and scratch
+// buffers are freed through ozz's heap allocator, which is a static
+// object in the ozz library. At exit the order statics are destroyed
+// in isn't ours to pick: on MSVC ozz's allocator went first, and
+// freeing through it then called a pure virtual function (Eddie's
+// crash-20261122-141647 on quitting). So the library is left for the
+// operating system to take back with the rest of the process
+// (Claude, 2026-11-22).
+AnimLibrary::~AnimLibrary() { (void)impl.release(); }
 
 int AnimLibrary::load(const std::string& dir, const std::string& retarget) {
     impl = std::make_unique<Impl>();

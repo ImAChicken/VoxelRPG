@@ -1116,6 +1116,14 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
             gDebug.on = true;
             c.log(a[0] + (*l ? " on" : " off"));
         });
+    // Checks the crash report (app/CrashReport.h): really crashes the game
+    reg.add("crashtest", "crashtest now", "crash on purpose, to check the crash report in logs/",
+        [](C& c, const Args& a) {
+            if (a.empty() || a[0] != "now") { c.log("this really crashes the game: type  crashtest now"); return; }
+            c.log("crashing...");
+            volatile int* p = nullptr;
+            *p = 1;
+        });
     reg.add("heal", "heal", "full health and stamina",
         [](C& c, const Args&) {
             c.player.health = c.player.maxHealth;

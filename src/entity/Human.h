@@ -261,6 +261,19 @@ public:
     React react = React::None;   // the reaction playing (for the animation and the debug view)
     glm::vec3   reactDir{0.0f};            // the way the hit pushed it
     float       reactAge = 0.0f;           // s since it began
+    int         reactBone = -1;            // the limb the hit landed on (B_HEAD: a high hit; -1 unknown)
+    bool        guardBroke = false;        // the reaction is a broken guard (its own clip)
+    // Every hit that lands (blocked, shrugged off or reacting) kicks
+    // the body's lean spring (character/CharacterAnimator.h): the
+    // animator sees hurtCount change and reads the rest
+    uint16_t    hurtCount = 0;
+    glm::vec3   hurtDir{0.0f};             // the way it pushed (world)
+    glm::vec3   hurtPoint{0.0f};           // where it landed (world voxels)
+    float       hurtSize = 0.0f;           // how hard: 0.3 a blocked hit … 1.6 a launch
+    void hurt(glm::vec3 point, glm::vec3 dir, float size) {
+        if (size <= 0.0f) return;
+        hurtCount++; hurtPoint = point; hurtDir = dir; hurtSize = size;
+    }
     float       pendingLift = 0.0f;        // vox/s up, given with the shove (a launch, a juggle pop, a slam)
     float       pendingSlide = 0.0f;       // s the shove slides before control returns to the legs
     int         juggles = 0;               // hits taken in the air since it last stood (JUGGLE_MAX)
@@ -347,7 +360,7 @@ public:
         guardTime = 0.0f;
         exposed = 0.0f;
         hitStop = 0.0f; pendingShove = glm::vec3(0.0f); shoveTime = 0.0f;
-        hitstun = 0.0f; react = React::None; pendingLift = 0.0f; pendingSlide = 0.0f;
+        hitstun = 0.0f; react = React::None; reactBone = -1; guardBroke = false; pendingLift = 0.0f; pendingSlide = 0.0f;
         juggles = 0; wallHit = false; getUpGrace = 0.0f; slowed = 0.0f; perfectUsed = false;
     }
 };

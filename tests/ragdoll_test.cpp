@@ -104,6 +104,7 @@ static glm::vec3 shoveAt(const Body& b) { return b.rd.point(RP_WAIST) + glm::vec
 static glm::vec3 shove(float dv) { return glm::vec3(0.0f, 0.0f, -1.0f) * dv * 70.0f; }
 
 int main() {
+    Ragdoll::hitPhysics = Ragdoll::HitPhysics::Full;   // these checks are of the full ragdoll (Light and Off: their own section)
     std::printf("ragdoll_test\n");
 
     // ── Body mass ──────────────────────────────────────────
@@ -136,6 +137,32 @@ int main() {
         BoneMats anim, out;
         worldBoneMatrices(b.model, b.pose, b.feet, anim);
         check(!b.rd.renderBones(1.0f, anim, out), "draws the plain animation");
+    }
+
+    // ── Hit physics: Light and Off (Settings > Hit physics) ──
+    {
+        std::printf("hit physics: light, off\n");
+        Ragdoll::hitPhysics = Ragdoll::HitPhysics::Light;
+        Body b;
+        b.tick(5);
+        b.rd.hit(shoveAt(b), shove(28.0f), b.mass.total());          // a hard stagger
+        check(b.rd.state() == Ragdoll::State::Reacting, "light: a stagger still reacts");
+        check(b.rd.shownWeight() <= Ragdoll::LIGHT_SHOW + 1e-4f, "light: at most 30% of the drawn body is ragdoll");
+        check(b.rd.strengthNow() >= Ragdoll::LIGHT_STRENGTH - 1e-4f, "light: the muscles keep 60%");
+        b.tick((int)(0.5f / DT));
+        check(b.rd.shownWeight() < 0.01f, "light: gone from the drawn body in half a second");
+        Body k;
+        k.tick(5);
+        k.rd.hit(shoveAt(k), shove(45.0f), k.mass.total());
+        check(k.rd.state() == Ragdoll::State::Limp && k.rd.shownWeight() >= 1.0f, "light: a knockdown is still all ragdoll");
+        Ragdoll::hitPhysics = Ragdoll::HitPhysics::Off;
+        Body o;
+        o.tick(5);
+        o.rd.hit(shoveAt(o), shove(28.0f), o.mass.total());
+        check(o.rd.state() == Ragdoll::State::Animated && o.rd.shownWeight() == 0.0f, "off: a stagger leaves the ragdoll out of it");
+        o.rd.hit(shoveAt(o), shove(45.0f), o.mass.total());
+        check(o.rd.state() == Ragdoll::State::Limp, "off: a knockdown still falls");
+        Ragdoll::hitPhysics = Ragdoll::HitPhysics::Full;   // the rest of this test: the full ragdoll
     }
 
     // ── Stagger ────────────────────────────────────────────
@@ -179,6 +206,13 @@ int main() {
                             frames * DT, b.chestHeight(), b.rd.point(RP_PELVIS).x, b.rd.point(RP_PELVIS).y,
                             b.rd.point(RP_PELVIS).z);
                 check(b.chestHeight() < 3.0f, "lying on the ground when it gets up");
+                // knocked over backward: on its back, feet still toward +Z
+                // (the get-up clip plays turned that way)
+                std::printf("    lies %s, feet toward %.0f deg, gets up in %.2f s\n",
+                            b.rd.gettingUpFaceUp() ? "on its back" : "face down", b.rd.upYawDeg(), b.rd.recoverTime());
+                check(b.rd.gettingUpFaceUp(), "a body knocked backward lies on its back");
+                check(std::fabs(std::remainder(b.rd.upYawDeg() - 90.0f, 360.0f)) < 60.0f, "its feet point the way it faced");
+                check(b.rd.recoverTime() == Ragdoll::RECOVER_FACE_UP, "off its back it takes the get-up clip's time");
                 // the game moves the capsule under the body here
                 glm::vec3 p = b.rd.point(RP_PELVIS);
                 b.feet = glm::vec3(p.x, 0.0f, p.z);

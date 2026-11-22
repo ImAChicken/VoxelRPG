@@ -128,11 +128,15 @@ void main() {
         glBindVertexArray(0);
     }
 
-    ~ParticleRenderer() {
+    // Called before the GL context goes (main.cpp's shutdown): after it,
+    // deleting would call into a dead context (it crashed on quit)
+    void release() {
         if (vbo) glDeleteBuffers(1, &vbo);
         if (vao) glDeleteVertexArrays(1, &vao);
         if (program) glDeleteProgram(program);
+        vbo = vao = 0; program = 0;
     }
+    ~ParticleRenderer() { release(); }
 
 private:
     struct Inst { glm::vec4 pos, vel, color; };

@@ -29,12 +29,23 @@ notes are in docs/handoff-history.md.
 6. **Windows/MSVC gotchas:** windows.h macros (`near`, `far`, `FAR`, `small`, `min`, `max`) break code that comes after
    them; never include `<windows.h>` from a header, keep Windows calls in their own .cpp (audio/AudioEngine.cpp,
    input/Rumble.cpp). A MinGW cross-compile (`x86_64-w64-mingw32-g++ -fsyntax-only`) catches most of these here.
-7. **The font has no `& ( ) | ' +`:** reword UI text; draw a plus with rects.
+7. **The UI font:** `' ( ) + & ? ;` were added by `tools/gen_font_glyphs.py`; `\` and `^` are still blank. Check any
+   other symbol on screen before using it in a label.
 8. **Say who changed what:** a session's work gets a CHANGELOG.md entry naming it (e.g. "docs pass (Claude, date)").
+9. **Logs are pushed:** `logs/` is tracked by git so agents can read Eddie's logs and crash reports; don't
+   ignore it. Only `logs/*.dmp` (big binary dumps) and `screenshots/` stay out.
 
 ## In progress (more than one agent may be working; mark what you take)
-- Nothing claimed. Start with ROADMAP.md "Open issues" (closing the portal on a server first), then "Next, in order"
-  (combat review; Open to LAN).
+- Done 2026-11-22 (Claude): mushroom monsters (Mushnub, Spiny Mushnub, Mushroom King) as monster models with
+  their own clips, drawn in the characters' toon style; the Hit physics setting; the second quit crash (CHANGELOG).
+  Next on them: the King's Wave / Yes / No clips as spells, placing him (he only comes from `spawn` now), his
+  swings shown on server clients.
+- Done 2026-11-21 (Claude): combat review part 1, hit reactions (lean spring, reaction clips, smaller ragdoll
+  wobble, get-up off the back; CHANGELOG). Next in the combat review: ROADMAP "Next" 1. Minor visual issues can
+  wait (Eddie). ROADMAP "Open issues" has the server portal bugs.
+- **Eddie's logs are in the repo:** `logs/game.txt`, `logs/game-previous.txt`, `logs/server.txt`, `logs/crash-*.txt`
+  are pushed with his commits. Read them when he reports a problem (newest crash report first).
+- Done 2026-11-21 (Claude): logs to `logs/`, crash reports, F2 screenshots, the crash on quit fixed (CHANGELOG).
 - Last sessions (2026-11-21):
   - Claude, docs-only pass: this file trimmed (history moved to docs/handoff-history.md), the friends' readme
     rewritten for the current controls and what works on servers, stale lines fixed in AGENTS.md, ROADMAP.md and

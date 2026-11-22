@@ -51,6 +51,22 @@ struct AnimInput {
     bool  shield  = false;             // … behind a shield (its own guard clip)
     float walkSpeed    = 30.0f;        // for scaling the stride
     float sprintSpeed  = 50.0f;
+    // ── Hit reactions (the simulation decides them: game/CombatHits.h)
+    React react = React::None;         // the reaction playing
+    float reactAge  = 0.0f;            // s into it
+    float reactLeft = 0.0f;            // s of hitstun left
+    glm::vec3 reactDir{0.0f};          // the way it was pushed (world)
+    bool  reactHigh = false;           // a hit on the head
+    bool  guardBroken = false;         // the reaction is a broken guard
+    float exposed = 0.0f, exposedFull = 1.0f;   // parried: s left open, of how long
+    // the lean spring: kicked each time hurtCount changes
+    int   hurtCount = 0;
+    glm::vec3 hurtDir{0.0f};           // the way the hit pushed (world)
+    glm::vec3 hurtOffset{0.0f};        // where it landed, from the feet (world voxels)
+    float hurtSize = 0.0f;
+    float down  = -1.0f;               // s knocked down (the ragdoll lying limp), < 0: not
+    bool  dead  = false;
+    float getUp = -1.0f;               // 0..1 getting up off its back (the get-up clip), < 0: not
 };
 
 struct Pose {
@@ -127,7 +143,7 @@ public:
         float target = in.facingYawDeg;
         float diff = std::remainder(target - pose.bodyYaw, 360.0f);
         pose.bodyYaw += diff * (1.0f - std::exp(-dt * 14.0f));
-        if (firstFrame) { pose.bodyYaw = target; firstFrame = false; }
+        if (firstFrame || (in.getUp >= 0.0f && lastGetUp < 0.0f)) { pose.bodyYaw = target; firstFrame = false; }
 
         std::array<glm::vec3, BONE_COUNT> t{};    // target angles
         glm::vec3 rootOff(0.0f);
@@ -335,6 +351,9 @@ public:
             if (!in.grounded) shown.rootOffset.y -= drop;
         }
 
+        // ── Hit reactions ────────────────────────────────
+        bool ownRoot = reactions(model, in, dt);
+
         // ── Inertialization: no snaps between motions ────
         // When what plays changes at once (an attack starts, a combo
         // goes to its next swing, a dodge cancels a swing, a roll
@@ -344,12 +363,17 @@ public:
         // instead of jumping to it
         {
             bool changed = in.attack != lastAttack || (in.attack && in.attackT + 1e-4f < lastAttackT) ||
-                           in.move != lastMove || in.grounded != lastGrounded;
+                           in.move != lastMove || in.grounded != lastGrounded ||
+                           in.react != lastReact || (in.react != React::None && in.reactAge + 1e-4f < lastReactAge) ||
+                           (in.exposed > 0.0f) != lastExposed;
+            // (not into a fall or a get-up: the ragdoll covers those)
             if (changed && haveLast) {
                 for (int b = 0; b < BONE_COUNT; b++) inertOff[b] = angleDiff(lastOut[b], shown.rot[b]);
                 inertT = 0.0f;
             }
             lastAttack = in.attack; lastAttackT = in.attackT; lastMove = in.move; lastGrounded = in.grounded;
+            lastReact = in.react; lastReactAge = in.reactAge; lastExposed = in.exposed > 0.0f;
+            lastGetUp = in.getUp;
             inertT += dt;
             if (inertT < INERT_TIME) {
                 float u = std::clamp(inertT / INERT_TIME, 0.0f, 1.0f);
@@ -364,7 +388,7 @@ public:
         // Lower the body until the lower foot touches down,
         // so bent knees (crouch, stride, a swing's step) never
         // float
-        if (in.grounded && in.move != AnimInput::Move::Roll && !in.flying) {
+        if (in.grounded && in.move != AnimInput::Move::Roll && !in.flying && !ownRoot) {
             std::array<glm::mat4, BONE_COUNT> mats;
             Pose probe = shown;
             probe.rootOffset.y = 0.0f;
@@ -377,7 +401,12 @@ public:
     }
 
     const Pose& current() const { return shown; }
-    void reset() { pose = shown = Pose(); phase = 0.0f; guardW = 0.0f; firstFrame = true; haveLast = false; inertT = 1.0f; }
+    void reset() {
+        pose = shown = Pose(); phase = 0.0f; guardW = 0.0f; firstFrame = true; haveLast = false; inertT = 1.0f;
+        leanA = leanV = headA = headV = glm::vec3(0.0f); haveHurt = false;
+    }
+    // the lean spring now (degrees: spine pitch, twist, roll), for tests
+    glm::vec3 lean() const { return leanA; }
 
     // a - b, each angle the short way round (degrees)
     static glm::vec3 angleDiff(const glm::vec3& a, const glm::vec3& b) {
@@ -480,6 +509,129 @@ private:
         rootOff.x = accRoot.x; rootOff.z = accRoot.z;
         if (!in.grounded || rolling) rootOff.y = accRoot.y;
     }
+
+    // ── Hit reactions over the pose ───────────────────────
+    // Two layers (Claude, 2026-11-21):
+    //  1. a lean spring, kicked by every hit that lands: the body
+    //     rocks away from the push and twists with where it landed,
+    //     the head a beat behind, the arms flung out a little. Alone
+    //     it is a flinch; under a clip it gives the clip its direction
+    //  2. reaction clips (anim_map.toml [reactions]): a stumble, a
+    //     broken guard, parried and open; knocked down and dead, the
+    //     shape the ragdoll's limbs reach for; getting up off the back
+    // Returns true when a clip places the hips itself (no foot planting)
+    bool reactions(const CharacterModel& model, const AnimInput& in, float dt) {
+        const AnimMap& M = gAnimMap;
+        // ── 1. the lean spring ──
+        if (!haveHurt) { lastHurt = in.hurtCount; haveHurt = true; }
+        if (in.hurtCount != lastHurt) {
+            lastHurt = in.hurtCount;
+            float yaw = glm::radians(shown.bodyYaw);
+            glm::vec3 F(std::cos(yaw), 0.0f, std::sin(yaw)), L(std::sin(yaw), 0.0f, -std::cos(yaw));   // model +Z, +X in the world
+            glm::vec3 d = in.hurtDir;
+            if (glm::length(d) > 1e-4f) d = glm::normalize(d);
+            float pz = glm::dot(d, F), px = glm::dot(d, L);
+            float s = (in.hurtSize > 0.0f ? in.hurtSize : 1.0f) * LEAN_KICK * M.lean;
+            // where it landed against the chest: off to one side twists
+            float scale = std::max(model.worldScale, 1e-3f);
+            glm::vec3 off = in.hurtOffset / scale;                   // world voxels → inches
+            float rz = glm::dot(off, F), rx = glm::dot(off, L);
+            float chest = model.heightIn * 0.7f;
+            float high = std::clamp((off.y - chest) / (model.heightIn * 0.2f), 0.0f, 1.0f);
+            float twist = std::clamp((rz * px - rx * pz) / std::max(model.heightIn * 0.12f, 1.0f), -1.0f, 1.0f);
+            leanV += glm::vec3(pz, twist * 0.8f, -px) * s;
+            headV += glm::vec3(pz, twist * 0.5f, -px) * s * (0.5f + 0.8f * (in.reactHigh ? 1.0f : high));
+        }
+        // stiff and quick to settle (about 0.4 s); the head looser
+        auto spring = [&](glm::vec3& a, glm::vec3& v, float w, float z) {
+            for (float left = dt; left > 1e-5f; ) {
+                float h = std::min(left, 1.0f / 240.0f);
+                v += (-w * w * a - 2.0f * z * w * v) * h;
+                a += v * h;
+                left -= h;
+            }
+            a = glm::clamp(a, glm::vec3(-LEAN_MAX), glm::vec3(LEAN_MAX));
+        };
+        spring(leanA, leanV, 14.0f, 0.45f);
+        spring(headA, headV, 10.0f, 0.4f);
+
+        // ── 2. reaction clips ──
+        bool ownRoot = false;
+        int clip = -1; float ct = 0.0f, w = 0.0f; bool upperOnly = false, withRoot = false;
+        auto ss = [](float a0, float b0, float x) { float v = std::clamp((x - a0) / std::max(b0 - a0, 1e-4f), 0.0f, 1.0f); return v * v * (3 - 2 * v); };
+        if (M.useClips && gAnims.count() > 0) {
+            if (in.getUp >= 0.0f && M.getUp >= 0) {
+                // off its back: the get-up clip, all of it, the hips too
+                float D = gAnims.info(M.getUp).duration, from = std::min(M.getUpFrom, D * 0.5f);
+                clip = M.getUp; ct = from + in.getUp * (D - from); w = 1.0f; withRoot = true;
+            } else if (in.down >= 0.0f) {
+                // down: the shape of a fall (the ragdoll's muscles reach for it, faintly)
+                int c = in.dead && M.death >= 0 ? M.death : M.knockdown;
+                if (c >= 0) { clip = c; ct = std::min(in.down + (in.dead ? 0.9f : 0.2f), gAnims.info(c).duration); w = 1.0f; withRoot = true; }
+            } else if (in.react != React::None && in.react != React::Knockdown) {
+                float full = std::max(in.reactAge + in.reactLeft, 0.2f), a = in.reactAge;
+                // a hit from behind or the side: less of the clip (it reels
+                // back) and more of the spring (which leans the right way)
+                float front = in.reactDir == glm::vec3(0.0f) ? 1.0f
+                            : glm::dot(-glm::normalize(in.reactDir), glm::vec3(std::cos(glm::radians(shown.bodyYaw)), 0.0f, std::sin(glm::radians(shown.bodyYaw))));
+                float facing = 0.45f + 0.55f * std::clamp(front, 0.0f, 1.0f);
+                if (in.guardBroken && M.guardBreak >= 0) {
+                    float D = gAnims.info(M.guardBreak).duration;
+                    clip = M.guardBreak; ct = std::min(a / full, 1.0f) * D * 0.75f;
+                    w = 1.0f - ss(full - 0.15f, full, a);
+                } else if (in.react == React::Stumble || in.react == React::Launch || in.react == React::Slam) {
+                    int c = in.reactHigh && M.staggerHigh >= 0 ? M.staggerHigh : M.stagger;
+                    if (c >= 0) {
+                        float D = gAnims.info(c).duration;
+                        clip = c;
+                        // in the air (launched, slammed): held reeling back
+                        ct = in.react == React::Stumble ? std::min(a / full, 1.0f) * D : 0.0f;
+                        w = (1.0f - ss(full - 0.15f, full, a)) * facing;
+                        upperOnly = in.react != React::Stumble || !in.grounded;
+                    }
+                }
+            } else if (in.exposed > 0.0f && M.exposed >= 0) {
+                // parried: the reel played out slowly over the opening
+                float full = std::max(in.exposedFull, 0.2f), a = full - in.exposed;
+                clip = M.exposed; ct = std::clamp(a / full, 0.0f, 1.0f) * gAnims.info(M.exposed).duration;
+                w = 1.0f - ss(full - 0.2f, full, a);
+                upperOnly = !in.grounded;
+            }
+        }
+        if (clip >= 0 && w > 0.0f) {
+            std::array<glm::vec3, BONE_COUNT> r = shown.rot; glm::vec3 ro(0.0f);
+            if (gAnims.sample(clip, ct, model, r, ro)) {
+                for (int b = upperOnly ? B_SPINE : 0; b < BONE_COUNT; b++) {
+                    if (upperOnly && b > B_WRIST_R) break;
+                    if (gAnims.drives(b)) shown.rot[b] = blendRot(shown.rot[b], r[b], w);
+                }
+                if (withRoot) {
+                    shown.rootOffset += (ro - shown.rootOffset) * w;
+                    shown.spinPitch = 0.0f;
+                    ownRoot = true;
+                }
+            }
+        }
+        // the spring on top (not while down: that's the ragdoll's)
+        if (in.down < 0.0f && in.getUp < 0.0f) {
+            shown.rot[B_SPINE] += leanA;
+            shown.rot[B_HEAD]  += headA;
+            float fling = std::min(glm::length(leanA), LEAN_MAX) * 0.6f;
+            shown.rot[B_SHOULDER_L].z += fling; shown.rot[B_SHOULDER_R].z -= fling;
+            shown.rot[B_ELBOW_L].x -= fling * 0.5f; shown.rot[B_ELBOW_R].x -= fling * 0.5f;
+        } else {
+            leanA = leanV = headA = headV = glm::vec3(0.0f);
+        }
+        return ownRoot;
+    }
+    static constexpr float LEAN_KICK = 230.0f;   // deg/s a size-1 hit starts the lean at (peaks near 11°)
+    static constexpr float LEAN_MAX  = 35.0f;    // deg it never leans past
+    glm::vec3 leanA{0.0f}, leanV{0.0f}, headA{0.0f}, headV{0.0f};
+    int   lastHurt = 0;
+    bool  haveHurt = false;
+    React lastReact = React::None;
+    float lastReactAge = 0.0f, lastGetUp = -1.0f;
+    bool  lastExposed = false;
 
     float cycleT = 0.0f, idleT = 0.0f, airT = 0.0f;
     // inertialization (update): what was drawn last, the offset fading out

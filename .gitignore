@@ -13,3 +13,10 @@ servercache/
 /dist/
 # The server's settings on this machine
 /server.toml
+# Logs (logs/) are pushed on purpose so agents can read them (src/app/Log.h);
+# crash dumps are binary and large: kept on the machine only
+logs/*.dmp
+
+# F2 screenshots (src/app/Screenshot.h): big PNGs, kept on the machine
+screenshots/
+__pycache__/

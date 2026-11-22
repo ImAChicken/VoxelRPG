@@ -1,6 +1,7 @@
 #pragma once
 #include "../audio/Voice.h"
 #include "../character/Appearance.h"
+#include "../character/MonsterAnim.h"
 #include <toml++/toml.hpp>
 #include <glm/glm.hpp>
 #include <algorithm>
@@ -120,6 +121,10 @@ struct NpcType {
     float hitHeight = 0.0f;            // vox: how tall its hit box is (0: its height)
     float bodyKg = 0.0f;               // its weight (0: from its look)
     glm::vec3 color{ 0.4f, 0.8f, 0.4f };
+    // drawn as a model with its own skeleton and clips instead of the
+    // shape (data/models/monsters/<model>.vmon; character/MonsterModel.h)
+    std::string model;
+    MonsterClipNames clips;            // body.clips = { idle, walk, run, jump, attack, attack2, hit, death, walk_speed, run_speed }
     // ── Hopping (hop = { … }; physics/VoxelPhysics.h hopTick)
     bool  hops = false;
     float hopEvery = 0.45f, hopSpeed = 18.0f, hopHeight = 3.0f, hopClimb = 9.0f;
@@ -128,6 +133,20 @@ struct NpcType {
     // whatever not on its side it touches is hurt, once every 'every' s
     float contactDamage = 0.0f, contactPoise = 0.0f, contactKnock = 0.0f, contactEvery = 0.8f;
     float lungeRange = 0.0f;           // vox: how far its lunge carries (worked out at load)
+    // ── Swings (swings = [ { … } ]; Simulation::swingTick): a body
+    // with no weapon of its own (a monster model) still swings: one
+    // of these, picked by weight, played as its clip; at hit_at (s into
+    // the clip) everything in front of it within reach and the arc is
+    // hit once. speed: how fast the clip plays (under 1: a slower,
+    // easier to read wind-up). A guard raised toward it blocks.
+    struct Swing {
+        std::string clip;
+        float damage = 20.0f, poise = 30.0f, knock = 18.0f;
+        float reach = 10.0f, arc = 70.0f;          // vox from its middle; degrees either side of where it faces
+        float hitAt = 0.33f, length = 0.87f, speed = 1.0f, weight = 1.0f;
+        bool  knockdown = false;
+    };
+    std::vector<Swing> swings;
 
     bool person() const { return shape == "human"; }
 
@@ -277,6 +296,15 @@ public:
                         d->bodyKg = (float)(*b)["mass"].value_or(0.0);
                         if (auto* c = (*b)["color"].as_array(); c && c->size() == 3)
                             d->color = { (float)c->get(0)->value_or(0.4), (float)c->get(1)->value_or(0.8), (float)c->get(2)->value_or(0.4) };
+                        d->model = (*b)["model"].value_or(std::string());
+                        if (auto* cl = (*b)["clips"].as_table()) {
+                            MonsterClipNames& n = d->clips;
+                            auto get = [&](const char* k, std::string& into) { if (auto v = (*cl)[k].value<std::string>()) into = *v; };
+                            get("idle", n.idle); get("walk", n.walk); get("run", n.run); get("jump", n.jump);
+                            get("attack", n.attack); get("attack2", n.attack2); get("hit", n.hit); get("death", n.death);
+                            n.walkSpeed = (float)(*cl)["walk_speed"].value_or((double)n.walkSpeed);
+                            n.runSpeed = (float)(*cl)["run_speed"].value_or((double)n.runSpeed);
+                        }
                     }
                     if (auto* h = t["hop"].as_table()) {
                         d->hops = true;
@@ -289,6 +317,23 @@ public:
                         // flat ground: up and down again at the lunge's speed (gravity 40)
                         d->lungeRange = d->lungeSpeed * 2.0f * std::sqrt(2.0f * d->lungeHeight / 40.0f);
                     }
+                    if (auto* sw = t["swings"].as_array())
+                        for (auto& e : *sw)
+                            if (auto* st = e.as_table()) {
+                                NpcType::Swing s;
+                                s.clip = (*st)["clip"].value_or(std::string());
+                                s.damage = (float)(*st)["damage"].value_or((double)s.damage);
+                                s.poise = (float)(*st)["poise"].value_or((double)s.poise);
+                                s.knock = (float)(*st)["knock"].value_or((double)s.knock);
+                                s.reach = (float)(*st)["reach"].value_or((double)s.reach);
+                                s.arc = (float)(*st)["arc"].value_or((double)s.arc);
+                                s.hitAt = (float)(*st)["hit_at"].value_or((double)s.hitAt);
+                                s.length = std::max(0.1f, (float)(*st)["length"].value_or((double)s.length));
+                                s.speed = std::max(0.1f, (float)(*st)["speed"].value_or((double)s.speed));
+                                s.weight = std::max(0.0f, (float)(*st)["weight"].value_or((double)s.weight));
+                                s.knockdown = (*st)["knockdown"].value_or(false);
+                                d->swings.push_back(s);
+                            }
                     if (auto* c = t["contact"].as_table()) {
                         d->contactDamage = (float)(*c)["damage"].value_or(0.0);
                         d->contactPoise = (float)(*c)["poise"].value_or(0.0);

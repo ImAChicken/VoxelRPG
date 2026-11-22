@@ -93,3 +93,25 @@ standing = -100
 a = "slimes"
 b = "bandits"
 standing = -100
+
+# Fungi: the mushroom folk (Mushnubs). Like slimes, they go for
+# anyone; slimes and the dead leave them be
+[[faction]]
+id = "fungi"
+name = "Fungi"
+player_standing = -100
+
+[[relation]]
+a = "fungi"
+b = "villagers"
+standing = -100
+
+[[relation]]
+a = "fungi"
+b = "guards"
+standing = -100
+
+[[relation]]
+a = "fungi"
+b = "bandits"
+standing = -100

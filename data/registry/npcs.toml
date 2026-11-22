@@ -80,6 +80,15 @@
 #                   person's height still meet it), mass (kg),
 #                   color [r, g, b] 0..1. A slime has no skeleton
 #                   or ragdoll: a hit just pushes it
+#                   model: drawn as a monster model instead of the
+#                   shape (data/models/monsters/<model>.vmon, made by
+#                   tools/import_monster.py), scaled to its height,
+#                   with the characters' toon light and lines. clips
+#                   = { idle, walk, run, jump, attack, attack2, hit,
+#                   death, walk_speed, run_speed }: which of its own
+#                   clips it plays (left out: Idle, Walk, Run, Jump,
+#                   Bite_Front, HitRecieve, Death; walk_speed and
+#                   run_speed: vox/s its walk and run clips show)
 #   hop             it gets about by hopping (still on the ground,
 #                   moving only in the air): every (s on the ground
 #                   between hops), speed (vox/s through the air),
@@ -328,3 +337,88 @@ voice = { pitch = 0.75, range = 0.6, size = 0.15, speed = 0.75, breath = 0.3, ro
 voice_vary = 0.15
 barks = { spot = ["Blub!", "Bloop bloop!"], hurt = ["Plip!"], die = ["Bluuub..."], idle = ["Blub.", "Gloop."] }
 xp = 8
+
+# ── Mushrooms (the Quaternius monster kit, CC0; models: tools/import_monster.py)
+# Mushnubs get about like slimes (hopping, a lunging bite, hurt by
+# touch) but are drawn as their own models with their own clips.
+[[npc]]
+id = "mushnub"
+name = "Mushnub"
+faction = "fungi"
+look = ""
+health = 45
+poise = 999
+body = { shape = "slime", model = "mushnub", height = 7, width = 5, hit_height = 10, mass = 22, color = [0.30, 0.50, 0.62], clips = { walk_speed = 12 } }
+hop = { every = 0.5, speed = 16, height = 2.5, climb = 9, lunge_speed = 17, lunge_height = 4 }
+contact = { damage = 9, poise = 10, knock = 12, every = 0.8 }
+states = ["idle", "alert", "combat", "search", "return", "dead"]
+idle = "wander"
+wander_radius = 18
+territory = { radius = 40, leash = 120 }
+sight = { range = 40, fov = 260 }
+hearing = 1.0
+alert_time = [0.3, 0.6]
+slots = ["front", "left", "right", "front_left", "front_right", "ring"]
+aggression = 0.8
+voice = { pitch = 0.7, range = 0.7, size = 0.2, speed = 0.8, breath = 0.2, rough = 0.15, nasal = 0.5, style = "chirpy", volume = 0.6 }
+voice_vary = 0.15
+barks = { spot = ["Mup!", "Mup mup!"], hurt = ["Mip!"], die = ["Muuup..."], idle = ["Mup.", "Pff."] }
+xp = 9
+
+[[npc]]
+id = "mushnub_evolved"
+name = "Spiny Mushnub"
+faction = "fungi"
+look = ""
+health = 90
+poise = 999
+body = { shape = "slime", model = "mushnub_evolved", height = 9, width = 6, hit_height = 12, mass = 40, color = [0.30, 0.50, 0.62], clips = { walk_speed = 12 } }
+hop = { every = 0.6, speed = 15, height = 2.5, climb = 9, lunge_speed = 18, lunge_height = 4 }
+contact = { damage = 16, poise = 18, knock = 16, every = 0.8 }
+states = ["idle", "alert", "combat", "search", "return", "dead"]
+idle = "wander"
+wander_radius = 18
+territory = { radius = 40, leash = 120 }
+sight = { range = 45, fov = 260 }
+hearing = 1.1
+alert_time = [0.2, 0.5]
+slots = ["front", "left", "right", "front_left", "front_right", "ring"]
+aggression = 0.85
+voice = { pitch = 0.45, range = 0.6, size = 0.45, speed = 0.7, breath = 0.3, rough = 0.4, nasal = 0.3, style = "grunty", volume = 0.7 }
+voice_vary = 0.12
+barks = { spot = ["MUP!", "Grrmup!"], hurt = ["Hrmp!"], die = ["Mmmuuup..."], idle = ["Hrm.", "Mup."] }
+xp = 20
+
+# The Mushroom King: a big two-legged mushroom with a club. Its own
+# model and only its own clips (Eddie, 2026-11-22: "use his animation
+# set", "King shouldn't get ragdolled unless he dies": not a person,
+# so hits only push him, and he dies with his own Death clip). He
+# fights with two swings (Simulation::swingTick), each its clip played
+# slower than it came so the wind-up can be read: a punch, and the
+# club, heavier and wider, that can knock you down. No guard, no rolls.
+# His Wave, Yes and No clips are kept for spells later.
+[[npc]]
+id = "mushroom_king"
+name = "Mushroom King"
+faction = "fungi"
+look = ""
+health = 700
+poise = 999
+boss = true
+body = { shape = "monster", model = "mushroomking", height = 26, width = 11, hit_height = 26, mass = 320, color = [0.30, 0.50, 0.62], clips = { attack = "Punch", hit = "HitReact", walk_speed = 9, run_speed = 18 } }
+swings = [
+  { clip = "Punch",  damage = 22, poise = 35, knock = 20, reach = 13, arc = 55, hit_at = 0.33, length = 0.87, speed = 0.6 },
+  { clip = "Weapon", damage = 34, poise = 70, knock = 30, reach = 16, arc = 85, hit_at = 0.35, length = 0.87, speed = 0.5, weight = 0.6, knockdown = true },
+]
+states = ["idle", "alert", "combat", "search", "return", "dead"]
+idle = "stand"
+territory = { radius = 50, leash = 140 }
+sight = { range = 80, fov = 200 }
+hearing = 1.5
+alert_time = [0.4, 0.8]
+turn_speed = 220
+aggression = 0.9
+voice = { pitch = 0.12, range = 0.3, size = 0.9, speed = 0.35, breath = 0.5, rough = 0.6, nasal = 0.2, style = "grunty", volume = 1.0 }
+voice_vary = 0.0
+barks = { spot = ["WHO TREADS ON MY SPORES?"], hurt = ["Hrrmph!"], die = ["My... spores..."], idle = ["Hrmm."] }
+xp = 160

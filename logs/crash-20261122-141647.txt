@@ -1,0 +1,84 @@
+ crashed
+when:  20261122-141647
+what:  exception (0xe0000001) at KERNELBASE.dll+0x25369  RaiseException
+
+build:
+(no version.txt: a developer build)
+
+stack (newest first):
+  0  KERNELBASE.dll+0x25369  RaiseException
+  1  VoxelRPG.exe+0x3aafd1  raise  signal.cpp:547
+  2  VoxelRPG.exe+0x3aabd4  abort  abort.cpp:71
+  3  VoxelRPG.exe+0x38f769  _purecall  purevirt.cpp:29
+  4  VoxelRPG.exe+0x384e6c  ozz::animation::SamplingJob::Context::~Context
+  5  VoxelRPG.exe+0x361422  std::unique_ptr<AnimLibrary::Impl,std::default_delete<AnimLibrary::Impl> >::~unique_ptr<AnimLibrary::Impl,std::default_delete<AnimLibrary::Impl> >  memory:3461
+  6  VoxelRPG.exe+0x3b09aa  <lambda_f03950bc5685219e0bcd2087efbe011e>::operator()  onexit.cpp:206
+  7  VoxelRPG.exe+0x3b0759  __crt_seh_guarded_call<int>::operator()<<lambda_7777bce6b2f8c936911f934f8298dc43>,<lambda_f03950bc5685219e0bcd2087efbe011e> &,<lambda_3883c3dff614d5e0c5f61bb1ac94921c> >  internal_shared.h:204
+  8  VoxelRPG.exe+0x3b0a85  _execute_onexit_table  onexit.cpp:160
+  9  VoxelRPG.exe+0x3aface  <lambda_6e4b09c48022b2350581041d5f6b0c4c>::operator()  exit.cpp:230
+  10  VoxelRPG.exe+0x3afa4d  __crt_seh_guarded_call<void>::operator()<<lambda_d80eeec6fff315bfe5c115232f3240e3>,<lambda_6e4b09c48022b2350581041d5f6b0c4c> &,<lambda_2358e3775559c9db80273638284d5e45> >  internal_shared.h:224
+  11  VoxelRPG.exe+0x3afbcb  common_exit  exit.cpp:199
+  12  VoxelRPG.exe+0x38f3b6  __scrt_common_main_seh  exe_common.inl:295
+  13  KERNEL32.DLL+0x17374  BaseThreadInitThunk
+  14  ntdll.dll+0x4cc91  RtlUserThreadStart
+
+last lines printed (logs\game.txt):
+Starting VoxelRPG... (2026-11-22 14:13:16, network version 11)
+Keyboard bindings loaded: "data/controls/keyboard.toml"
+Controller layout loaded: "data/controls/pad.toml"
+Registry loaded: 143 block types from data/registry/blocks.toml
+Item registry: 142 items (blocks + data/registry/items.toml)
+Movesets: 8 (27 attacks) from data/registry/movesets.toml
+Held models: 28 from data/models/held
+Factions: 6 from data/registry/factions.toml
+Sound: SAMSUNG (NVIDIA High Definition Audio) at 48000 Hz
+Loot tables: 10
+NPC types: 9, looks: 7
+Dungeons: 1 from data/registry/portals.toml
+Animations: 85 clips in 2 pack(s)
+Decorations: 23 plants, 18 decor, 4 ground patches, 5 landmarks, 12 trees from data/registry/decorations.toml
+Structure registry: 202 types from data/registry/structures.toml
+Blueprints: 9 from data/blueprints
+Palettes: 8
+Default pack loaded
+Active pack: jrpg
+Shaders loaded OK
+UIRenderer initialized
+Font loaded: "data/resourcepacks\\jrpg\\ui\\font.png"
+OpenGLRenderer initialized 1280x720
+Atlas loaded: data/resourcepacks\jrpg\atlas.png (256x256)
+Shaders loaded OK
+Shaders loaded OK
+Shaders loaded OK
+Entering main loop
+Loading world: test99999
+Island world, 96 x 96 chunks
+Canyon mesa: 174 cells around 5312 8128, village placed
+River banks: 363 dips became ponds, 154 built up
+Terrain baked: 1537^2 samples, 14 lakes, 77 waterfalls, 75 streams, 202 ms (guided rivers, from the saved bake)
+VoxelPhysics initialized
+12 NPCs loaded
+Shaders loaded OK
+welcome back
+Game mode: Survival
+World streaming on 8 worker thread(s)
+you were parried
+enemy killed
+enemy killed
+enemy killed
+you were parried
+enemy killed
+enemy killed
+You died
+you were parried
+you were parried
+enemy killed
+enemy killed
+you were parried
+Save committed: saves/test99999
+world saved
+enemy killed
+enemy killed
+Save committed: saves/test99999
+world saved
+

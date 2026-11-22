@@ -67,6 +67,16 @@ size = [2, 4]
 weight = 4
 time = "any"
 
+# Mushnubs (the mushroom folk, npcs.toml): in woods and wet ground,
+# a few small ones, sometimes a spiny one with them
+[[group]]
+id = "mushnubs"
+biomes = ["forest", "dense_forest", "swamp", "marsh", "autumn_uplands"]
+npcs = { mushnub = 3, mushnub_evolved = 1 }
+size = [2, 4]
+weight = 3
+time = "any"
+
 [[group]]
 id = "lone_slime"
 biomes = ["any"]

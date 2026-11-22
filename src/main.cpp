@@ -100,6 +100,10 @@
 #include "world/WorldEditor.h"
 #include "world/WorldStreamer.h"
 #include "audio/SoundDirector.h"
+#include "app/CrashReport.h"
+#include <ctime>
+#include "app/Log.h"
+#include "app/Screenshot.h"
 
 constexpr int WIN_W = 1280;
 constexpr int WIN_H = 720;
@@ -211,7 +215,18 @@ void framebufferCallback(GLFWwindow* window,
 
 // ══════════════════════════════════════════════════════════
 int main() {
-    std::cout << "Starting VoxelRPG...\n";
+    // Everything printed also goes to logs/game.txt, and a crash leaves a
+    // report in logs/ (app/Log.h, app/CrashReport.h): testers send those
+    applog::start("game.txt");
+    crash::install("VoxelRPG", true);
+    std::string shotToast;                     // F2: "Screenshot saved: …", shown for a moment
+    float shotToastT = 0.0f;
+    {
+        std::time_t now = std::time(nullptr);
+        char when[32];
+        std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
+        std::cout << "Starting VoxelRPG... (" << when << ", network version " << proto::VERSION << ")\n";
+    }
     std::cout.flush();
 
     // ── Window + OpenGL context ───────────────────────────
@@ -281,6 +296,7 @@ int main() {
     realm::gDungeonKinds.load();
     gAnims.load("data/animations", "data/animations/retarget.toml");
     gAnimMap.load("data/animations/anim_map.toml");
+    std::cout << "Monster models: " << gMonsters.load("data/models/monsters") << " from data/models/monsters\n";
     gOutlineFx.load("data/registry/outline.toml");
     gParticles.load("data/registry/particles.toml");
     decor::current() = decor::Loader::load(gRegistry, "data/registry/decorations.toml");
@@ -514,6 +530,10 @@ int main() {
     bool pendingKit = false;          // a new dev world: lay out the showcase chests (game/DevKit.h)
     LockOn lockOn;                    // the camera held on an enemy (TAB: game/LockOn.h)
     std::unordered_map<uint64_t, std::unique_ptr<Character>> npcBodies;
+    // bodies drawn as monster models (npcs.toml body.model): which clip
+    // each plays, and its bones' matrices this frame (CharacterRenderer)
+    std::unordered_map<uint64_t, MonsterAnimator> monAnims;
+    std::unordered_map<uint64_t, std::vector<glm::mat4>> monSkins;
     std::unique_ptr<WorldStreamer>    streamer;
     // other worlds seen through a portal here (world/PortalLinks.h): a
     // little of each streamed round its far end, by world name. Walking
@@ -595,6 +615,10 @@ int main() {
             n->sprinting = st.flags & B::F_SPRINT;  n->flying = st.flags & B::F_FLY;
             n->guarding = st.flags & B::F_GUARD;
             n->move = (Human::Move)st.move; n->moveTimer = st.moveTimer;
+            // a reaction shown here (set from the server's hit events, below)
+            n->reactAge += dtFrame;
+            n->exposed = std::max(0.0f, n->exposed - dtFrame);
+            if (n->hitstun > 0.0f && (n->hitstun -= dtFrame) <= 0.0f) { n->hitstun = 0.0f; n->react = React::None; }
             auto im = itemForModel.find(st.held);
             n->weaponItem = im == itemForModel.end() ? std::string() : im->second;
             n->offModel = st.off;                // the left hand (a shield: its guard pose)
@@ -1753,7 +1777,47 @@ int main() {
                 if (it == npcBodies.end() && !blob) continue;
                 glm::vec3 at = glm::mix(np->prevPosition, np->position, alpha);
                 if (glm::length(at - camera.position) > 220.0f) continue;
-                if (blob) drawBlob(*np, at, proj * view);
+                const MonsterModel* mm = blob && !np->type->model.empty() ? gMonsters.find(np->type->model) : nullptr;
+                if (mm) {
+                    // a monster model: its own clips, the characters' toon light and lines
+                    const Npc& n = *np;
+                    MonsterAnimInput mi;
+                    mi.dead = n.dead();
+                    mi.sinceHurt = n.sinceHurt;
+                    mi.attacking = n.hop.lunging || n.attack.active() || n.swing >= 0;
+                    if (n.swing >= 0 && n.swing < (int)n.type->swings.size()) {
+                        mi.attackClip = &n.type->swings[n.swing].clip;
+                        mi.attackRate = n.type->swings[n.swing].speed;
+                    }
+                    mi.airborne = !n.grounded && !n.dead();
+                    mi.speed = glm::length(glm::vec2(n.velocity.x, n.velocity.z));
+                    MonsterAnimator& an = monAnims[n.uuid];
+                    an.update(*mm, n.type->clips, mi, frameDt);
+                    MonsterPose mp;
+                    an.pose(mp);
+                    std::vector<glm::mat4>& skin = monSkins[n.uuid];
+                    mm->skin(mp, skin);
+                    glm::vec3 f(n.facing.x, 0.0f, n.facing.z);
+                    f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec3(1, 0, 0);
+                    float yaw = glm::degrees(std::atan2(f.z, f.x));
+                    float sc = std::max(n.standHeight, 1.0f) / std::max(mm->height(), 0.01f);
+                    glm::mat4 root = glm::translate(glm::mat4(1.0f), at) * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f - yaw), glm::vec3(0, 1, 0))
+                                   * glm::scale(glm::mat4(1.0f), glm::vec3(sc));
+                    for (glm::mat4& m : skin) m = root * m;
+                    lightCharacters(at);
+                    const glm::vec4 cut = bodyCut(here, n, at);
+                    charRenderer.clip = cut;
+                    glm::vec4 flash = n.sinceHurt < 0.15f && !n.dead() ? glm::vec4(1.0f, 1.0f, 1.0f, 0.55f) : glm::vec4(0.0f);
+                    charRenderer.drawMonster(*mm, skin, proj * view, camera.position, OpenGLRenderer::FOG_COLOR, OpenGLRenderer::fogDensity, flash);
+                    charRenderer.resetPortal();
+                    const glm::vec4 glow = gOutlineFx.glowFor(n);
+                    if (glm::length(at - camera.position) < EDGE_RANGE || glow.a > 0.0f) {
+                        placed.push_back({ nullptr, at, glow });
+                        placed.back().clip = cut;
+                        placed.back().mon = mm;
+                        placed.back().skin = &skin;
+                    }
+                } else if (blob) drawBlob(*np, at, proj * view);
                 else {
                     lightCharacters(at);
                     const glm::vec4 cut = bodyCut(here, *np, at);
@@ -1802,6 +1866,10 @@ int main() {
             int fw = glr->sceneW(), fh = glr->sceneH(), tw = glr->targetW(), th = glr->targetH();
             if (!placed.empty())
                 charRenderer.drawEdges(placed, view, proj, 0, 0, fw, fh, tw, th, edgeStyle());
+            // monsters gone from this world: forget their clips
+            if (animFrame % 120 == 0)
+                for (auto mi = monAnims.begin(); mi != monAnims.end();)
+                    if (!here->sim.find(mi->first)) { monSkins.erase(mi->first); mi = monAnims.erase(mi); } else ++mi;
         }
         if (!bossShown) hud.boss.on = false;
         // bodies coming out of an opening here (copies of those going in
@@ -2026,6 +2094,10 @@ int main() {
                                p.text, u < 0.6f ? 1.0f : 1.0f - (u - 0.6f) / 0.4f, p.scale + (p.age < 0.08f ? 1 : 0), { p.rgb[0], p.rgb[1], p.rgb[2] } };
                 hud.popups.push_back(hp);
             }
+        }
+        if (shotToastT > 0.0f) {
+            Hud::Popup hp{ gRenderer->getScreenWidth() * 0.5f, 70.0f, shotToast, std::min(1.0f, shotToastT / 0.5f), 2, { 1.0f, 1.0f, 1.0f } };
+            hud.popups.push_back(hp);
         }
         // Particles (render/Particles.h): over the world and the bodies
         if (gParticles.count()) {
@@ -2381,6 +2453,7 @@ int main() {
     //   atportal dx dy dz   put the player relative to the foot of the first portal here
     //   join <address> <name>  join a server
     //   look <yaw> <pitch>  turn the camera
+    //   third 0|1           third-person camera on or off
     //   wait <frames>
     //   walk <frames>       walk the way the camera looks
     //   gun 0|1             fire the portal gun's blue / orange end where the camera looks
@@ -2434,6 +2507,9 @@ int main() {
         } else if (w == "look") {
             float y = 0, pt = 0; ls >> y >> pt;
             camera.setLook(y, pt);
+        } else if (w == "third") {                 // third 0|1: the camera behind the body, or first person
+            int on = 1; ls >> on;
+            controller.thirdPersonWanted = on != 0;
         } else if (w == "wait") {
             ls >> scriptWait;
         } else if (w == "gun") {
@@ -2491,6 +2567,7 @@ int main() {
         // Movement uses a capped delta so one slow frame
         // cannot fling the camera across the map
         float dt = std::min(frameTime, 0.1f);
+        Ragdoll::hitPhysics = (Ragdoll::HitPhysics)gSettings.hitPhysics;   // Settings > Hit physics
         // Settings → Glass changed: glass is meshed differently (panes or cubes)
         {
             static int glassWas = gSettings.glassStyle;
@@ -3191,6 +3268,33 @@ int main() {
                         if (e.kind <= SimEvent::Kind::Respawned) happened.push_back(e);
                     }
                     remote->events.clear();
+                    // the bodies hit react here too, for looks (the server
+                    // decided the hit; it doesn't send the reaction, so a
+                    // broken poise or guard shows as a stumble)
+                    auto bodyOf = [&](uint64_t id) -> Human* {
+                        if (id == player.uuid) return &player;
+                        Npc* n = here->sim.npcs().find(id);
+                        return n && n->puppet ? n : nullptr;
+                    };
+                    for (const SimEvent& e : happened) {
+                        if (e.kind != SimEvent::Kind::Hit) continue;
+                        Human* a = bodyOf(e.a); Human* b = bodyOf(e.b);
+                        glm::vec3 push = a && b ? b->position - a->position : (b ? -b->facing : glm::vec3(0.0f));
+                        push.y = 0.0f;
+                        if (glm::length(push) > 1e-3f) push = glm::normalize(push);
+                        if (e.parried) {
+                            if (a) a->hurt(a->bodyPoint(0.8f), -push, combat::HURT_PARRIED);
+                            if (a && a != &player) a->exposed = combat::EXPOSED_TIME;
+                            continue;
+                        }
+                        if (!b || e.knockedDown) continue;
+                        bool reel = e.poiseBroken || e.guardBroken;
+                        b->hurt(e.at, push, e.blocked && !e.guardBroken ? combat::HURT_BLOCKED : combat::HURT_SIZE[reel ? (int)React::Stumble : (int)React::Flinch]);
+                        if (reel && b != &player) {
+                            b->react = React::Stumble; b->reactAge = 0.0f; b->reactDir = push;
+                            b->hitstun = combat::REACT_STUN[(int)React::Stumble]; b->guardBroke = e.guardBroken; b->reactBone = -1;
+                        }
+                    }
                 }
                 {
                     // the world's sounds: steps, swings, hits, barks, the wind (audio/SoundDirector.h)
@@ -3804,6 +3908,8 @@ int main() {
             [&](int x, int y, int z) -> uint16_t { return here->world && gState != GameState::MainMenu ? here->world->typeAtVoxel(x, y, z) : 0; });
 
         gRenderer->endFrame();
+        // F2: the frame as it looks, HUD and all (app/Screenshot.h)
+        if (gInput.isPressed(InputAction::Screenshot) && pendingShot.empty()) pendingShot = screenshot::nextPath();
         if (!pendingShot.empty()) {
             // the frame as drawn (bottom row first in GL: flipped here)
             int fw = gRenderer->getScreenWidth(), fh = gRenderer->getScreenHeight();
@@ -3811,12 +3917,23 @@ int main() {
             glPixelStorei(GL_PACK_ALIGNMENT, 1);
             glReadBuffer(GL_BACK);
             glReadPixels(0, 0, fw, fh, GL_RGB, GL_UNSIGNED_BYTE, px.data());
-            std::ofstream out(pendingShot, std::ios::binary);
-            out << "P6\n" << fw << " " << fh << "\n255\n";
-            for (int y = fh - 1; y >= 0; y--) out.write((const char*)&px[(size_t)y * fw * 3], (std::streamsize)fw * 3);
+            const bool png = pendingShot.size() > 4 && pendingShot.compare(pendingShot.size() - 4, 4, ".png") == 0;
+            if (png) {
+                std::vector<uint8_t> top((size_t)fw * fh * 3);
+                for (int y = 0; y < fh; y++)
+                    std::copy_n(&px[(size_t)(fh - 1 - y) * fw * 3], (size_t)fw * 3, &top[(size_t)y * fw * 3]);
+                bool ok = screenshot::writePng(pendingShot, fw, fh, top);
+                shotToast = ok ? "Screenshot saved: " + pendingShot : "Couldn't save the screenshot";
+                shotToastT = 2.5f;
+            } else {                   // the test scripts' shot: a PPM
+                std::ofstream out(pendingShot, std::ios::binary);
+                out << "P6\n" << fw << " " << fh << "\n255\n";
+                for (int y = fh - 1; y >= 0; y--) out.write((const char*)&px[(size_t)y * fw * 3], (std::streamsize)fw * 3);
+            }
             std::cout << "shot: " << pendingShot << "\n";
             pendingShot.clear();
         }
+        shotToastT = std::max(0.0f, shotToastT - frameTime);
         gpuTimers.mark("hud, menus");
         gpuTimers.endFrame();
         glfwSwapBuffers(window);
@@ -3886,6 +4003,8 @@ int main() {
     props.cleanup();
     roofs.cleanup();
     ghost.release();
+    trails.release();
+    particleRenderer.release();
     skyRenderer.cleanup();
     distantLights.cleanup();
     here->close();

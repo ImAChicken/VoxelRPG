@@ -25,9 +25,6 @@ mark yours there.
   game (seed 42, world 5056, 9280); its plaza was a grey disc with a
   river through it. See docs/handoff-history.md "In progress when this
   session stopped".
-- **F2 (Screenshot) does nothing:** the key is bound (keyboard.toml, `InputAction::Screenshot`) but no code handles
-  it. The friends' readme says to use Windows' own screenshot keys for now; wire it up (save a PNG next to the
-  game) or drop the binding.
 - Interacting with a gate in combat on a server: Eddie saw it fail
   once, then work. Couldn't reproduce here (single player, pad and
   keys, main gate and crypt gate). Watch for it.
@@ -201,12 +198,13 @@ doesn't scale to many spells. Plan:
   their own like their movement; passengers ride on it (positions
   relative to the vehicle). After Open to LAN and the combat review.
 
-## Next, in order (Eddie, 2026-11-20)
+## Next, in order (Eddie, 2026-11-20; confirmed 2026-11-21)
+Eddie, 2026-11-21: combat next; minor visual issues can wait.
 1. **Combat review.** Eddie: "combat still feels a bit off, probably
-   because of ragdoll jank". A hit-reaction animation set in place of
-   the ragdoll wobble, then the open items under the 2026-11-20
-   character-action entry in CHANGELOG.md (air combos, feints, an
-   aggression budget, recorded hit sounds, reactions over the network).
+   because of ragdoll jank". Hit reactions: done (CHANGELOG 2026-11-21).
+   Next, the open items under the 2026-11-20 character-action entry in
+   CHANGELOG.md (air combos, feints, an aggression budget, recorded hit
+   sounds, the exact reaction sent over the network).
    The boss uses player animations for now (fine).
    Do it in the simulation, not the renderer (the ragdoll's target and
    reactions decided by the sim, "Server split" > "Under lag"), so the

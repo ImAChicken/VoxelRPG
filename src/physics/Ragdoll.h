@@ -82,6 +82,22 @@ public:
     static constexpr float LIMP_MAX      = 4.0f;    // s down at most
     static constexpr float SETTLED_SPEED = 4.0f;    // vox/s: below this the body is still
     static constexpr float RECOVER_TIME  = 0.8f;    // s to get back up
+    // A hit that doesn't knock the body down (Settings > Hit physics;
+    // Claude, 2026-11-22, Eddie: "the ragdoll is too much"):
+    //   Off    the ragdoll stays out of it (the animation's lean and
+    //          reaction clips show the hit)
+    //   Light  a jolt: the drawn body takes at most LIGHT_SHOW of the
+    //          ragdoll, fading out in LIGHT_FADE s, and the muscles
+    //          keep at least LIGHT_STRENGTH (the default)
+    //   Full   as before: the drawn body is all ragdoll, the muscles
+    //          drop to 10% on a hard hit and come back over a second
+    // Knockdowns and deaths are the ragdoll's whatever this says.
+    enum class HitPhysics { Off, Light, Full };
+    static inline HitPhysics hitPhysics = HitPhysics::Light;
+    static constexpr float LIGHT_SHOW     = 0.3f;
+    static constexpr float LIGHT_FADE     = 0.45f;
+    static constexpr float LIGHT_STRENGTH = 0.6f;
+    static constexpr float RECOVER_FACE_UP = 1.1f;  // s to get up off its back: the get-up clip plays (character/CharacterAnimator.h)
     static constexpr float FADE_TIME     = 0.15f;   // s to hand the drawn body back to the animation
 
     // Dev: simulate all the time (muscles at full strength), so
@@ -197,14 +213,27 @@ public:
             if (dv >= KNOCKDOWN_DV) {
                 st = State::Limp;
                 timer = 0.0f;
+            } else if (hitPhysics == HitPhysics::Off) {
+                return;                         // the animation shows it
+            } else if (hitPhysics == HitPhysics::Light) {
+                float f = std::clamp(dv / KNOCKDOWN_DV, 0.0f, 1.0f);
+                float k = std::clamp(1.0f - 0.5f * f, LIGHT_STRENGTH, 0.95f);
+                strength = std::min(strength, k);
+                balance  = std::min(balance, k);
+                // (a hit on a hit: never less shown than now)
+                showPeak = std::min(LIGHT_SHOW, std::max(renderWeight, LIGHT_SHOW * (0.35f + 0.65f * f)));
+                renderWeight = showPeak;
+                st = State::Reacting;
+                timer = 0.0f;
             } else {
                 st = State::Reacting;
                 timer = 0.0f;
                 float k = std::clamp(1.0f - 1.2f * dv / KNOCKDOWN_DV, 0.1f, 0.8f);
                 strength = std::min(strength, k);
                 balance  = std::min(balance, k * k);   // balance is lost faster than strength
+                renderWeight = 1.0f;
             }
-            renderWeight = 1.0f;
+            if (st == State::Limp) renderWeight = 1.0f;
         } else if (st == State::Recovering && dv >= KNOCKDOWN_DV * 0.5f) {
             st = State::Limp;               // knocked back down while getting up
             timer = 0.0f;
@@ -246,6 +275,10 @@ public:
             float k = 1.0f - std::exp(-dt * REACT_RECOVER);
             strength += (1.0f - strength) * k;
             balance  += (1.0f - balance) * k;
+            if (renderWeight < 1.0f) {          // light: the jolt fades out of the drawn body
+                float t = std::clamp(timer / LIGHT_FADE, 0.0f, 1.0f);
+                renderWeight = showPeak * (1.0f - t * t * (3.0f - 2.0f * t));
+            }
             break;
         }
         case State::Limp:
@@ -255,10 +288,13 @@ public:
             break;
         case State::Recovering: {
             timer += dt;
-            float t = std::clamp(timer / RECOVER_TIME, 0.0f, 1.0f);
+            float t = std::clamp(timer / recoverFor, 0.0f, 1.0f);
             strength = LIMP_TONE + (1.0f - LIMP_TONE) * t;
             balance  = t;
-            renderWeight = 1.0f - t * t * (3.0f - 2.0f * t);
+            // off its back the animation gets up by itself (the get-up
+            // clip): hand the drawn body to it in the first half
+            float r = faceUp ? std::min(1.0f, t * 2.2f) : t;
+            renderWeight = 1.0f - r * r * (3.0f - 2.0f * r);
             break;
         }
         }
@@ -286,9 +322,10 @@ public:
                 st = State::Recovering;
                 timer = 0.0f;
                 standUp = true;                 // physics puts the capsule back on its feet
+                lyingHow();
             }
         } else if (st == State::Recovering) {
-            if (timer >= RECOVER_TIME) handBack();
+            if (timer >= recoverFor) handBack();
         } else if (st == State::Animated && alwaysActive) {
             // nothing: stays simulated
         }
@@ -300,10 +337,19 @@ public:
     // Limp or getting up: no walking, jumping or dodging
     bool  controlsLocked() const { return st == State::Limp || st == State::Recovering; }
     // getting up, far enough along to roll out of it (a dodge pressed now)
-    bool  canRollOut()     const { return st == State::Recovering && timer >= RECOVER_TIME * 0.35f; }
+    bool  canRollOut()     const { return st == State::Recovering && timer >= recoverFor * 0.35f; }
+    // getting up: how long it takes, how far along (0..1), and
+    // whether it lies on its back (then the animation plays the
+    // get-up clip, turned to 'upYaw': feet first, head behind)
+    float recoverTime()    const { return recoverFor; }
+    float recoverProgress() const { return st == State::Recovering ? std::clamp(timer / recoverFor, 0.0f, 1.0f) : 0.0f; }
+    bool  gettingUpFaceUp() const { return st == State::Recovering && faceUp; }
+    float upYawDeg()       const { return upYaw; }
+    float limpTime()       const { return st == State::Limp ? timer : 0.0f; }
     void  rollOut()              { if (canRollOut()) handBack(); }
     bool  simulating()     const { return st != State::Animated || alwaysActive; }
     float strengthNow()    const { return strength; }
+    float shownWeight()    const { return renderWeight; }   // how much of the drawn body is the ragdoll (0..1)
     float bodyMass()       const { return totalMass; }
     glm::vec3 point(int i) const { return pos[i]; }
     float     pointRadius(int i) const { return radius[i]; }
@@ -389,6 +435,22 @@ private:
     State st = State::Animated;
     bool  hasTarget = false, linksBuilt = false, haveModel = false, standUp = false;
     float timer = 0.0f, strength = 1.0f, balance = 1.0f, renderWeight = 0.0f;
+    float recoverFor = RECOVER_TIME, upYaw = 0.0f, showPeak = 0.0f;
+    bool  faceUp = false;
+    // How it lies, as it starts to get up: on its back (chest up)
+    // or not, and which way its feet point from its head
+    void lyingHow() {
+        glm::vec3 up = pos[RP_NECK] - pos[RP_PELVIS];
+        glm::vec3 left = pos[RP_SHOULDER_L] - pos[RP_SHOULDER_R];
+        glm::vec3 fwd = glm::cross(left, up);          // model X left, Y up: X × Y = Z, the chest's front
+        float n = glm::length(fwd);
+        faceUp = n > 1e-4f && fwd.y / n > 0.3f;
+        glm::vec3 feet = pos[RP_PELVIS] - pos[RP_HEAD];
+        feet.y = 0.0f;
+        if (glm::length(feet) < 1e-3f) faceUp = false;
+        else upYaw = glm::degrees(std::atan2(feet.z, feet.x));
+        recoverFor = faceUp ? RECOVER_FACE_UP : RECOVER_TIME;
+    }
     float totalMass = 70.0f;
 
     std::array<glm::vec3, RP_COUNT> pos{}, old{}, snap{}, target{}, kick{};

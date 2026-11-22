@@ -239,7 +239,15 @@ constexpr float SLAM_BOUNCE    = 18.0f;    // vox/s it bounces back up off the g
 constexpr float PLAYER_STUN    = 0.65f;    // × hitstun on a player (they get control back sooner)
 constexpr float WALL_SPEED     = 20.0f;    // vox/s: a body knocked into a wall this fast is pinned
 constexpr float WALL_PIN       = 0.6f;     // s pinned to it
-constexpr float REACT_WOBBLE   = 0.55f;    // × the ragdoll's knockdown speed: how hard a reaction shakes the limbs
+// × the ragdoll's knockdown speed: how hard a reaction shakes the
+// limbs. Small for flinches and stumbles: the animator's lean spring
+// and reaction clips show those (character/CharacterAnimator.h); the
+// ragdoll is for being thrown (Claude, 2026-11-21)
+constexpr float REACT_WOBBLE[6] = { 0.0f, 0.12f, 0.22f, 0.55f, 0.55f, 0.0f };
+// How hard each reaction kicks the lean spring (Human::hurt)
+constexpr float HURT_SIZE[6]    = { 0.6f, 1.0f, 1.4f, 1.6f, 1.6f, 0.0f };
+constexpr float HURT_BLOCKED    = 0.35f;   // a hit the guard took
+constexpr float HURT_PARRIED    = 1.1f;    // the parried attacker
 // getting up: s untouchable once on its feet
 constexpr float GETUP_GRACE    = 0.6f;
 // a perfect dodge: a hit that would land in the first this-many s of a

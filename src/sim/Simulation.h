@@ -340,6 +340,7 @@ public:
         });
         landPending(dt, all, hits);
         contactDamage(all);
+        swingTick(all, dt);
         // knocked into walls (physics marks them)
         for (Human* h : all)
             if (h->wallHit) {
@@ -619,6 +620,57 @@ public:
                     b->hit(point, (dir + glm::vec3(0.0f, 0.35f, 0.0f)) * n.type->contactKnock * b->mass);
                 break;                                   // one at a time
             }
+        }
+    }
+
+    // ── Swings (NpcType::swings: a monster model's own attacks) ─
+    // The brain starts one (npc/States.h); here its clip time runs on
+    // and, at the swing's hit_at, everything in front of the body within
+    // its reach and arc is hit once. A guard raised toward it takes the
+    // hit for stamina (a guard with no stamina left breaks: the hit goes
+    // through); a roll's dodge window lets it pass (untouchable).
+    // (Claude, 2026-11-22: the Mushroom King)
+    static constexpr float SWING_BLOCK_STAMINA = 0.5f;   // × the swing's poise damage, off a guard that takes it
+    void swingTick(const std::vector<Human*>& all, float dt) {
+        for (auto& np : npcList.all()) {
+            Npc& n = *np;
+            if (n.swing < 0) continue;
+            if (!n.type || n.swing >= (int)n.type->swings.size() || n.dead() || n.puppet) { n.swing = -1; continue; }
+            const NpcType::Swing& sw = n.type->swings[n.swing];
+            n.swingT += dt * sw.speed;
+            if (!n.swingDone && n.swingT >= sw.hitAt) {
+                n.swingDone = true;
+                glm::vec2 face(n.facing.x, n.facing.z);
+                face = glm::length(face) > 1e-3f ? glm::normalize(face) : glm::vec2(1, 0);
+                const float cosArc = std::cos(glm::radians(std::clamp(sw.arc, 0.0f, 180.0f)));
+                for (Human* b : all) {
+                    if (b == &n || b->dead() || friendly(n, *b) || b->flying) continue;
+                    if (b->isPlayer() && !static_cast<Player*>(b)->rules().hasBody) continue;
+                    if (!b->isPlayer() && static_cast<Npc*>(b)->type == n.type) continue;   // its own kind
+                    glm::vec2 off(b->position.x - n.position.x, b->position.z - n.position.z);
+                    float d = glm::length(off);
+                    if (d > sw.reach + Human::RADIUS) continue;
+                    if (b->position.y > n.position.y + n.height + 0.5f || b->position.y + b->height < n.position.y - 0.5f) continue;
+                    glm::vec2 to = d > 1e-3f ? off / d : face;
+                    if (d > n.hitRadius && glm::dot(to, face) < cosArc) continue;   // (right against it: hit whatever the angle)
+                    glm::vec3 dir(to.x, 0.0f, to.y);
+                    glm::vec3 point = b->bodyPoint(0.6f) - dir * Human::RADIUS;
+                    glm::vec2 bf(b->facing.x, b->facing.z);
+                    if (b->guarding && glm::length(bf) > 1e-3f && glm::dot(glm::normalize(bf), -to) > 0.3f &&
+                        b->stamina > sw.poise * SWING_BLOCK_STAMINA) {
+                        b->stamina -= sw.poise * SWING_BLOCK_STAMINA;
+                        SimEvent e; e.kind = SimEvent::Kind::Hit; e.a = n.uuid; e.b = b->uuid; e.blocked = true; e.at = point;
+                        events.push_back(e);
+                        b->hit(point, (dir + glm::vec3(0.0f, 0.1f, 0.0f)) * sw.knock * 0.3f * b->mass);
+                        continue;
+                    }
+                    if (b->guarding) b->stamina = 0.0f;                  // the guard broke
+                    toolHit(n.uuid, b->uuid, sw.damage, sw.poise, point, dir, sw.knockdown, AttackKind::Heavy);
+                    if (sw.knock > 0.0f && !b->dead())
+                        b->hit(point, (dir + glm::vec3(0.0f, 0.3f, 0.0f)) * sw.knock * b->mass);
+                }
+            }
+            if (n.swingT >= sw.length) n.swing = -1;
         }
     }
 
