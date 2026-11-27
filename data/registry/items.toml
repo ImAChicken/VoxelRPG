@@ -447,17 +447,43 @@ weight = 3.5
 shield = { block = 1.0, cost = 0.6, arc = 100, parry = 0.22 }
 color = [0.55, 0.40, 0.25]
 
+# ── The grapple (game/Grapple.h) ──────────────────────────
+# grapple = { range, speed }: equipped like a spellbook, in an X / Y /
+# B ability slot (combat), a quick option (in combat or out) or a
+# loadout's off hand (LT); the first one carried goes in B by itself.
+# Out of combat, hold it from the hotbar and use it (click / pad use).
+# That button throws it at the grapple point (a block with the
+# "grapple" flag: under the glowing mushrooms' caps) or enemy nearest
+# the middle of the view and in reach — it's marked, no need to aim
+# right at it. A tap pulls you all the way: to a point, a hop up over it at
+# the end; to an enemy, a lunge (press attack or a spell on the way and
+# it comes out as you arrive). Held, you swing on the rope instead
+# (pulled up clear of the ground first):
+# let go of the button to fly off with your speed, jump to let go with
+# a hop, crouch to climb the rope. range in voxels, speed in vox/s.
+[[item]]
+id = 1500
+name = "grappling_hook"
+display = "Grappling Hook"
+categories = ["tool"]
+held_model = "grappling_hook"
+weight = 1.5
+grapple = { range = 120, speed = 90 }
+color = [0.77, 0.64, 0.41]
+
 # ── Spellbooks (categories = ["spellbook"]) ───────────────
 # A weapon type: put one in an X / Y / B slot (or the off hand) in
 # combat; using it plays its 'cast' attack (movesets.toml) with the
 # book in hand (held_model), and the attack's effect does the rest.
 # A book is never used up. ("spell" still reads as spellbook.)
+# spell = "<id>": the spell it casts (spells.toml; the old way, cast =
+# "<attack>", names a movesets.toml attack).
 [[item]]
 id = 1400
 name = "windburst"
 display = "Windburst Spellbook"
 categories = ["spellbook"]
-cast = "windburst_cast"
+spell = "windburst"
 held_model = "spellbook_wind"
 weight = 0.6
 color = [0.70, 0.90, 0.95]
@@ -467,7 +493,140 @@ id = 1401
 name = "ice_spike"
 display = "Ice Spike Spellbook"
 categories = ["spellbook"]
-cast = "ice_spike_cast"
+spell = "ice_spike"
 held_model = "spellbook_ice"
 weight = 0.6
 color = [0.55, 0.75, 0.95]
+
+# Spellbooks for the spell groundwork (spells.toml): one for every
+# delivery and every use (Claude, 2026-11-25)
+[[item]]
+id = 1402
+name = "book_firebolt"
+display = "Firebolt Spellbook"
+categories = ["spellbook"]
+spell = "firebolt"
+held_model = "spellbook_fire"
+weight = 0.6
+color = [1.00, 0.50, 0.20]
+
+[[item]]
+id = 1403
+name = "book_ember_aura"
+display = "Ember Aura Spellbook"
+categories = ["spellbook"]
+spell = "ember_aura"
+held_model = "spellbook_fire"
+weight = 0.6
+color = [0.95, 0.40, 0.15]
+
+[[item]]
+id = 1404
+name = "book_frost_nova"
+display = "Frost Nova Spellbook"
+categories = ["spellbook"]
+spell = "frost_nova"
+held_model = "spellbook_ice"
+weight = 0.6
+color = [0.60, 0.80, 1.00]
+
+[[item]]
+id = 1405
+name = "book_frost_rune"
+display = "Frost Rune Spellbook"
+categories = ["spellbook"]
+spell = "frost_rune"
+held_model = "spellbook_ice"
+weight = 0.6
+color = [0.50, 0.75, 1.00]
+
+[[item]]
+id = 1406
+name = "book_shocking_grasp"
+display = "Shocking Grasp Spellbook"
+categories = ["spellbook"]
+spell = "shocking_grasp"
+held_model = "spellbook_shock"
+weight = 0.6
+color = [0.70, 0.80, 1.00]
+
+[[item]]
+id = 1407
+name = "book_spark_fan"
+display = "Spark Fan Spellbook"
+categories = ["spellbook"]
+spell = "spark_fan"
+held_model = "spellbook_shock"
+weight = 0.6
+color = [0.75, 0.85, 1.00]
+
+[[item]]
+id = 1408
+name = "book_arc_beam"
+display = "Arcane Beam Spellbook"
+categories = ["spellbook"]
+spell = "arc_beam"
+held_model = "spellbook_arcane"
+weight = 0.6
+color = [0.80, 0.45, 1.00]
+
+[[item]]
+id = 1409
+name = "book_blink"
+display = "Blink Spellbook"
+categories = ["spellbook"]
+spell = "blink"
+held_model = "spellbook_arcane"
+weight = 0.6
+color = [0.75, 0.50, 1.00]
+
+[[item]]
+id = 1410
+name = "book_mending"
+display = "Mending Light Spellbook"
+categories = ["spellbook"]
+spell = "mending"
+held_model = "spellbook_nature"
+weight = 0.6
+color = [0.60, 1.00, 0.60]
+
+[[item]]
+id = 1411
+name = "book_bark_skin"
+display = "Bark Skin Spellbook"
+categories = ["spellbook"]
+spell = "bark_skin"
+held_model = "spellbook_nature"
+weight = 0.6
+color = [0.55, 0.75, 0.35]
+
+[[item]]
+id = 1412
+name = "book_spore_cloud"
+display = "Spore Cloud Spellbook"
+categories = ["spellbook"]
+spell = "spore_cloud"
+held_model = "spellbook_nature"
+weight = 0.6
+color = [0.55, 0.95, 0.45]
+
+[[item]]
+id = 1413
+name = "book_stone_wall"
+display = "Stone Wall Spellbook"
+categories = ["spellbook"]
+spell = "stone_wall"
+held_model = "spellbook_nature"
+weight = 0.6
+color = [0.60, 0.55, 0.45]
+
+[[item]]
+id = 1414
+name = "book_call_mushnubs"
+display = "Call the Mushnubs Spellbook"
+categories = ["spellbook"]
+spell = "call_mushnubs"
+held_model = "spellbook_nature"
+weight = 0.6
+color = [0.50, 0.90, 0.60]
+

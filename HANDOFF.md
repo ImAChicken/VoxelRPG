@@ -36,6 +36,24 @@ notes are in docs/handoff-history.md.
    ignore it. Only `logs/*.dmp` (big binary dumps) and `screenshots/` stay out.
 
 ## In progress (more than one agent may be working; mark what you take)
+- **Claude (2026-11-25): Build mode (ROADMAP "Build mode")**: steps 1-4 and 7-9 done (plans, the Build tab, the
+  build camera, foundations, walls and rooms, paint, heights, pillars, snapping, frames with doors and windows,
+  roofs, storeys with per-level wall height, straight / L / U / spiral stairs, fences, automatic railings,
+  walls up / down in the build camera). Next: curves and round towers with cone roofs (5), smooth angled walls (6),
+  arched frames, the build camera on a pad.
+  Touches game/BuildPlan.h, world/PlanManager.h, BuildTool, PlayerInteraction, BuildMenuScreen, main.cpp.
+- Done 2026-11-25 (Claude): spell groundwork (CHANGELOG): `data/registry/spells.toml`, `game/Spells.h`,
+  `sim/SpellSystem.h`, anim_map `[casts]`, 17 spells with books. Next: the village island (phase 4) built with
+  spell progression in mind; mana, staves, enchanted weapons and the skill tree on the same data.
+- Done 2026-11-25 (Claude): the grapple and the Hywirl flier, Mushroom Islands phases 2-3 (CHANGELOG): `game/Grapple.h`,
+  `VoxelPhysics::grappleTick / flierTick`, `Simulation::grappleOk`, `Combat::flyerFight`. Next: others' ropes over the
+  network, grapple points along the rim road, the village island (phase 4).
+- Done 2026-11-26 (Claude): the grapple is equipped like a spellbook (ability slot / quick option / off hand; no G key)
+  and aims itself at the point or enemy nearest the view in reach (`grapple::aim`, `scanPoints`, `CombatKit::grappleReady`).
+- Done 2026-11-25 (Claude): Mushroom Islands phase 1 (CHANGELOG): the sky world type (`worldgen/SkyGenerator.h`,
+  `data/worlds/mushroom_islands.toml`), the coarse far view (`render/SkyFarView.h`), stepping stones, the bowl,
+  glowing mushrooms, bonfire and spawn points, the King at the boarded mine (`GameSession::tickSky`). Next: a portal
+  from the main world, phase 2 (grapple) per ROADMAP, rest/spawn for server clients.
 - Done 2026-11-22 (Claude): mushroom monsters (Mushnub, Spiny Mushnub, Mushroom King) as monster models with
   their own clips, drawn in the characters' toon style; the Hit physics setting; the second quit crash (CHANGELOG).
   Next on them: the King's Wave / Yes / No clips as spells, placing him (he only comes from `spawn` now), his

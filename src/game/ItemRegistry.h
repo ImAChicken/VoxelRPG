@@ -91,12 +91,16 @@ struct ItemDef {
 
     // Combat layout (game/CombatKit.h)
     std::string cast;                       // used (X / Y / B, or LT in the off hand): the attack it plays (movesets.toml), e.g. a spell's cast
+    std::string spell;                      // … or a spell (spells.toml): its own cast (game/Spells.h)
     std::string special;                    // LT with this in hand: "guard" (block, timed = parry), "heavy", or "" (weapons: guard)
     bool        shield      = false;        // an off-hand item that guards (LT: block and parry)
     // shield = { block = 1.0, cost = 0.6, arc = 100, parry = 0.22 }:
     // how much of a hit it stops, × stamina per point stopped, the
     // half-angle it covers (degrees), the parry window (s)
     float       shieldBlock = 1.0f, shieldCost = 0.6f, shieldArc = 100.0f, shieldParry = 0.22f;
+    // grapple = { range = 120, speed = 90 }: a grapple (game/Grapple.h):
+    // how far it reaches (vox), how fast it pulls (vox/s). 0: not one
+    float       grappleRange = 0.0f, grappleSpeed = 90.0f;
 
     int         decor       = -1;           // decoration items: index in decor::Set
 
@@ -273,6 +277,8 @@ private:
                 else if (tool == "blast")   d.tool = ToolKind::Blast;
                 d.toolPower = (float)(*t)["tool_power"].value_or(1.0);
                 d.cast    = (*t)["cast"].value_or(std::string());
+                d.spell   = (*t)["spell"].value_or(std::string());
+                if (!d.spell.empty()) d.categories |= IC_SPELLBOOK;
                 d.special = (*t)["special"].value_or(std::string());
                 d.shield  = (*t)["shield"].value_or(false);
                 if (d.is(IC_SHIELD)) d.shield = true;
@@ -286,6 +292,10 @@ private:
                     d.shieldParry = (float)(*sh)["parry"].value_or(0.22);
                 }
                 d.cubeSize  = (int)(*t)["cube"].value_or((int64_t)0);
+                if (auto* g = (*t)["grapple"].as_table()) {           // a grapple (game/Grapple.h)
+                    d.grappleRange = (float)(*g)["range"].value_or(120.0);
+                    d.grappleSpeed = (float)(*g)["speed"].value_or(90.0);
+                }
 
                 d.weaponClass = (*t)["weapon_class"].value_or(std::string());
                 d.damage      = (float)(*t)["damage"].value_or(0.0);

@@ -20,6 +20,11 @@ public:
     // Where the player comes back to after falling out of
     // the world
     glm::vec3 spawnPoint = {0, 0, 0};
+    // Set by resting at a bonfire or a bed, or using a portal
+    // (game/PlayerInteraction.h): saved, so you come back there
+    // after dying. Off: the world's own spawn
+    bool      spawnChosen = false;
+    void chooseSpawn(glm::vec3 at) { spawnPoint = at; spawnChosen = true; }
     float     deadFor = 0.0f;          // s since dying (Simulation respawns)
     bool isPlayer() const override { return true; }
 
@@ -79,6 +84,17 @@ public:
     }
     // Keep Human's combat numbers in step with the hand
     // (called every frame, like refreshMass)
+    // The grapple it carries, if any (game/Grapple.h): the best one
+    // anywhere in its inventory
+    void refreshGrapple() {
+        grappleReach = grappleSpeed = 0.0f;
+        for (int i = 0; i < Inventory::SLOTS; i++) {
+            const ItemStack& s = inventory.slots[i];
+            if (s.empty()) continue;
+            const ItemDef& d = gItems.get(s.itemID);
+            if (d.grappleRange > grappleReach) { grappleReach = d.grappleRange; grappleSpeed = d.grappleSpeed; }
+        }
+    }
     void refreshWeapon() {
         const ItemDef* w = wielded();
         weaponDamage = w ? w->damage : 0.0f;
@@ -191,6 +207,10 @@ public:
         out << buf;
         out << "mode="   << gameModeKey(mode) << "\n";
         out << "health=" << health << "\n";
+        if (spawnChosen) {
+            std::snprintf(buf, sizeof(buf), "spawn=%.2f %.2f %.2f\n", spawnPoint.x, spawnPoint.y, spawnPoint.z);
+            out << buf;
+        }
         inventory.write(out, "inv");
         devInventory.write(out, "dev");
         appearance.write(out);
@@ -207,6 +227,8 @@ public:
                         &facing.x, &facing.y, &facing.z);
         } else if (key == "mode") {
             setMode(gameModeFromKey(value, mode));
+        } else if (key == "spawn") {
+            if (std::sscanf(value.c_str(), "%f %f %f", &spawnPoint.x, &spawnPoint.y, &spawnPoint.z) == 3) spawnChosen = true;
         } else if (key == "health") {
             health = (float)std::atof(value.c_str());
         } else if (key.rfind("rep.", 0) == 0) {

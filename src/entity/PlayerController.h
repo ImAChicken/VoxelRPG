@@ -78,9 +78,17 @@ public:
     // True while the guard button is held in combat
     bool guarding = false;
 
+    // The grapple (game/Grapple.h): pressed (G, the pad's RB out of
+    // combat, or its X / Y / B slot): the game aims it and fills the
+    // intent's throw, then clears this. Held: intent.grappleHeld
+    bool grappleWanted = false;
+    bool kitGrappleHeld = false;
+
     // Set by the game while a prompt is using the number
     // keys (the copy tool's "corner 1 or 2?")
     bool slotKeysBlocked = false;
+    // Set by the game while the mouse wheel is the build camera's zoom
+    bool wheelBlocked = false;
 
     // Where to draw the body this frame (feet centre),
     // blended between physics ticks. Set by updateCamera.
@@ -142,7 +150,17 @@ public:
 
         readRollButton(player, frameDt);
 
+        kitGrappleHeld = false;
         readModeButtons(player, rules, frameDt);
+        // a spell's button held (a charge powers up, a channel goes on:
+        // game/Spells.h): any of the cast buttons, the one in use
+        intent.castHeld = gInput.isHeld(InputAction::UseSlotX) || gInput.isHeld(InputAction::UseSlotY) ||
+                          gInput.isHeld(InputAction::UseSlotB) || gInput.isHeld(InputAction::Block);
+        if (gInput.isHeld(InputAction::QuickLayer))
+            for (int i = 0; i < 8; i++) if (gInput.isHeld((InputAction)((int)InputAction::ToolbarSlot1 + i))) intent.castHeld = true;
+        // the grapple: thrown from its slot (useKitItem), aimed by the
+        // game (grapple::aim); held, that button swings
+        intent.grappleHeld = rules.hasBody && kitGrappleHeld;
 
         // ── Fly mode (V) — only where the mode allows ─────
         if (!rules.canFly)
@@ -341,6 +359,13 @@ private:
         const bool kitQuick = now.hasBody && player.mode == GameMode::Survival &&
                               gInput.isHeld(InputAction::QuickLayer);
         if (kitQuick && !now.combatActions) quickButtons(player);   // so the slotted spells don't need combat mode
+        // Out of combat (and in Test Play, which has no kit), a grapple
+        // held from the hotbar is thrown with use; in combat it's the
+        // kit's slot (useKitItem)
+        if (now.hasBody && !player.combatStance && player.activeInventory().heldDef().grappleRange > 0.0f) {
+            if (gInput.isPressed(InputAction::UseLeft)) grappleWanted = true;
+            if (gInput.isHeld(InputAction::UseLeft)) kitGrappleHeld = true;
+        }
         if (now.combatActions) {
             if (gInput.isPressed(InputAction::UseLeft)) {
                 note(PlayerAction::Attack);
@@ -376,9 +401,9 @@ private:
                     inv.pressHotbarKey(i);
             if (gInput.isPressed(InputAction::CycleOffhand))
                 inv.cycleOffhand();
-            if (gInput.isPressed(InputAction::ToolbarNext))
+            if (gInput.isPressed(InputAction::ToolbarNext) && !wheelBlocked)
                 inv.selectNext();
-            if (gInput.isPressed(InputAction::ToolbarPrev))
+            if (gInput.isPressed(InputAction::ToolbarPrev) && !wheelBlocked)
                 inv.selectPrev();
         }
     }
@@ -391,13 +416,17 @@ private:
     void useKitItem(uint16_t item) {
         if (!item) return;
         const ItemDef& d = gItems.get(item);
-        if (!d.cast.empty()) { intent.useItem = item; note(PlayerAction::UseItem); }
+        if (d.grappleRange > 0.0f) { grappleWanted = true; return; }   // a grapple in a slot: thrown (aimed by the game)
+        if (!d.cast.empty() || !d.spell.empty()) { intent.useItem = item; note(PlayerAction::UseItem); }
     }
     // The quick layer: the slot buttons (D-pad, X / Y / B / A; keys
     // 1..8) use the 8 quick options. In combat or out.
     void quickButtons(Player& player) {
-        for (int i = 0; i < CombatKit::QUICK; i++)
-            if (gInput.isPressed((InputAction)((int)InputAction::ToolbarSlot1 + i))) useKitItem(player.kit.quick[i]);
+        for (int i = 0; i < CombatKit::QUICK; i++) {
+            InputAction a = (InputAction)((int)InputAction::ToolbarSlot1 + i);
+            if (gInput.isPressed(a)) useKitItem(player.kit.quick[i]);
+            if (gInput.isHeld(a) && gItems.get(player.kit.quick[i]).grappleRange > 0.0f) kitGrappleHeld = true;
+        }
     }
     void combatKitButtons(Player& player) {
         // A weapon held in the toolbar (not drawn with R): Q guards,
@@ -417,11 +446,13 @@ private:
             else note(PlayerAction::Guard);
         }
         guarding = sp == CombatKit::Special::Guard && gInput.isHeld(InputAction::Block);
+        if (sp == CombatKit::Special::Cast && gInput.isHeld(InputAction::Block) && gItems.get(castItem).grappleRange > 0.0f) kitGrappleHeld = true;
         if (sp == CombatKit::Special::Heavy && gInput.isHeld(InputAction::Block)) intent.heavyHeld = true;   // held: it charges
         const InputAction useKeys[3] = { InputAction::UseSlotX, InputAction::UseSlotY, InputAction::UseSlotB };
         const InputAction cycleKeys[3] = { InputAction::CycleSlotX, InputAction::CycleSlotY, InputAction::CycleSlotB };
         for (int i = 0; i < 3; i++) {
             if (gInput.isPressed(useKeys[i])) useKitItem(kit.slotItem(i));
+            if (gInput.isHeld(useKeys[i]) && gItems.get(kit.slotItem(i)).grappleRange > 0.0f) kitGrappleHeld = true;
             if (gInput.isPressed(cycleKeys[i])) kit.cycleSlot(i);
         }
     }

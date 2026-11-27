@@ -358,7 +358,7 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
         // a riposte on a parried body: critical, and it goes down
         ev.riposte = true;
         b.exposed = 0.0f;
-        b.health = std::max(0.0f, b.health - dmg * RIPOSTE_DAMAGE);
+        b.takeDamage(dmg * RIPOSTE_DAMAGE);
         ev.poiseBroken = ev.knockedDown = true;
         b.poise = b.maxPoise;
         b.attack = AttackState();
@@ -379,10 +379,10 @@ inline HitEvent land(Human& a, Human& b, const Contact* contact = nullptr) {
             dmg *= gs.keep;
             knock = std::min(d.knock * (gs.shield ? 0.15f : 0.25f), FLINCH_KNOCK);   // pushed back a little (less behind a shield)
         }
-        b.health = std::max(0.0f, b.health - dmg);
+        b.takeDamage(dmg);
         if (b.dead()) { knock = KNOCKDOWN_KNOCK; ev.knockedDown = true; }
     } else {
-        b.health = std::max(0.0f, b.health - dmg);
+        b.takeDamage(dmg);
         // what it does to the body: the attack's reaction (a full
         // charge one stronger). A body reacts to anything that beats
         // its armor; poise still wears down, and when it breaks the
@@ -461,7 +461,7 @@ inline bool shotHit(Human& b, uint64_t attacker, float dmg, float poiseDmg, floa
         b.hurt(point, flat, ev.guardBroken ? HURT_SIZE[(int)React::Stumble] : HURT_BLOCKED);
         return true;
     }
-    b.health = std::max(0.0f, b.health - dmg);
+    b.takeDamage(dmg);
     ev.damage = dmg;
     b.combo = 0;
     bool armoredNow = b.attack.active() && b.attack.armored();

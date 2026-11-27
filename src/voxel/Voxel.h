@@ -10,7 +10,10 @@ constexpr int   VOXEL_COUNT     = VOXEL_DIM * VOXEL_DIM * VOXEL_DIM;   // one se
 
 // A chunk is a column of SECTIONS stacked 128³ sections:
 //   8 × 128 = 1024 voxels = 341 ft from bedrock to sky
-constexpr int   SECTIONS        = 8;
+#ifndef VOXEL_SECTIONS
+#define VOXEL_SECTIONS 8                 // (a build can try another: -DVOXEL_SECTIONS=16)
+#endif
+constexpr int   SECTIONS        = VOXEL_SECTIONS;
 constexpr int   WORLD_HEIGHT    = VOXEL_DIM * SECTIONS;
 constexpr float VOXEL_SIZE_IN   = 4.0f;
 

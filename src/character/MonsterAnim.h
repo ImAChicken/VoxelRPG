@@ -14,6 +14,7 @@
 struct MonsterClipNames {
     std::string idle = "Idle", walk = "Walk", run = "Run", jump = "Jump";
     std::string attack = "Bite_Front", attack2;      // attack2: a second attack, if any
+    std::string cast;                                 // a spell cast (npcs.toml casts), if it has a clip for it
     std::string hit = "HitRecieve", death = "Death";
     float walkSpeed = 10.0f;                          // vox/s its walk clip shows (faster plays it faster)
     float runSpeed  = 20.0f;

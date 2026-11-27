@@ -1,19 +1,20 @@
-Starting VoxelRPG... (2026-11-22 17:30:54, network version 11)
+Starting VoxelRPG... (2026-11-27 14:36:00, network version 11)
 Keyboard bindings loaded: "data/controls/keyboard.toml"
 Controller layout loaded: "data/controls/pad.toml"
-Registry loaded: 143 block types from data/registry/blocks.toml
-Item registry: 142 items (blocks + data/registry/items.toml)
+Registry loaded: 149 block types from data/registry/blocks.toml
+Item registry: 162 items (blocks + data/registry/items.toml)
 Movesets: 8 (27 attacks) from data/registry/movesets.toml
-Held models: 28 from data/models/held
+Spells: 17 from data/registry/spells.toml
+Held models: 33 from data/models/held
 Factions: 7 from data/registry/factions.toml
 Sound: SAMSUNG (NVIDIA High Definition Audio) at 48000 Hz
 Loot tables: 10
-NPC types: 12, looks: 7
+NPC types: 13, looks: 7
 Dungeons: 1 from data/registry/portals.toml
 Animations: 85 clips in 2 pack(s)
-Monster models: 3 from data/models/monsters
+Monster models: 4 from data/models/monsters
 Decorations: 23 plants, 18 decor, 4 ground patches, 5 landmarks, 12 trees from data/registry/decorations.toml
-Structure registry: 202 types from data/registry/structures.toml
+Structure registry: 204 types from data/registry/structures.toml
 Blueprints: 9 from data/blueprints
 Palettes: 8
 Default pack loaded
@@ -27,19 +28,46 @@ Shaders loaded OK
 Shaders loaded OK
 Shaders loaded OK
 Entering main loop
-Loading world: test77777
-Island world, 96 x 96 chunks
-Canyon mesa: 174 cells around 5312 8128, village placed
-River banks: 363 dips became ponds, 154 built up
-Terrain baked: 1537^2 samples, 14 lakes, 77 waterfalls, 75 streams, 202 ms (guided rivers, from the saved bake)
+Creating world: grabtest seed=42
+Mushroom Islands world, 48 x 48 chunks
 VoxelPhysics initialized
-33 NPCs loaded
 Shaders loaded OK
-welcome back
 Game mode: Survival
 World streaming on 8 worker thread(s)
-weapon 2: Spear
-weapon 1: Iron Sword
-You died
-Save committed: saves/test77777
+Sounds: 92 recordings for 13 kinds of sound (data/audio/sounds.toml)
+Game mode: Spectator
+Registry loaded: 149 block types from data/registry/blocks.toml
+Item registry: 162 items (blocks + data/registry/items.toml)
+Movesets: 8 (27 attacks) from data/registry/movesets.toml
+Spells: 17 from data/registry/spells.toml
+Held models: 33 from data/models/held
+Factions: 7 from data/registry/factions.toml
+Loot tables: 10
+NPC types: 13, looks: 7
+Dungeons: 1 from data/registry/portals.toml
+Animations: 85 clips in 2 pack(s)
+Decorations: 23 plants, 18 decor, 4 ground patches, 5 landmarks, 12 trees from data/registry/decorations.toml
+Structure registry: 204 types from data/registry/structures.toml
+Blueprints: 9 from data/blueprints
+Palettes: 8
+VoxelPhysics initialized
+blocks and items reloaded
+Game mode: Test Play
+Game mode: Survival
+Game mode: Spectator
+Game mode: Test Play
+Game mode: Survival
+enemy killed
+enemy killed
+enemy killed
+Saved 2 chunks
+Save committed: saves/grabtest
+world saved
+Game mode: Spectator
+Game mode: Test Play
+Game mode: Survival
+enemy killed
+enemy killed
+enemy killed
+Save committed: saves/grabtest
 world saved

@@ -16,7 +16,7 @@
 // Two LOADOUTS, set up on the right of the inventory screen:
 //   primary     the weapon (the inventory's Weapon 1 / Weapon 2
 //               equipment slot: loadout 1 / 2)
-//   off hand    a shield, a second sword, a spell, or nothing
+//   off hand    a shield, a second sword, a spell, a grapple, or nothing
 //               (nothing: LT is the primary's block / parry)
 //   X, Y, B     3 items each; the D-pad steps through the ones set
 //               (keys 4 / 5 / 6), X / Y / B use the one up (1 / 2 / 3)
@@ -43,6 +43,7 @@ struct CombatKit {
     int setAt = 0;                                    // follows the inventory's drawn weapon
     std::array<uint16_t, QUICK> quick{};              // D-pad left/up/right/down, X/Y/B/A
     bool made = false;                                // the defaults were filled in once
+    bool hooked = false;                              // a grapple carried was put in a slot once (B)
 
     const WeaponSet& current() const { return sets[(size_t)std::clamp(setAt, 0, SETS - 1)]; }
     WeaponSet& current() { return sets[(size_t)std::clamp(setAt, 0, SETS - 1)]; }
@@ -97,6 +98,7 @@ struct CombatKit {
         }
         for (uint16_t& q : quick) keep(q, fitsAbility);
         if (!made) makeDefaults(inv);
+        if (!hooked) placeGrapple(inv);
         follow(inv);
     }
     void makeDefaults(const Inventory& inv) {
@@ -118,6 +120,44 @@ struct CombatKit {
         }
     }
 
+    // The first grapple carried, put in B (both loadouts) if B's
+    // free, once — it isn't on a key of its own (an older save
+    // gets it too). Taken out, it stays out.
+    void placeGrapple(const Inventory& inv) {
+        uint16_t hook = 0;
+        for (const ItemStack& s : inv.slots)
+            if (!s.empty() && gItems.get(s.itemID).grappleRange > 0.0f) { hook = s.itemID; break; }
+        if (!hook) return;
+        hooked = true;
+        if (has(hook)) return;
+        for (WeaponSet& w : sets)
+            for (uint16_t& id : w.slots[2]) if (!id) { id = hook; break; }
+    }
+    // Is it anywhere in the kit?
+    bool has(uint16_t id) const {
+        if (!id) return false;
+        for (const WeaponSet& w : sets) {
+            if (w.off == id) return true;
+            for (auto& s : w.slots) for (uint16_t x : s) if (x == id) return true;
+        }
+        for (uint16_t q : quick) if (q == id) return true;
+        return false;
+    }
+    // The grapple a button would throw now: in combat, one up in X /
+    // Y / B or in the off hand; in combat or out, a quick option.
+    // (Out of combat it's also thrown held from the hotbar: main.cpp)
+    // button: 0..2 X / Y / B, 3 the off hand (LT), 4 + i quick i; -1
+    uint16_t grappleReady(bool combat, int* button = nullptr) const {
+        auto hook = [](uint16_t id) { return id && gItems.get(id).grappleRange > 0.0f; };
+        if (button) *button = -1;
+        if (combat) {
+            for (int i = 0; i < 3; i++) if (hook(slotItem(i))) { if (button) *button = i; return slotItem(i); }
+            if (hook(current().off)) { if (button) *button = 3; return current().off; }
+        }
+        for (int i = 0; i < QUICK; i++) if (hook(quick[(size_t)i])) { if (button) *button = 4 + i; return quick[(size_t)i]; }
+        return 0;
+    }
+
     // ── What goes where ───────────────────────────────────
     // The slots by name (shown in game, ItemKind below):
     //   Weapon slot     a loadout's primary (the Weapon 1 / 2
@@ -126,14 +166,15 @@ struct CombatKit {
     //   Off hand        shields, weapons, spellbooks
     //   Ability slots   X / Y / B and the 8 quick options: things
     //                   that DO something when used — spellbooks,
-    //                   and anything with a cast. Not tools (one day
-    //                   an enchanted tool may get a cast, and then fit)
+    //                   grapples, and anything with a cast. Not other
+    //                   tools (one day an enchanted tool may get a
+    //                   cast, and then fit)
     //   Charm slots     charms
-    static bool fitsOff(uint16_t id)   { const ItemDef& d = gItems.get(id); return d.valid() && (d.shield || d.is(IC_WEAPON) || d.is(IC_SPELL)); }
+    static bool fitsOff(uint16_t id)   { const ItemDef& d = gItems.get(id); return d.valid() && (d.shield || d.is(IC_WEAPON) || d.is(IC_SPELL) || d.grappleRange > 0.0f); }
     static bool fitsCharm(uint16_t id) { return gItems.get(id).is(IC_CHARM); }
     static bool fitsAbility(uint16_t id) {
         const ItemDef& d = gItems.get(id);
-        return d.valid() && !d.is(IC_DEV) && (d.is(IC_SPELLBOOK) || !d.cast.empty());
+        return d.valid() && !d.is(IC_DEV) && (d.is(IC_SPELLBOOK) || d.grappleRange > 0.0f || !d.cast.empty() || !d.spell.empty());
     }
     static bool fitsButton(uint16_t id) { return fitsAbility(id); }   // (the old name)
 
@@ -146,10 +187,11 @@ struct CombatKit {
         if (d.shield)           return "Shield - goes in a loadout's off hand";
         if (d.is(IC_SPELLBOOK)) return "Spellbook - ability slots, quick options or off hand";
         if (d.is(IC_CHARM))     return "Charm - charm slots";
+        if (d.grappleRange > 0.0f) return "Grapple - ability slots, quick options or off hand";
         if (d.is(IC_TOOL) && d.canFight()) return "Tool and weapon - the hotbar, or a Weapon slot";
         if (d.is(IC_TOOL))      return "Tool - used from the hotbar";
         if (d.is(IC_WEAPON))    return "Weapon - a Weapon slot or the off hand";
-        if (!d.cast.empty())    return "Usable - ability slots or quick options";
+        if (!d.cast.empty() || !d.spell.empty()) return "Usable - ability slots or quick options";
         if (d.worn >= 0 || !d.accessory.empty()) return "Worn - its equipment slot";
         if (d.is(IC_BLOCK) || d.is(IC_DECOR)) return "Placeable - from the hotbar";
         return std::string();
@@ -169,14 +211,14 @@ struct CombatKit {
         uint16_t off = current().off;
         if (off) {
             const ItemDef& d = gItems.get(off);
-            if (!d.cast.empty()) { if (castItem) *castItem = off; return Special::Cast; }
+            if (!d.cast.empty() || !d.spell.empty() || d.grappleRange > 0.0f) { if (castItem) *castItem = off; return Special::Cast; }
             if (d.special == "heavy") return Special::Heavy;
             return Special::Guard;                 // a shield, or a second blade held to guard
         }
         if (!mainWeapon) return Special::None;
         const ItemDef& d = gItems.get(mainWeapon);
         if (d.special == "heavy") return Special::Heavy;
-        if (!d.cast.empty()) { if (castItem) *castItem = mainWeapon; return Special::Cast; }
+        if (!d.cast.empty() || !d.spell.empty()) { if (castItem) *castItem = mainWeapon; return Special::Cast; }
         return Special::Guard;                     // no off hand: the primary's block / parry
     }
 
@@ -192,6 +234,7 @@ struct CombatKit {
             return s;
         };
         out << "kit.made=" << (made ? 1 : 0) << "\n";
+        out << "kit.hooked=" << (hooked ? 1 : 0) << "\n";
         for (int i = 0; i < SETS; i++) {
             const WeaponSet& w = sets[i];
             std::string p = "kit.set" + std::to_string(i) + ".";
@@ -213,6 +256,7 @@ struct CombatKit {
             for (int i = 0; i < n && std::getline(ss, s, ','); i++) out[i] = id(s);
         };
         if (f == "made") { made = value == "1"; return true; }
+        if (f == "hooked") { hooked = value == "1"; return true; }
         if (f == "quick") { list(value, quick.data(), QUICK); return true; }
         if (f.rfind("set", 0) == 0 && f.size() > 5 && f[4] == '.') {
             int i = f[3] - '0';

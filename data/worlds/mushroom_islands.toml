@@ -1,0 +1,136 @@
+# Mushroom Islands: the sky world's layout (worldgen/SkyGenerator.h;
+# ROADMAP "Mushroom Islands"). The layout is designed here; the seed
+# shapes each island and scatters the small ones.
+#
+#   size     chunks a side (128 voxels each)
+#   void_y   falling below this height kills
+#
+# [[island]]
+#   id       its name (other parts of the game find it by this)
+#   role     start   the small island you arrive on (a flat top for
+#                    the portal; it's never moved by the seed)
+#            brush   a small island: a dome with rock hanging under it
+#            body    a big island, rolling
+#            bowl    a ring of sharp mountains round a low floor, a
+#                    lake near the middle, a road round the inner rim
+#                    at the mountains' foot, one pass through the ring
+#                    facing the island its chain comes from
+#   at       its middle [x, z] (world voxels)
+#   y        its ground's base height
+#   radius   how far its outline reaches (the seed makes it wander)
+#   rise     how high its top rises over y (left out: from its size)
+#   depth    how far its rock hangs under the middle (left out: from
+#            its size)
+#   jitter   how far the seed may move it (voxels; default 40, the
+#            start island 0)
+#
+# [scatter]  small islands between the others, for the view
+#   count, radius [min, max], y [min, max], margin (from the world's edge)
+#
+# Heights: the world is 1024 voxels tall (ROADMAP step 0 kept it so);
+# the start and first islands sit near 400, the summit near 900.
+
+size = 48
+void_y = 150
+
+# ── Phase 1: the start and the bowl ──────────────────────
+[[island]]
+id = "start"
+role = "start"
+at = [700, 3072]
+y = 430
+radius = 55
+rise = 4
+depth = 70
+
+[[island]]
+id = "bowl"
+role = "bowl"
+at = [2200, 3072]
+y = 380
+radius = 850
+rise = 30
+depth = 260
+
+# Stepping stones between two islands: small flat-topped islands,
+# each jump short enough to make walking (worldgen/SkyGenerator.h
+# jumpReach), zig-zagging toward the landing. A bowl's way in faces
+# the island its chain comes from.
+#   radius  [min, max] of a stone
+#   swing   radians the path may zig-zag
+[[chain]]
+from = "start"
+to = "bowl"
+radius = [9, 15]
+swing = 0.4
+
+# ── Later phases (shaped as plain bodies for now) ────────
+[[island]]
+id = "village"
+role = "body"
+at = [3900, 2250]
+y = 440
+radius = 230
+rise = 10
+depth = 120
+
+[[island]]
+id = "medium_east"
+role = "body"
+at = [4150, 3650]
+y = 470
+radius = 330
+rise = 40
+
+[[island]]
+id = "medium_south"
+role = "body"
+at = [3250, 4350]
+y = 500
+radius = 290
+rise = 40
+
+[[island]]
+id = "giant_mushroom"
+role = "body"
+at = [4950, 4750]
+y = 300
+radius = 650
+rise = 30
+depth = 220
+
+[[island]]
+id = "ascent_1"
+role = "brush"
+at = [5350, 3650]
+y = 620
+radius = 110
+
+[[island]]
+id = "ascent_2"
+role = "brush"
+at = [5650, 3000]
+y = 720
+radius = 100
+
+[[island]]
+id = "ascent_3"
+role = "brush"
+at = [5350, 2300]
+y = 820
+radius = 95
+
+[[island]]
+id = "summit"
+role = "body"
+at = [4800, 1700]
+y = 890
+radius = 170
+rise = 12
+depth = 140
+
+[scatter]
+count = 45
+radius = [10, 35]
+y = [250, 760]
+margin = 250

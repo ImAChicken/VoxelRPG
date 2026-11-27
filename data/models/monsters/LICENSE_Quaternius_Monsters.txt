@@ -1,4 +1,4 @@
-mushnub.vmon, mushnub_evolved.vmon, mushroomking.vmon: made by tools/import_monster.py from
+mushnub.vmon, mushnub_evolved.vmon, mushroomking.vmon, hywirl.vmon: made by tools/import_monster.py from
 the Quaternius monster kit (glTF). The kit's licence follows.
 
 ------------------------------------------------------

@@ -14,6 +14,9 @@
 # breaking one picks up the whole plant it belongs to (see
 # decorations.toml). Opacity "full" only so the mesher can hide the
 # faces between them; light_pass "clear" lets light straight through.
+#
+# Grapple points (flags "grapple"): the grapple catches on them
+# (game/Grapple.h). Any block can have it.
 
 [[block]]
 id = 1
@@ -1559,3 +1562,76 @@ flags = ["emits_light"]
 on_destroy = 0
 color = [0.55, 0.30, 0.95]
 light = [9, 4, 15]
+
+# ── Mushroom Islands (the sky world; Claude, 2026-11-25) ─
+# The giant glowing mushrooms' caps: solid, glowing (worldgen/
+# SkyGenerator.h grows them). Tiles: tools/gen_sky_textures.py
+[[block]]
+id = 143
+name = "glowcap_blue"
+material = "organic"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.25, 0.55, 0.95]
+light = [3, 8, 15]
+
+[[block]]
+id = 144
+name = "glowcap_pink"
+material = "organic"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.95, 0.40, 0.80]
+light = [14, 4, 12]
+
+[[block]]
+id = 145
+name = "glowcap_green"
+material = "organic"
+hardness = 1
+opacity = "full"
+flags = ["solid", "destructible", "emits_light"]
+on_destroy = 0
+color = [0.45, 0.95, 0.55]
+light = [4, 14, 7]
+
+# A giant mushroom's stem (the little mushrooms' mushroom_stem is a
+# walk-through plant; this one holds a cap up)
+[[block]]
+id = 146
+name = "shroom_stem"
+material = "organic"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 0
+color = [0.88, 0.85, 0.80]
+
+# The sky world's ground: soft fungal mat over dirt
+[[block]]
+id = 147
+name = "mycelium"
+material = "dirt"
+hardness = 2
+opacity = "full"
+flags = ["solid", "destructible"]
+on_destroy = 1
+color = [0.42, 0.36, 0.52]
+
+# Something to grapple to (ROADMAP Mushroom Islands phase 2): knotted
+# in the giant mushrooms' gills and along the bowl's ring road. The
+# grapple looks for this block by name. A faint glow so it can be found
+[[block]]
+id = 148
+name = "grapple_point"
+material = "wood"
+hardness = 3
+opacity = "full"
+flags = ["solid", "destructible", "emits_light", "grapple"]
+on_destroy = 0
+color = [0.85, 0.70, 0.35]
+light = [8, 6, 2]

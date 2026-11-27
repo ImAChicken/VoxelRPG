@@ -396,7 +396,8 @@ xp = 20
 # fights with two swings (Simulation::swingTick), each its clip played
 # slower than it came so the wind-up can be read: a punch, and the
 # club, heavier and wider, that can knock you down. No guard, no rolls.
-# His Wave, Yes and No clips are kept for spells later.
+# His Wave casts a Spore Cloud at you from afar (casts below); Yes and
+# No are kept for spells later.
 [[npc]]
 id = "mushroom_king"
 name = "Mushroom King"
@@ -405,11 +406,14 @@ look = ""
 health = 700
 poise = 999
 boss = true
-body = { shape = "monster", model = "mushroomking", height = 26, width = 11, hit_height = 26, mass = 320, color = [0.30, 0.50, 0.62], clips = { attack = "Punch", hit = "HitReact", walk_speed = 9, run_speed = 18 } }
+body = { shape = "monster", model = "mushroomking", height = 26, width = 11, hit_height = 26, mass = 320, color = [0.30, 0.50, 0.62], clips = { attack = "Punch", hit = "HitReact", cast = "Wave", walk_speed = 9, run_speed = 18 } }
 swings = [
   { clip = "Punch",  damage = 22, poise = 35, knock = 20, reach = 13, arc = 55, hit_at = 0.33, length = 0.87, speed = 0.6 },
   { clip = "Weapon", damage = 34, poise = 70, knock = 30, reach = 16, arc = 85, hit_at = 0.35, length = 0.87, speed = 0.5, weight = 0.6, knockdown = true },
 ]
+# his Wave: a cloud of spores thrown out at you when you keep your
+# distance (spells.toml spore_cloud; npc/States.h castSpell)
+casts = [ { spell = "spore_cloud", range = [22, 70], every = 7 } ]
 states = ["idle", "alert", "combat", "search", "return", "dead"]
 idle = "stand"
 territory = { radius = 50, leash = 140 }
@@ -422,3 +426,37 @@ voice = { pitch = 0.12, range = 0.3, size = 0.9, speed = 0.35, breath = 0.5, rou
 voice_vary = 0.0
 barks = { spot = ["WHO TREADS ON MY SPORES?"], hurt = ["Hrrmph!"], die = ["My... spores..."], idle = ["Hrmm."] }
 xp = 160
+
+# The Hywirl: a purple flier from the sky islands (Eddie, 2026-11-25:
+# "this purple guy ... should be the grapple flying monster"). Its own
+# model and clips (the kit's Flying set). It circles over you out of
+# reach and dives in to headbutt or punch, then climbs away; the hook
+# under it is its grapple point: grapple it (G) to swing from it, or
+# tap to lunge at it and hit it in the air (game/Grapple.h).
+#   fly = { speed, fast, hover, grapple_point }: npc/NpcTypes.h
+[[npc]]
+id = "hywirl"
+name = "Hywirl"
+faction = "fungi"
+look = ""
+health = 60
+poise = 999
+body = { shape = "monster", model = "hywirl", height = 11, width = 9, hit_height = 11, mass = 30, color = [0.70, 0.35, 0.75], clips = { idle = "Flying_Idle", walk = "Flying_Idle", run = "Fast_Flying", jump = "", attack = "Headbutt", hit = "HitReact", death = "Death", walk_speed = 14, run_speed = 30 } }
+fly = { speed = 20, fast = 46, hover = 20, grapple_point = [0, 0.5, 0] }
+swings = [
+  { clip = "Headbutt", damage = 12, poise = 18, knock = 16, reach = 9, arc = 70, hit_at = 0.55, length = 1.17, speed = 1.1 },
+  { clip = "Punch",    damage = 9,  poise = 12, knock = 10, reach = 9, arc = 60, hit_at = 0.5,  length = 1.17, speed = 1.2 },
+]
+states = ["idle", "alert", "combat", "search", "return", "dead"]
+idle = "wander"
+wander_radius = 40
+territory = { radius = 80, leash = 220 }
+sight = { range = 90, fov = 300 }
+hearing = 1.0
+alert_time = [0.3, 0.6]
+turn_speed = 360
+aggression = 0.6
+voice = { pitch = 1.1, range = 0.8, size = 0.15, speed = 1.1, breath = 0.4, rough = 0.1, nasal = 0.6, style = "chirpy", volume = 0.6 }
+voice_vary = 0.2
+barks = { spot = ["Hwiii!"], hurt = ["Hwip!"], die = ["Hwiiirrr..."], idle = ["Hwrr."] }
+xp = 18

@@ -35,6 +35,7 @@
 struct RoamGroupDef {
     std::string id;
     std::vector<std::string> biomes;                 // keys (lower case), groups (capitalised), or "any"
+    std::vector<std::string> worlds;                 // world type keys it comes in ("sky"); empty: any
     std::vector<std::pair<std::string, float>> npcs; // type, weight
     int   minSize = 1, maxSize = 1;
     float weight = 1.0f;
@@ -94,6 +95,8 @@ public:
                 if (auto* b = (*g)["biomes"].as_array())
                     for (auto& x : *b) if (auto v = x.value<std::string>()) d.biomes.push_back(*v);
                 if (d.biomes.empty()) d.biomes.push_back("any");
+                if (auto* wl = (*g)["worlds"].as_array())
+                    for (auto& x : *wl) if (auto v = x.value<std::string>()) d.worlds.push_back(*v);
                 if (auto* n = (*g)["npcs"].as_table())
                     for (auto& [k, v] : *n) d.npcs.push_back({ std::string(k.str()), (float)v.value<double>().value_or(1.0) });
                 if (auto* sz = (*g)["size"].as_array(); sz && sz->size() >= 2) {
@@ -158,6 +161,7 @@ public:
     // the world's answers (GameSession): the biome of a column (-1:
     // unknown), and why a spot is no place for one ("" if it's fine)
     std::function<int(int, int)> biomeAt;
+    std::string worldKey;                          // the world's type key (worldTypeKey): groups with 'worlds' only come in theirs
     std::function<std::string(glm::vec3)> spotBlocked;
     glm::vec3 worldSpawn{ 0.0f };
     bool hasWorldSpawn = false;
@@ -320,6 +324,7 @@ private:
                 if (g.fromSpawnMin > 0.0f && fromSpawn < g.fromSpawnMin) continue;
                 if (g.fromSpawnMax > 0.0f && fromSpawn > g.fromSpawnMax) continue;
                 if (!RoamingTable::biomeMatches(g, biome)) continue;
+                if (!g.worlds.empty() && std::find(g.worlds.begin(), g.worlds.end(), worldKey) == g.worlds.end()) continue;
                 fit.push_back(&g);
                 sum += std::max(0.0f, g.weight);
             }

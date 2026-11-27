@@ -1,19 +1,20 @@
-Starting VoxelRPG... (2026-11-22 17:06:29, network version 11)
+Starting VoxelRPG... (2026-11-25 20:09:52, network version 11)
 Keyboard bindings loaded: "data/controls/keyboard.toml"
 Controller layout loaded: "data/controls/pad.toml"
-Registry loaded: 143 block types from data/registry/blocks.toml
-Item registry: 142 items (blocks + data/registry/items.toml)
+Registry loaded: 149 block types from data/registry/blocks.toml
+Item registry: 162 items (blocks + data/registry/items.toml)
 Movesets: 8 (27 attacks) from data/registry/movesets.toml
-Held models: 28 from data/models/held
+Spells: 17 from data/registry/spells.toml
+Held models: 33 from data/models/held
 Factions: 7 from data/registry/factions.toml
 Sound: SAMSUNG (NVIDIA High Definition Audio) at 48000 Hz
 Loot tables: 10
-NPC types: 12, looks: 7
+NPC types: 13, looks: 7
 Dungeons: 1 from data/registry/portals.toml
 Animations: 85 clips in 2 pack(s)
-Monster models: 3 from data/models/monsters
+Monster models: 4 from data/models/monsters
 Decorations: 23 plants, 18 decor, 4 ground patches, 5 landmarks, 12 trees from data/registry/decorations.toml
-Structure registry: 202 types from data/registry/structures.toml
+Structure registry: 204 types from data/registry/structures.toml
 Blueprints: 9 from data/blueprints
 Palettes: 8
 Default pack loaded
@@ -27,101 +28,40 @@ Shaders loaded OK
 Shaders loaded OK
 Shaders loaded OK
 Entering main loop
-Loading world: test77777
-Island world, 96 x 96 chunks
-Canyon mesa: 174 cells around 5312 8128, village placed
-River banks: 363 dips became ponds, 154 built up
-Terrain baked: 1537^2 samples, 14 lakes, 77 waterfalls, 75 streams, 214 ms (guided rivers, from the saved bake)
-VoxelPhysics initialized
-24 NPCs loaded
-Shaders loaded OK
-welcome back
-Game mode: Survival
-World streaming on 8 worker thread(s)
-types: bandit, crypt_lord, dummy, guard, mushnub, mushnub_evolved, mushroom_king, skeleton_archer, slime, swordsman, undead, villager
-spawned 1 mushroom_king
-weapon 2: Spear
-loadout 1: Iron Sword
-You died
-You died
-Save committed: saves/test77777
-world saved
-enemy killed
-You died
-VoxelPhysics initialized
-village built at 2624 200 5312: Plains hamlet: 8 buildings, 6 villagers, 2 guards (8 lots, 4 roads)
-a village: Plains hamlet: 8 buildings, 6 villagers, 2 guards
-you were parried
-parried - strike now for a riposte
-riposte
-enemy killed
-Saved 5 chunks
-Save committed: saves/test77777
-world saved
-types: bandit, crypt_lord, dummy, guard, mushnub, mushnub_evolved, mushroom_king, skeleton_archer, slime, swordsman, undead, villager
-unknown command: mushnub  (try help)
-spawned 1 mushnub
-spawned 3 mushnub
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-Save committed: saves/test77777
-world saved
-Creating world: New World seed=42
-Island world, 96 x 96 chunks
-Canyon mesa: 174 cells around 5312 8128, village placed
-River banks: 363 dips became ponds, 154 built up
-Terrain baked: 1537^2 samples, 14 lakes, 77 waterfalls, 75 streams, 2718 ms (guided rivers)
+Creating world: mushtest seed=42
+Mushroom Islands world, 48 x 48 chunks
 VoxelPhysics initialized
 Shaders loaded OK
 Game mode: Survival
 World streaming on 8 worker thread(s)
-The gate opens onto the Undead Crypt. Walk through. (60:00)
-VoxelPhysics initialized
-opened New World/instances/crypt-985607
-Shaders loaded OK
-through to New World/instances/crypt-985607
-You died
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-enemy killed
-You died
-through to New World
-through to New World/instances/crypt-985607
-through to New World
-through to New World/instances/crypt-985607
-through to New World
-through to New World/instances/crypt-985607
-through to New World
-through to New World/instances/crypt-985607
-through to New World
-through to New World/instances/crypt-985607
-through to New World
-Saved 1 chunks
-Save committed: saves/New World
-Saved 4 chunks
-Save committed: saves/New World/instances/crypt-985607
+Sounds: 92 recordings for 13 kinds of sound (data/audio/sounds.toml)
+Game mode: Spectator
+Game mode: Test Play
+material: mycelium
+material: mycelium
+material: mycelium
+You rest by the Bonfire. You'll come back here.
+You rest by the Bonfire. You'll come back here.
+You rest by the Bonfire. You'll come back here.
+Game mode: Survival
+Game mode: Spectator
+Game mode: Test Play
+Saved 2 chunks
+Save committed: saves/mushtest
 world saved
-closing New World/instances/crypt-985607 (nobody there)
-Save committed: saves/New World/instances/crypt-985607
-VoxelPhysics initialized
-village built at 2624 200 5312: Plains hamlet: 8 buildings, 6 villagers, 2 guards (8 lots, 4 roads)
-a village: Plains hamlet: 8 buildings, 6 villagers, 2 guards
-enemy killed
-Saved 6 chunks
-Save committed: saves/New World
-world saved
-Save committed: saves/New World
+Game mode: Survival
+Game mode: Spectator
+Game mode: Test Play
+Game mode: Survival
+Game mode: Spectator
+Game mode: Test Play
+Game mode: Survival
+Game mode: Spectator
+Game mode: Test Play
+Game mode: Survival
+Game mode: Spectator
+Game mode: Test Play
+Game mode: Survival
+Game mode: Spectator
+Save committed: saves/mushtest
 world saved

@@ -667,6 +667,9 @@ armor_from = 0.0
 track = 140
 
 # ── Spells: an item's own attack (items.toml: cast = "...") ─
+# (The old way. Spells are data in spells.toml now, game/Spells.h:
+# the Windburst and Ice Spike books cast those; these two attacks
+# stay for anything still naming them with cast = "...".)
 # effect   what happens as the active window opens, instead of a
 #          blade hit (sim/Simulation.h castEffects):
 #            windburst  a cone of wind: bodies in it are thrown

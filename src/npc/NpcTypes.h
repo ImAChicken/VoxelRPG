@@ -1,4 +1,5 @@
 #pragma once
+#include "../game/Spells.h"
 #include "../audio/Voice.h"
 #include "../character/Appearance.h"
 #include "../character/MonsterAnim.h"
@@ -145,8 +146,25 @@ struct NpcType {
         float reach = 10.0f, arc = 70.0f;          // vox from its middle; degrees either side of where it faces
         float hitAt = 0.33f, length = 0.87f, speed = 1.0f, weight = 1.0f;
         bool  knockdown = false;
+        std::string spell;                         // a spell cast at hit_at instead of a blow (spells.toml)
     };
     std::vector<Swing> swings;
+    // ── Spells (casts = [ { spell, range = [min, max], every } ]):
+    // in a fight it casts one now and then, when the target's that far
+    // (npc/States.h); resist = { fire = 0.5 }: less of that damage type
+    struct Cast { std::string spell; float rangeMin = 0.0f, rangeMax = 60.0f, every = 4.0f; };
+    std::vector<Cast> casts;
+    float resist[(int)spell::Element::COUNT] = {};
+    // ── Flying (fly = { … }; VoxelPhysics::flierTick, npc/States.h
+    // flyerFight): no gravity, it goes where it likes at 'speed' (vox/s;
+    // 'fast' darting in), keeping 'hover' vox over the ground when it
+    // wanders and about that over its target when it fights.
+    // grapple_point = [x, y, z]: where on it a grapple can catch (vox
+    // from its feet, x forward), to swing from it (game/Grapple.h)
+    bool  flies = false;
+    float flySpeed = 20.0f, flyFast = 42.0f, hover = 18.0f;
+    bool  grapplePoint = false;
+    glm::vec3 grappleAt{ 0.0f };
 
     bool person() const { return shape == "human"; }
 
@@ -301,7 +319,7 @@ public:
                             MonsterClipNames& n = d->clips;
                             auto get = [&](const char* k, std::string& into) { if (auto v = (*cl)[k].value<std::string>()) into = *v; };
                             get("idle", n.idle); get("walk", n.walk); get("run", n.run); get("jump", n.jump);
-                            get("attack", n.attack); get("attack2", n.attack2); get("hit", n.hit); get("death", n.death);
+                            get("attack", n.attack); get("attack2", n.attack2); get("hit", n.hit); get("death", n.death); get("cast", n.cast);
                             n.walkSpeed = (float)(*cl)["walk_speed"].value_or((double)n.walkSpeed);
                             n.runSpeed = (float)(*cl)["run_speed"].value_or((double)n.runSpeed);
                         }
@@ -316,6 +334,29 @@ public:
                         d->lungeHeight = (float)(*h)["lunge_height"].value_or(5.0);
                         // flat ground: up and down again at the lunge's speed (gravity 40)
                         d->lungeRange = d->lungeSpeed * 2.0f * std::sqrt(2.0f * d->lungeHeight / 40.0f);
+                    }
+                    if (auto* ca = t["casts"].as_array())
+                        for (auto& e : *ca)
+                            if (auto* ct = e.as_table()) {
+                                NpcType::Cast c;
+                                c.spell = (*ct)["spell"].value_or(std::string());
+                                if (auto* r = (*ct)["range"].as_array(); r && r->size() == 2) {
+                                    c.rangeMin = (float)(*r)[0].value_or(0.0); c.rangeMax = (float)(*r)[1].value_or(60.0);
+                                }
+                                c.every = (float)(*ct)["every"].value_or(4.0);
+                                if (!c.spell.empty()) d->casts.push_back(c);
+                            }
+                    if (auto* rs = t["resist"].as_table())
+                        for (auto& [k, v] : *rs) d->resist[(int)spell::elementFrom(std::string(k.str()))] = (float)v.value_or(0.0);
+                    if (auto* f = t["fly"].as_table()) {
+                        d->flies = true;
+                        d->flySpeed = (float)(*f)["speed"].value_or(20.0);
+                        d->flyFast = (float)(*f)["fast"].value_or(42.0);
+                        d->hover = (float)(*f)["hover"].value_or(18.0);
+                        if (auto* gp = (*f)["grapple_point"].as_array(); gp && gp->size() >= 3) {
+                            d->grapplePoint = true;
+                            d->grappleAt = glm::vec3((float)(*gp)[0].value_or(0.0), (float)(*gp)[1].value_or(0.0), (float)(*gp)[2].value_or(0.0));
+                        }
                     }
                     if (auto* sw = t["swings"].as_array())
                         for (auto& e : *sw)
@@ -332,6 +373,7 @@ public:
                                 s.speed = std::max(0.1f, (float)(*st)["speed"].value_or((double)s.speed));
                                 s.weight = std::max(0.0f, (float)(*st)["weight"].value_or((double)s.weight));
                                 s.knockdown = (*st)["knockdown"].value_or(false);
+                                s.spell = (*st)["spell"].value_or(std::string());
                                 d->swings.push_back(s);
                             }
                     if (auto* c = t["contact"].as_table()) {

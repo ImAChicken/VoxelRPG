@@ -10,6 +10,8 @@
 #include "Spawners.h"
 #include "Roaming.h"
 #include "../physics/IPhysics.h"
+#include "../game/Grapple.h"
+#include "SpellSystem.h"
 #include "../world/Woodcutting.h"
 #include "../world/PortalLinks.h"
 #include "../chunk/ChunkManager.h"
@@ -60,6 +62,7 @@ struct SimEvent {
         Shot,               // a: who loosed an arrow; at (where from), dir (its way), charge (the draw)
         Quake,              // a: who slammed; at (where the shockwave starts), dir (its way), amount (its range)
         PortalCrossed,      // b: who went through a portal; at (where they came out)
+        Spell,              // spell: its index (gSpells.at), stage (SpellSystem::Stage); at, dir; a: its caster, b: a body it reached
     };
     uint32_t   encounter = 0;
     Kind       kind = Kind::Hit;
@@ -80,9 +83,11 @@ struct SimEvent {
     int        combo = 0;             // the attacker's hits in a row
     float      charge = 0.0f;         // 0..1
     int        window = 0;            // which hit of a multi-hit swing
+    int        spell = -1;            // Spell: gSpells index
+    uint8_t    stage = 0;
 };
 
-class Simulation : public NpcWorld {
+class Simulation : public NpcWorld, public SpellWorld {
 public:
     static constexpr float RESPAWN_AFTER = 3.0f;   // s a dead player lies there
 
@@ -144,6 +149,7 @@ public:
     DayClock day;
     void attachWorld(IPhysics* p, Woodcutting* w) {
         physics = p; wood = w;
+        spellSys.npcTarget = [](const Human& h) -> uint64_t { return h.isPlayer() ? 0 : static_cast<const Npc&>(h).target; };
         fights.hooks.now = [this] { return clock; };
         fights.hooks.standNear = [this](glm::vec3 want, glm::vec3& out) {
             if (!physics) return false;
@@ -165,6 +171,7 @@ public:
         noises.clear();
         fights.clear();
         shots.clear();
+        spellSys.clear(); spellAll.clear();
         landings.clear();
     }
     bool hasWorld() const { return physics != nullptr; }
@@ -201,6 +208,136 @@ public:
     }
     const std::vector<std::unique_ptr<Player>>& players() const { return playerList; }
     NpcManager& npcs() { return npcList; }
+
+    // ── Spells (game/Spells.h, sim/SpellSystem.h) ─────────
+    SpellSystem& spells() { return spellSys; }
+    const SpellSystem& spells() const { return spellSys; }
+    // A spell cast from a body now, by id (the console's 'cast'; tests)
+    bool castNow(Human& c, const std::string& id, float power = 1.0f) {
+        const spell::Def* d = gSpells.find(id);
+        if (!d) return false;
+        spellAll = bodies();
+        spellSys.castFrom(c, *d, power);
+        return true;
+    }
+    // what spells ask of the world (SpellWorld)
+    Human* spellBody(uint64_t id) override { return find(id); }
+    const std::vector<Human*>& spellBodies() override { return spellAll; }
+    bool spellEnemy(const Human& c, const Human& b) override {
+        if (b.dead() || &b == &c) return false;
+        if (c.isPlayer()) {
+            if (b.isPlayer()) return false;                      // (no harm to other players)
+            const Npc& n = static_cast<const Npc&>(b);
+            if (const Human* s = summonerOf(n); s && (s == &c || s->isPlayer())) return false;   // your summons
+            return !friendly(n, c);
+        }
+        return hostile(static_cast<const Npc&>(c), b);
+    }
+    bool spellAlly(const Human& c, const Human& b) override {
+        if (b.dead()) return false;
+        if (&b == &c) return true;
+        if (c.isPlayer()) {
+            if (b.isPlayer()) return true;
+            const Npc& n = static_cast<const Npc&>(b);
+            if (const Human* s = summonerOf(n); s && s->isPlayer()) return true;
+            return friendly(n, c);
+        }
+        const Npc& n = static_cast<const Npc&>(c);
+        if (!b.isPlayer() && static_cast<const Npc&>(b).faction == n.faction) return true;
+        return friendly(n, b);
+    }
+    void spellHit(uint64_t from, Human& b, float damage, float poise, bool knockdown, glm::vec3 at, glm::vec3 dir, float knock, float lift) override {
+        if (b.dead() || untouchable(b)) return;
+        hitConsequences(from, b.uuid, at);
+        if (damage > 0.0f) fights.hit(from, b.uuid, damage);
+        combat::HitEvent ev;
+        ev.attacker = from; ev.target = b.uuid; ev.point = at;
+        float got = damage > 0.0f ? b.takeDamage(damage) : 0.0f;
+        b.sinceHurt = 0.0f;
+        b.lastHitBy = from;
+        float k = knock;
+        if (poise > 0.0f) k = std::max(k * (0.6f), combat::poiseHit(b, poise, knock, knockdown, ev));
+        if (b.dead()) { ev.killed = true; b.attack = AttackState(); b.ragdoll.stayDown = true; fights.killed(from, b.uuid, xpFor(b.uuid)); }
+        if (k > 0.0f && glm::length(dir) > 1e-3f) combat::knockBody(b, at, dir, lift, k);
+        SimEvent e;
+        e.kind = SimEvent::Kind::Hit; e.a = from; e.b = b.uuid; e.amount = got; e.attack = AttackKind::Cast; e.at = at;
+        e.poiseBroken = ev.poiseBroken; e.knockedDown = ev.knockedDown;
+        events.push_back(e);
+        if (ev.killed) { SimEvent kk; kk.kind = SimEvent::Kind::Killed; kk.a = from; kk.b = b.uuid; events.push_back(kk); }
+    }
+    bool spellClear(glm::vec3 a, glm::vec3 b) override { return clearLine(a, b); }
+    bool spellSolid(int x, int y, int z) override { return physics && physics->solidAt(x, y, z); }
+    bool spellRoom(glm::vec3 feet, float radius, float height) override { return physics && physics->capsuleIsClear(feet, radius, height); }
+    void spellPlace(uint64_t owner, const std::string& structure, glm::vec3 at, glm::ivec3 voxel, int rot) override {
+        Landing l; l.owner = owner; l.place = structure; l.at = at; l.voxel = voxel; l.rot = rot;
+        landings.push_back(l);
+    }
+    void spellSummon(const std::string& type, glm::vec3 at, glm::vec3 facing, uint64_t summoner, float life) override {
+        Npc* n = npcList.spawn(type, at, facing);
+        if (!n) return;
+        n->summoner = summoner;
+        n->summonLeft = life;
+        n->home = at;
+    }
+    void spellFx(const spell::Def& d, uint8_t stage, glm::vec3 at, glm::vec3 dir, uint64_t a, uint64_t b) override {
+        SimEvent e; e.kind = SimEvent::Kind::Spell; e.spell = d.index; e.stage = stage; e.at = at; e.dir = dir; e.a = a; e.b = b;
+        events.push_back(e);
+    }
+    // Summons: they stay near their summoner, and go when their time's up
+    // (or it's gone)
+    void tickSummons(float dt) {
+        for (auto& np : npcList.all()) {
+            Npc& n = *np;
+            if (!n.summoner || n.dead()) continue;
+            Human* s = find(n.summoner);
+            n.summonLeft -= dt;
+            if (!s || s->dead() || n.summonLeft <= 0.0f) { n.health = 0.0f; continue; }
+            n.home = s->position;
+        }
+    }
+
+    // ── The grapple (game/Grapple.h) ──────────────────────
+    // Where a grapple holds on a body
+    static glm::vec3 grapplePointOf(const Human& b) {
+        return b.isPlayer() ? b.bodyPoint(0.5f) : grappleAnchor(static_cast<const Npc&>(b));
+    }
+    // A throw the player asks for: does it carry one, is the target in
+    // reach, a real grapple point or a body it may catch (not one on
+    // its side, nor a player)? Puts the anchor where it really is.
+    bool grappleOk(const Player& p, HumanIntent& in) {
+        if (p.grappleReach <= 0.0f || !physics) return false;
+        glm::vec3 from = grapple::hand(p);
+        if (in.grappleOn) {
+            Human* b = find(in.grappleOn);
+            if (!b || b->dead() || b == &p || b->isPlayer()) return false;
+            const Npc& n = static_cast<const Npc&>(*b);
+            if (!hostile(n, p) || n.untouchable) return false;
+            in.grappleAt = grappleAnchor(n);
+            in.grappleSwing = n.type && n.type->grapplePoint;
+            return glm::length(in.grappleAt - from) <= p.grappleReach * 1.15f + 6.0f;
+        }
+        glm::ivec3 v((int)std::floor(in.grappleAt.x), (int)std::floor(in.grappleAt.y), (int)std::floor(in.grappleAt.z));
+        if (!grapple::isPoint(physics->blockAt(v.x, v.y, v.z))) return false;
+        in.grappleAt = glm::vec3(v) + glm::vec3(0.5f);
+        in.grappleSwing = true;
+        return glm::length(in.grappleAt - from) <= p.grappleReach * 1.1f + 4.0f;
+    }
+    // A rope on a body follows it; on a block that's gone, it drops
+    void followGrapple(Human& h) {
+        GrappleState& g = h.grapple;
+        if (!g.active()) return;
+        if (!g.on) {
+            if (physics && !grapple::isPoint(physics->blockAt((int)std::floor(g.anchor.x), (int)std::floor(g.anchor.y), (int)std::floor(g.anchor.z))))
+                g = GrappleState();
+            return;
+        }
+        grapple::follow(h, [&](uint64_t id, glm::vec3& at) {
+            Human* b = find(id);
+            if (!b || b->dead()) return false;
+            at = grapplePointOf(*b);
+            return true;
+        });
+    }
 
     Human* find(EntityId id) override {
         for (auto& p : playerList) if (p->uuid == id) return p.get();
@@ -264,9 +401,15 @@ public:
             if (!p.rules().hasBody) continue;
             p.refreshMass();
             p.refreshWeapon();
+            p.refreshGrapple();
+            followGrapple(p);
             auto q = queued.find(p.uuid);
-            // an item used must be one it carries
-            auto carried = [&](HumanIntent& in) { if (in.useItem && p.inventory.find(in.useItem) < 0) in.useItem = 0; };
+            // an item used must be one it carries; a grapple thrown must be
+            // one it carries, at something it may catch on
+            auto carried = [&](HumanIntent& in) {
+                if (in.useItem && p.inventory.find(in.useItem) < 0) in.useItem = 0;
+                if (in.grapple && !grappleOk(p, in)) in.grapple = false;
+            };
             if (q != queued.end()) {
                 for (HumanIntent& in : q->second) { carried(in); physics->moveHuman(p, in, dt); }
                 queued.erase(q);
@@ -306,7 +449,10 @@ public:
         std::vector<combat::HitEvent> hits;
         for (auto& r : sight) r.age += dt;
         sight.erase(std::remove_if(sight.begin(), sight.end(), [](const SightRay& r) { return r.age > 2.0f; }), sight.end());
+        spellAll = all;
         castEffects(all);
+        spellSys.tick(dt);
+        tickSummons(dt);
         flyProjectiles(dt, all, hits);
         runWaves(dt, all, hits);
         combat::resolveHits(all, [&](glm::vec3 a, glm::vec3 b) {
@@ -429,7 +575,15 @@ public:
             if (!p.rules().hasBody) continue;
             p.sinceHurt += dt;
             if (!p.rules().tracksHealth) p.health = p.maxHealth;
-            if (p.fellOutOfWorld) rescue(p);
+            if (p.fellOutOfWorld) {
+                // the sky world's void kills (you come back at your spawn
+                // point with what you had); anywhere else you're set
+                // back on the ground
+                if (voidKills) {
+                    if (!p.dead()) p.health = 0.0f;
+                    p.fellOutOfWorld = false;
+                } else rescue(p);
+            }
             if (p.dead()) {
                 p.deadFor += dt;
                 if (p.deadFor > RESPAWN_AFTER) respawn(p);
@@ -560,7 +714,7 @@ public:
         fights.hit(attacker, target, damage);
         combat::HitEvent ev;
         ev.attacker = attacker; ev.target = target; ev.point = point;
-        b->health = std::max(0.0f, b->health - damage);
+        damage = b->takeDamage(damage);
         b->sinceHurt = 0.0f;
         b->lastHitBy = attacker;
         float knock = combat::poiseHit(*b, poiseDmg, 18.0f, knockdown, ev);
@@ -638,6 +792,10 @@ public:
             if (!n.type || n.swing >= (int)n.type->swings.size() || n.dead() || n.puppet) { n.swing = -1; continue; }
             const NpcType::Swing& sw = n.type->swings[n.swing];
             n.swingT += dt * sw.speed;
+            if (!n.swingDone && n.swingT >= sw.hitAt && !sw.spell.empty()) {
+                n.swingDone = true;                                   // a spell instead of a blow
+                if (const spell::Def* sd = gSpells.find(sw.spell)) spellSys.castFrom(n, *sd, 1.0f);
+            }
             if (!n.swingDone && n.swingT >= sw.hitAt) {
                 n.swingDone = true;
                 glm::vec2 face(n.facing.x, n.facing.z);
@@ -687,6 +845,14 @@ public:
             if (!c->attack.active() || c->dead()) continue;
             const AttackDef& d = c->attack.def();
             if (d.effect.empty() || !(c->attack.prevT < d.activeStart && c->attack.t >= d.activeStart)) continue;
+            if (!d.spell.empty()) {
+                // a spell (spells.toml): a charge's power comes with it
+                if (const spell::Def* sd = gSpells.find(d.spell)) {
+                    c->attack.power = d.chargeAt >= 0.0f ? 1.0f + (sd->chargePower - 1.0f) * c->attack.charge() : 1.0f;
+                    spellSys.castFrom(*c, *sd, c->attack.power);
+                }
+                continue;
+            }
             if (d.effect == "windburst") windburst(*c, d, all);
             else if (d.effect == "ice_spike") launch(*c, d, all);
             else if (d.effect == "arrow") shoot(*c, d, all);
@@ -734,6 +900,7 @@ public:
         std::string place;              // structure type
         glm::vec3   at{ 0.0f };         // the last open point before the solid voxel
         glm::ivec3  voxel{ 0 };         // the solid voxel it hit
+        int         rot = 0;            // quarter turns (a spell's wall: across the way)
     };
     static constexpr float AIM_ASSIST_DEG = 12.0f;     // turns toward an enemy this close to its line
     static constexpr float PROJECTILE_STEP = 0.5f;     // vox: how finely its path is checked
@@ -1045,8 +1212,30 @@ public:
     }
 
     // ── NpcWorld (npc/Npc.h): what brains may ask ─────────
+    // a summoned body (sim/SpellSystem.h) takes its summoner's side
+    const Human* findConst(EntityId id) const {
+        for (auto& p : playerList) if (p->uuid == id) return p.get();
+        for (auto& n : const_cast<NpcManager&>(npcList).all()) if (n->uuid == id) return n.get();
+        return nullptr;
+    }
+    const Human* summonerOf(const Human& h) const {
+        if (h.isPlayer()) return nullptr;
+        const Npc& n = static_cast<const Npc&>(h);
+        return n.summoner ? findConst(n.summoner) : nullptr;
+    }
     bool hostile(const Npc& n, const Human& o) const override {
         if (o.dead() || &o == &n) return false;
+        if (const Human* s = summonerOf(n)) {
+            if (&o == s || summonerOf(o) == s) return false;          // its summoner and its fellows
+            if (s->isPlayer()) {
+                if (o.isPlayer()) return false;
+                const Npc& m = static_cast<const Npc&>(o);
+                if (const Human* ms = summonerOf(m); ms && ms->isPlayer()) return false;
+                return hostile(m, *s);                                 // whatever is after its summoner
+            }
+            return hostile(static_cast<const Npc&>(*s), o);
+        }
+        if (const Human* s = summonerOf(o)) return s != &n && hostile(n, *s);
         if (std::find(n.grudges.begin(), n.grudges.end(), o.uuid) != n.grudges.end()) return true;
         if (o.isPlayer()) {
             const Player& p = static_cast<const Player&>(o);
@@ -1058,6 +1247,12 @@ public:
     }
     bool friendly(const Npc& n, const Human& o) const override {
         if (o.dead() || &o == &n) return false;
+        if (const Human* s = summonerOf(n)) {
+            if (&o == s || summonerOf(o) == s) return true;
+            if (s->isPlayer()) return o.isPlayer();
+            return friendly(static_cast<const Npc&>(*s), o);
+        }
+        if (const Human* s = summonerOf(o)) return s == &n || (s->isPlayer() ? gFactions.friendly(standing(static_cast<const Player&>(*s), n.faction)) : friendly(n, *s));
         if (std::find(n.grudges.begin(), n.grudges.end(), o.uuid) != n.grudges.end()) return false;
         if (o.isPlayer()) return gFactions.friendly(standing(static_cast<const Player&>(o), n.faction));
         return gFactions.friendly(gFactions.standing(n.faction, static_cast<const Npc&>(o).faction));
@@ -1435,6 +1630,12 @@ private:
         events.push_back(e);
     }
 
+    // Falling out of this world kills instead of being set back on
+    // the ground (the sky world; GameSession sets it from the generator)
+    bool         voidKills = false;
+public:
+    void setVoidKills(bool on) { voidKills = on; }
+private:
     IPhysics*    physics = nullptr;
     Woodcutting* wood = nullptr;
     std::vector<std::unique_ptr<Player>> playerList;
@@ -1447,6 +1648,8 @@ private:
     std::vector<Wave> quakes;           // shockwaves running along the ground
     std::vector<Landing> landings;      // where they hit the world, for GameSession::tickWorld
     uint32_t nextShot = 0;
+    SpellSystem spellSys{ *this };       // spells happening (sim/SpellSystem.h)
+    std::vector<Human*> spellAll;       // the bodies this tick, for them
     std::vector<SightRay> sight;
     std::vector<Noise> noises;        // made this tick, heard next tick
     encounter::Registry fights;       // encounters, slots, tokens, breadcrumbs

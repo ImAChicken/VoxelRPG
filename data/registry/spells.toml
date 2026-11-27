@@ -1,0 +1,402 @@
+# ══════════════════════════════════════════════════════════
+# Spells (game/Spells.h; what they do: sim/SpellSystem.h)
+# ══════════════════════════════════════════════════════════
+# A spell is parts put together; new spells need no code. A spellbook
+# (items.toml spell = "<id>") casts one from a combat slot (X / Y / B,
+# keys 1-3 in combat) or the off hand (LT / Q); NPCs cast them too
+# (npcs.toml casts = [...], or a monster's swing with spell = "<id>").
+# Console: `cast <id>` casts one where you look, `spells` lists them.
+# F6 reloads this file.
+#
+#   id, name
+#   school     fire | frost | shock | arcane | wind | nature: its damage
+#              type unless an effect says, and its look by default
+#   delivery   how it gets there:
+#                self        on you (heals, wards, a blink)
+#                touch       the nearest enemy in front, within range
+#                            (at most 9) and arc
+#                cone        everyone in front, within range and arc
+#                            (effects fall off toward the edge)
+#                projectile  bolts: speed, gravity, homing (deg/s),
+#                            count fanned by spread (deg), bounces off
+#                            walls, pierce (bodies it goes through),
+#                            assist (deg: turns toward an enemy near
+#                            its line)
+#                beam        straight along your aim to range, the
+#                            first body it meets (pierce: more)
+#                area        a circle (radius) out where you aim, up to
+#                            range (at = "self": round you); goes off
+#                            every 'every' s for 'duration' s (0: once)
+#                wall        range out, across your way: 'place' (a
+#                            structure, kind "effect", gone after its
+#                            lifetime) and/or its effects in a strip
+#                            width long
+#                rune        laid where you aim (range); armed after a
+#                            moment, the first enemy within radius sets
+#                            it off: its on_hit spell, or its effects
+#                            round it. Gone after duration (60)
+#                summon      'count' of an npcs.toml type ('summon')
+#                            that fight for you for 'duration' s
+#   use        how the button works:
+#                tap      quick (cast_time 0.08)
+#                cast     a wind-up (cast_time), then it goes
+#                charge   held at the end of the wind-up to power it
+#                         up, up to charge_time s; a full charge ×
+#                         charge_power to its effects
+#                channel  held: the delivery again every 'every' s,
+#                         draining cost.drain stamina a second, for up
+#                         to 'duration' s
+#                toggle   an aura: on (its effects round you every
+#                         'every' s within radius, draining cost.drain
+#                         a second) until you cast it again or run out
+#   when       where it can be cast: ground, air, sprinting, grappling
+#              (mid-pull: game/Grapple.h), rolling (default: ground, air)
+#   hands      1 (the other hand keeps its weapon or shield) or 2
+#   anim       the cast pose (anim_map.toml [casts]): push, overhead,
+#              slam, self, throw, channel, sweep, place
+#   tags       free words other things find spells by (skill trees,
+#              items, resistances): fire, projectile, aerial, grapple…
+#   targets    enemies (default), allies, all, self (default for self)
+#   cost       { stamina, cooldown (s), drain (stamina/s) }
+#   cast_time, recover   s before it goes, s after
+#   effects    a list, each { kind, … }:
+#                damage   amount, type (default: its school)
+#                push     amount (vox/s), lift (share up); pull: toward
+#                poise    amount, knockdown (a break knocks down)
+#                status   status = burn | slow | freeze | poison |
+#                         silence | haste, time (s), amount (burn,
+#                         poison: damage a second; slow, haste: 0-1)
+#                heal     amount        ward    amount (soaks damage), time
+#                place    structure (set down where it lands)
+#                blink    amount (vox forward)
+#                light    time (a flash of light)
+#              falloff (cone, area): what's left at the edge (1: all)
+#   on_hit, on_expire   a spell cast from where it hit / ended
+#              (spells chain; at most 4 deep)
+#   look       { color = [r, g, b], cast, trail, hit, tick (particles
+#              .toml emitters; default spell_<school>_cast / _trail /
+#              _hit / _tick) }
+# Mana doesn't exist yet: everything costs stamina for now.
+
+# ── Wind ──────────────────────────────────────────────────
+[[spell]]
+id = "windburst"
+name = "Windburst"
+school = "wind"
+delivery = "cone"
+use = "cast"
+anim = "push"
+hands = 2
+tags = ["wind", "cone", "push", "control"]
+cost = { stamina = 25 }
+cast_time = 0.32
+recover = 0.48
+range = 24
+arc = 50
+effects = [
+  { kind = "poise", amount = 40, falloff = 0.25, knockdown = true },
+  { kind = "push", amount = 46, lift = 0.25, falloff = 0.4 },
+]
+look = { color = [0.75, 0.95, 1.0] }
+
+# ── Frost ─────────────────────────────────────────────────
+# Leaves ice where it meets the ground (structures.toml ice_spike,
+# melts after 15 s)
+[[spell]]
+id = "ice_spike"
+name = "Ice Spike"
+school = "frost"
+delivery = "projectile"
+use = "cast"
+anim = "push"
+tags = ["frost", "projectile", "terrain"]
+cost = { stamina = 20 }
+cast_time = 0.30
+recover = 0.40
+range = 90
+speed = 70
+gravity = 22
+assist = 12
+effects = [
+  { kind = "damage", amount = 18 },
+  { kind = "poise", amount = 20 },
+  { kind = "push", amount = 14, lift = 0.25 },
+  { kind = "status", status = "slow", amount = 0.3, time = 2 },
+  { kind = "place", structure = "ice_spike" },
+]
+look = { color = [0.72, 0.90, 1.0] }
+
+# A charge: the longer it's held, the harder (and it freezes)
+[[spell]]
+id = "frost_nova"
+name = "Frost Nova"
+school = "frost"
+delivery = "area"
+at = "self"
+use = "charge"
+anim = "slam"
+hands = 2
+tags = ["frost", "area", "control", "charge"]
+cost = { stamina = 30, cooldown = 4 }
+cast_time = 0.45
+recover = 0.45
+charge_time = 1.2
+charge_power = 2.0
+radius = 14
+effects = [
+  { kind = "damage", amount = 10, falloff = 0.4 },
+  { kind = "status", status = "freeze", time = 1.2 },
+  { kind = "push", amount = 20, lift = 0.3, falloff = 0.3 },
+]
+look = { color = [0.65, 0.85, 1.0] }
+
+# A trap: laid on the ground, it bursts into ice when someone steps on it
+[[spell]]
+id = "frost_rune"
+name = "Frost Rune"
+school = "frost"
+delivery = "rune"
+use = "cast"
+anim = "place"
+tags = ["frost", "rune", "trap", "control"]
+cost = { stamina = 20, cooldown = 2 }
+cast_time = 0.55
+recover = 0.30
+range = 10
+radius = 4
+duration = 60
+on_hit = "frost_burst"
+look = { color = [0.55, 0.80, 1.0] }
+
+[[spell]]
+id = "frost_burst"
+name = "Frost Burst"
+school = "frost"
+delivery = "area"
+tags = ["frost", "area", "child"]
+radius = 10
+effects = [
+  { kind = "damage", amount = 14, falloff = 0.5 },
+  { kind = "status", status = "freeze", time = 2.0 },
+]
+look = { color = [0.65, 0.85, 1.0] }
+
+# ── Fire ──────────────────────────────────────────────────
+# A quick bolt that sets alight and bursts into embers (a chain: on_hit)
+[[spell]]
+id = "firebolt"
+name = "Firebolt"
+school = "fire"
+delivery = "projectile"
+use = "tap"
+anim = "push"
+when = ["ground", "air", "sprinting", "grappling"]
+tags = ["fire", "projectile", "aerial", "grapple"]
+cost = { stamina = 12 }
+range = 80
+speed = 110
+assist = 8
+effects = [
+  { kind = "damage", amount = 12 },
+  { kind = "status", status = "burn", amount = 3, time = 3 },
+]
+on_hit = "ember_burst"
+look = { color = [1.0, 0.55, 0.2], light = 6 }
+
+[[spell]]
+id = "ember_burst"
+name = "Ember Burst"
+school = "fire"
+delivery = "area"
+tags = ["fire", "area", "child"]
+radius = 5
+effects = [ { kind = "damage", amount = 6, falloff = 0.3 } ]
+look = { color = [1.0, 0.5, 0.15] }
+
+# A toggle: burns whatever's close while it's on, draining stamina
+[[spell]]
+id = "ember_aura"
+name = "Ember Aura"
+school = "fire"
+delivery = "self"
+use = "toggle"
+anim = "self"
+tags = ["fire", "aura", "toggle"]
+cost = { stamina = 10, drain = 5 }
+radius = 9
+every = 1.0
+targets = "enemies"
+effects = [
+  { kind = "damage", amount = 4 },
+  { kind = "status", status = "burn", amount = 2, time = 2 },
+]
+look = { color = [1.0, 0.45, 0.15] }
+
+# ── Shock ─────────────────────────────────────────────────
+[[spell]]
+id = "shocking_grasp"
+name = "Shocking Grasp"
+school = "shock"
+delivery = "touch"
+use = "tap"
+anim = "push"
+tags = ["shock", "touch", "melee_rider"]
+cost = { stamina = 14 }
+range = 9
+arc = 60
+effects = [
+  { kind = "damage", amount = 16 },
+  { kind = "poise", amount = 30 },
+  { kind = "push", amount = 12, lift = 0.2 },
+]
+look = { color = [0.7, 0.8, 1.0] }
+
+# A charge: three bolts in a fan, bouncing once off walls
+[[spell]]
+id = "spark_fan"
+name = "Spark Fan"
+school = "shock"
+delivery = "projectile"
+use = "charge"
+anim = "push"
+tags = ["shock", "projectile", "charge"]
+cost = { stamina = 18 }
+cast_time = 0.30
+charge_time = 1.0
+charge_power = 2.0
+range = 70
+speed = 130
+count = 3
+spread = 14
+bounces = 1
+assist = 0
+effects = [
+  { kind = "damage", amount = 8 },
+  { kind = "poise", amount = 8 },
+]
+look = { color = [0.75, 0.85, 1.0], light = 4 }
+
+# ── Arcane ────────────────────────────────────────────────
+# A channel: held, it burns along the beam, draining stamina
+[[spell]]
+id = "arc_beam"
+name = "Arcane Beam"
+school = "arcane"
+delivery = "beam"
+use = "channel"
+anim = "channel"
+hands = 2
+tags = ["arcane", "beam", "channel"]
+cost = { stamina = 10, drain = 16 }
+cast_time = 0.30
+recover = 0.30
+range = 70
+every = 0.2
+duration = 4
+pierce = 1
+effects = [ { kind = "damage", amount = 4 } ]
+look = { color = [0.85, 0.45, 1.0] }
+
+[[spell]]
+id = "blink"
+name = "Blink"
+school = "arcane"
+delivery = "self"
+use = "tap"
+anim = "push"
+when = ["ground", "air", "sprinting", "grappling", "rolling"]
+tags = ["arcane", "movement", "aerial", "grapple"]
+cost = { stamina = 15, cooldown = 3 }
+effects = [ { kind = "blink", amount = 30 } ]
+look = { color = [0.8, 0.5, 1.0] }
+
+# ── Nature (the sky world's fungal magic) ─────────────────
+[[spell]]
+id = "mending"
+name = "Mending Light"
+school = "nature"
+delivery = "self"
+use = "cast"
+anim = "self"
+when = ["ground"]
+tags = ["nature", "healing", "self"]
+cost = { stamina = 30, cooldown = 6 }
+cast_time = 0.6
+recover = 0.4
+effects = [
+  { kind = "heal", amount = 35 },
+  { kind = "light", time = 1.5 },
+]
+look = { color = [0.6, 1.0, 0.6] }
+
+[[spell]]
+id = "bark_skin"
+name = "Bark Skin"
+school = "nature"
+delivery = "self"
+use = "tap"
+anim = "self"
+tags = ["nature", "ward", "self"]
+cost = { stamina = 20, cooldown = 20 }
+effects = [ { kind = "ward", amount = 40, time = 15 } ]
+look = { color = [0.55, 0.75, 0.35] }
+
+# A cloud of spores out where you aim: poison and slow for a while.
+# The Mushroom King casts it too (his Wave: npcs.toml swings)
+[[spell]]
+id = "spore_cloud"
+name = "Spore Cloud"
+school = "nature"
+delivery = "area"
+use = "cast"
+anim = "overhead"
+tags = ["nature", "area", "poison", "npc"]
+cost = { stamina = 25, cooldown = 3 }
+cast_time = 0.5
+recover = 0.4
+range = 40
+radius = 9
+duration = 6
+every = 1.0
+effects = [
+  { kind = "damage", amount = 3 },
+  { kind = "status", status = "poison", amount = 3, time = 4 },
+  { kind = "status", status = "slow", amount = 0.35, time = 2 },
+]
+look = { color = [0.55, 0.95, 0.45] }
+
+# A wall of stone across the way (structures.toml spell_stone_wall:
+# gone after 12 s)
+[[spell]]
+id = "stone_wall"
+name = "Stone Wall"
+school = "nature"
+delivery = "wall"
+use = "cast"
+anim = "sweep"
+hands = 2
+tags = ["nature", "wall", "terrain", "defence"]
+cost = { stamina = 30, cooldown = 8 }
+cast_time = 0.5
+recover = 0.4
+range = 10
+width = 16
+place = "spell_stone_wall"
+look = { color = [0.6, 0.55, 0.45] }
+
+# Two Mushnubs that fight for you for 30 s
+[[spell]]
+id = "call_mushnubs"
+name = "Call the Mushnubs"
+school = "nature"
+delivery = "summon"
+use = "cast"
+anim = "place"
+tags = ["nature", "summon"]
+cost = { stamina = 35, cooldown = 30 }
+cast_time = 0.7
+recover = 0.4
+summon = "mushnub"
+count = 2
+duration = 30
+look = { color = [0.5, 0.9, 0.6] }

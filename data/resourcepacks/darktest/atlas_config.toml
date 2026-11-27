@@ -878,3 +878,40 @@ name    = "portal_veil"
 top     = [8, 15]
 side    = [8, 15]
 bottom  = [8, 15]
+
+# Mushroom Islands (tools/gen_sky_textures.py paints row 2, columns 5-10)
+[[face_map]]
+name    = "glowcap_blue"
+top     = [5, 2]
+side    = [5, 2]
+bottom  = [5, 2]
+
+[[face_map]]
+name    = "glowcap_pink"
+top     = [6, 2]
+side    = [6, 2]
+bottom  = [6, 2]
+
+[[face_map]]
+name    = "glowcap_green"
+top     = [7, 2]
+side    = [7, 2]
+bottom  = [7, 2]
+
+[[face_map]]
+name    = "shroom_stem"
+top     = [1, 10]
+side    = [1, 10]
+bottom  = [1, 10]
+
+[[face_map]]
+name    = "mycelium"
+top     = [8, 2]
+side    = [9, 2]
+bottom  = [0, 1]
+
+[[face_map]]
+name    = "grapple_point"
+top     = [10, 2]
+side    = [10, 2]
+bottom  = [10, 2]

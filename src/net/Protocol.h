@@ -188,12 +188,13 @@ inline void putIntent(wire::Writer& w, const HumanIntent& in, const IdMap* ids =
     uint16_t use = ids ? ids->itemToServer(in.useItem) : in.useItem;
     uint16_t f = (in.sprint ? 1 : 0) | (in.crouch ? 2 : 0) | (in.jump ? 4 : 0) | (in.dodge ? 8 : 0) | (in.fly ? 16 : 0) |
                  (in.flyFast ? 32 : 0) | (in.attackLight ? 64 : 0) | (in.attackHeavy ? 128 : 0) | (in.guard ? 256 : 0) |
-                 (use ? 512 : 0) | (in.heavyHeld ? 1024 : 0);
+                 (use ? 512 : 0) | (in.heavyHeld ? 1024 : 0) | (in.grapple ? 2048 : 0) | (in.grappleHeld ? 4096 : 0) | (in.castHeld ? 8192 : 0);
     w.u16(f);
     w.vec2(in.move);
     w.f32(in.speedScale);
     if (in.fly) w.vec3(in.flyMove);
     if (use) w.u16(use);
+    if (in.grapple) { w.vec3(in.grappleAt); w.u64(in.grappleOn); }      // (the server checks it: Simulation::grappleOk)
 }
 inline HumanIntent getIntent(wire::Reader& r) {
     HumanIntent in;
@@ -206,6 +207,9 @@ inline HumanIntent getIntent(wire::Reader& r) {
     in.speedScale = std::clamp(r.f32(), 0.0f, 1.0f);
     if (in.fly) in.flyMove = r.vec3();
     if (f & 512) in.useItem = r.u16();
+    in.grappleHeld = f & 4096;
+    in.castHeld = f & 8192;
+    if (f & 2048) { in.grapple = true; in.grappleAt = r.vec3(); in.grappleOn = r.u64(); }
     return in;
 }
 

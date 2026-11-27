@@ -124,12 +124,23 @@ private:
 
 // ── Ready-made effects ───────────────────────────────────
 // Each (kind, material, variant) is made once, on first use.
+// Recordings come first: data/audio/sounds.toml names .ogg files for
+// a kind and material ([hit.dirt], [step.stone] …; files in
+// data/audio/sfx). Anything it doesn't name is made by audio/Sfx.h as
+// before. (Claude, 2026-11-22: the Kenney packs, CC0)
 class SfxBank {
 public:
     const sfx::Buffer& get(sfx::Kind k, const std::string& material, uint32_t variant, float size = 1.0f);
     static constexpr uint32_t VARIANTS = 4;
+    // read sounds.toml and decode its files (get() does it the first time); how many sets
+    int loadRecorded(const std::string& toml = "data/audio/sounds.toml", const std::string& dir = "data/audio/sfx");
+    // the recordings for a kind and material, or null (tests)
+    const std::vector<sfx::Buffer>* recorded(sfx::Kind k, const std::string& material) const;
+    static const char* kindName(sfx::Kind k);
 private:
     std::map<std::tuple<int, std::string, uint32_t, int>, sfx::Buffer> made;
+    std::map<std::string, std::vector<sfx::Buffer>> takes;     // "hit.dirt" → its recordings
+    bool recordedRead = false;
 };
 
 // ── Spoken lines ─────────────────────────────────────────

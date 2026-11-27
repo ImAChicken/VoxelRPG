@@ -14,6 +14,7 @@ constexpr uint32_t VF_DESTRUCTIBLE = 1 << 2;
 constexpr uint32_t VF_CLIMBABLE    = 1 << 3;
 constexpr uint32_t VF_EMITS_LIGHT  = 1 << 4;
 constexpr uint32_t VF_PLANT        = 1 << 5;   // part of a plant (decorations.toml): walk-through, picked up whole
+constexpr uint32_t VF_GRAPPLE      = 1 << 6;   // a grapple point: the grapple catches on it (game/Grapple.h)
 
 // Opacity
 enum class VoxelOpacity : uint8_t {
@@ -71,6 +72,7 @@ struct VoxelTypeDef {
     bool isDestructible()const { return flags & VF_DESTRUCTIBLE; }
     bool emitsLight()    const { return flags & VF_EMITS_LIGHT; }
     bool isPlant()       const { return flags & VF_PLANT; }
+    bool isGrapple()     const { return flags & VF_GRAPPLE; }
 };
 
 class VoxelRegistry {
@@ -124,6 +126,7 @@ public:
                         else if (fs == "climbable")    def.flags |= VF_CLIMBABLE;
                         else if (fs == "emits_light")  def.flags |= VF_EMITS_LIGHT;
                         else if (fs == "plant")        def.flags |= VF_PLANT;
+                        else if (fs == "grapple")      def.flags |= VF_GRAPPLE;
                     }
                 }
 

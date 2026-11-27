@@ -83,6 +83,8 @@ public:
             {InputAction::DrawWeapon,   "actions", "draw_weapon",    "Draw weapon",    "R"},
             {InputAction::Interact,     "actions", "interact",       "Interact",       "E"},
             {InputAction::LedgeGrab,    "actions", "ledge_grab",     "Ledge grab",     "F"},
+            {InputAction::BuildCamera,  "actions", "build_camera",   "Build camera (hammer, Build tab)", "B"},
+            {InputAction::BuildView,    "actions", "build_view",     "Build camera: walls up / down", "C"},
             {InputAction::Inventory,    "actions", "inventory",      "Inventory",      "I"},
             {InputAction::SwapWeapon,   "actions", "swap_weapon",    "Next weapon set", "X"},
             {InputAction::UseSlotX,     "actions", "use_slot_x",      "Use X item",     "1"},

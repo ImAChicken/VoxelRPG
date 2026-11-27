@@ -35,7 +35,7 @@ int main() {
     {
         const ItemDef& w = gItems.get(WIND);
         const ItemDef& i = gItems.get(ICE);
-        check(w.is(IC_SPELLBOOK) && i.is(IC_SPELLBOOK) && w.cast == "windburst_cast" && i.cast == "ice_spike_cast",
+        check(w.is(IC_SPELLBOOK) && i.is(IC_SPELLBOOK) && w.spell == "windburst" && i.spell == "ice_spike",
               "Windburst and Ice Spike are spellbooks, each casting its spell");
         check(gHeldModels.find(w.heldModel) && gHeldModels.find(i.heldModel), "  each with a book to hold (data/models/held)");
         check(CombatKit::fitsButton(ICE) && CombatKit::fitsOff(ICE) && !CombatKit::fitsCharm(ICE),
@@ -80,7 +80,7 @@ int main() {
         check(p.attack.active() && p.attack.kind == AttackKind::Cast && held == "spellbook_ice",
               "using it plays the cast, the book in hand (\"" + held + "\")");
         bool flew = false;
-        for (int i = 0; i < 40 && !flew; i++) { sim.step(DT); flew = !sim.projectiles().empty(); }
+        for (int i = 0; i < 40 && !flew; i++) { sim.step(DT); flew = !sim.spells().bolts().empty(); }
         check(flew, "  and an ice spike leaves her");
     }
 
@@ -135,7 +135,7 @@ int main() {
             }
             hit = b->health < hp;
         }
-        check(hit && cast && sim.projectileHits > 0, "it hits a training dummy a little off her line (" + std::to_string((int)(hp - b->health)) + " damage)");
+        check(hit && cast && sim.spells().boltHits > 0, "it hits a training dummy a little off her line (" + std::to_string((int)(hp - b->health)) + " damage)");
         tick(60);
         check(countIce() == ice, "  and leaves no ice: it stopped at the dummy");
     }

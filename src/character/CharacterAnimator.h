@@ -332,13 +332,15 @@ public:
             float w = std::min(up, down);
             shown.heldTurn = w * w * (3 - 2 * w);
         }
-        int atkClip = in.attack ? gAnimMap.attackClip(in.attack->id) : -1;
+        static const std::string noKey;
+        const std::string& atkKey = in.attack ? gAnimMap.attackKey(in.attack->id, in.attack->pose) : noKey;
+        int atkClip = in.attack ? gAnimMap.attackClip(atkKey) : -1;
         if (in.attack && atkClip >= 0) {
             // the clip over the attack's duration, its marked strike
             // on the attack's hit window (AnimMap::attackClipAt),
             // eased in and out of the base pose
             float d = std::max(in.attack->duration, 1e-3f);
-            float u = gAnimMap.attackClipAt(in.attack->id, in.attackT, d, in.attack->activeStart, in.attack->activeEnd);
+            float u = gAnimMap.attackClipAt(atkKey, in.attackT, d, in.attack->activeStart, in.attack->activeEnd);
             std::array<glm::vec3, BONE_COUNT> a = shown.rot; glm::vec3 ro(0.0f);
             gAnims.sample(atkClip, u * gAnims.info(atkClip).duration, model, a, ro);
             auto ss = [](float a0, float b0, float x) { float v = std::clamp((x - a0) / (b0 - a0), 0.0f, 1.0f); return v * v * (3 - 2 * v); };

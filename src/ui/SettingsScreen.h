@@ -47,6 +47,8 @@ public:
         addChoice("Water", &gSettings.waterStyle, { "Plain", "Moving" });
         addChoice("Roofs", &gSettings.roofStyle, { "Plain", "Smooth" });
         addChoice("Glass", &gSettings.glassStyle, { "Plain", "Panes" });
+        addChoice("Sky far view", &gSettings.skyFarView, { "Off", "Tops only", "Full" });
+        addChoice("Sky far shape", &gSettings.skyFarShape, { "Blocky", "Smooth" });
         addChoice("Particles", &gSettings.particles, { "Off", "Fewer", "All" });
         addChoice("Light fade", &gSettings.lightCurve, { "Classic", "Gentle" });
         addChoice("Sun shading", &gSettings.sunShading, { "Plain", "Terrain" });

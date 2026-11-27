@@ -129,6 +129,16 @@ struct AttackDef {
     float cancelFrom = 0.4f;             // s: a dodge cancels it from here
     float armorFrom = -1.0f;             // s: hyper armour from here to activeEnd (< 0: none)
     bool  thrust = false;                // grip = "thrust": the held item turns to point along the thrust
+    // A spell's cast (game/Spells.h makes these: id "spell:<id>"):
+    // the spell it casts, its cooldown (s), where it may be cast
+    // (spell::WHEN_ bits; 0: anywhere), and a channel: held at its
+    // active window while the button is down (up to channelMax s),
+    // the spell repeating (sim/SpellSystem.h)
+    std::string spell;
+    float cooldown = 0.0f;
+    uint8_t when = 0;
+    bool  channel = false;
+    float channelMax = 6.0f;
 
     float stepDistance() const { return step >= 0.0f ? step : lunge * std::max(0.0f, lungeTo - lungeFrom); }
     // the hit windows, always at least one
@@ -435,6 +445,9 @@ struct AttackState {
     // a charge (a heavy held)
     bool       held = false;       // the button is down (from the intent)
     float      charged = 0.0f;     // s held at charge_at
+    float      channelled = 0.0f;  // s a channel has been held at its active window
+    int        ticks = 0;          // a channel's repeats so far
+    float      power = 1.0f;       // a spell's strength (a charge: up to its charge_power)
     float      charge() const { return d && d->chargeAt >= 0.0f ? std::clamp(charged / std::max(d->chargeTime, 1e-3f), 0.0f, 1.0f) : 0.0f; }
     bool       charging() const { return d && d->chargeAt >= 0.0f && held && t >= d->chargeAt && charged < d->chargeTime; }
 

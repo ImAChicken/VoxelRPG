@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <cmath>
 #include <iostream>
 
 // ══════════════════════════════════════════════════════════
@@ -136,6 +137,32 @@ public:
                            glm::value_ptr(viewProj));
         glUniformMatrix4fv(locModel, 1, GL_FALSE,
                            glm::value_ptr(model));
+        glUniform3f(locColor, color.x, color.y, color.z);
+        glBindVertexArray(vao);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
+    }
+
+    // A thin bar from a to b (a rope, a beam), 'thick' voxels across
+    void beam(const glm::mat4& viewProj, glm::vec3 a, glm::vec3 b, float thick, glm::vec3 color) {
+        if (!program) return;
+        glm::vec3 d = b - a;
+        float len = glm::length(d);
+        if (len < 1e-4f) return;
+        glm::vec3 u = d / len;
+        glm::vec3 side = glm::cross(u, std::fabs(u.y) < 0.95f ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0));
+        side = glm::normalize(side) * thick;
+        glm::vec3 up = glm::normalize(glm::cross(side, u)) * thick;
+        glm::mat4 model(1.0f);
+        model[0] = glm::vec4(d, 0.0f);
+        model[1] = glm::vec4(up, 0.0f);
+        model[2] = glm::vec4(side, 0.0f);
+        model[3] = glm::vec4((a + b) * 0.5f - up * 0.5f, 1.0f);   // (the cube: x and z -0.5..0.5, y 0..1)
+        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        glUseProgram(program);
+        glUniformMatrix4fv(locViewProj, 1, GL_FALSE, glm::value_ptr(viewProj));
+        glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(model));
         glUniform3f(locColor, color.x, color.y, color.z);
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, 36);

@@ -172,6 +172,11 @@ public:
     // A swing (NpcType::swings; Simulation::swingTick): which one (-1:
     // none), s into its clip, and whether it has hit yet
     int         swing = -1;
+    // Called up by a spell (sim/SpellSystem.h summon): fights for its
+    // summoner (its friends and foes), stays near it, gone after a while
+    EntityId    summoner = 0;
+    float       summonLeft = 0.0f;
+    float       castWait = 2.0f;       // s before it may cast one of its type's spells (casts)
     float       swingT = 0.0f;
     bool        swingDone = false;
 
@@ -209,6 +214,16 @@ public:
     // it) toward 'to'; returns the flat distance left
     float walkTo(NpcWorld& w, glm::vec3 to, float speed = 1.0f, bool run = false, float stopAt = 1.5f) {
         intent.speedScale = speed;               // (steering reads it: a stroll isn't stuck)
+        if (flier) {                             // a flier: straight there (NpcManager::flySteer keeps its height)
+            glm::vec2 d(to.x - position.x, to.z - position.z);
+            float left = glm::length(d);
+            if (left <= stopAt || left < 1e-3f) { intent.move = glm::vec2(0); return left; }
+            d /= left;
+            face(position + glm::vec3(d.x, 0, d.y));
+            intent.move = d;
+            intent.sprint = run;
+            return left;
+        }
         glm::vec3 next = w.steerToward(*this, to);
         glm::vec2 d(next.x - position.x, next.z - position.z);
         float left = glm::length(glm::vec2(to.x - position.x, to.z - position.z));
@@ -221,6 +236,19 @@ public:
         return left;
     }
 };
+
+// Where a grapple holds on it (game/Grapple.h): its type's grapple
+// point (a flyer's: npcs.toml fly.grapple_point, turned with it), or
+// its middle
+inline glm::vec3 grappleAnchor(const Npc& n) {
+    if (n.type && n.type->grapplePoint) {
+        glm::vec2 f(n.facing.x, n.facing.z);
+        f = glm::length(f) > 1e-3f ? glm::normalize(f) : glm::vec2(1, 0);
+        glm::vec3 g = n.type->grappleAt * n.scale;
+        return n.position + glm::vec3(f.x * g.x - f.y * g.z, g.y, f.y * g.x + f.x * g.z);
+    }
+    return n.bodyPoint(0.5f);
+}
 
 // Put a weapon (an item name) in its right hand: its damage, its
 // moveset, its weight (for the swing's speed). false (empty-handed)

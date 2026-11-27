@@ -310,6 +310,35 @@ def spellbook(name, cover, gem, title):
     m.write(name, "Spellbook: held by the spine; the gem on its cover shows the spell")
 
 
+def grappling_hook():
+    """The grapple (items.toml grappling_hook; game/Grapple.h): a short
+    grip with a coil of rope round it and a three-pronged iron hook on
+    the end. (Claude, 2026-11-25)"""
+    m = Model("Grappling hook: a grip wound with rope, an iron hook on its end", grip_back=4)
+    ROPE = 9
+    m.palette[ROPE] = (196, 164, 104)
+    m.rod(0, 10, 1.0, LEATHER)                   # the grip
+    m.rod(11, 21, 2.2, ROPE)                     # the coil of rope
+    for i in range(11, 22, 2):                   # its turns, a darker line between
+        for j in range(-1, 9):
+            for k in range(-2, 6):
+                if (i, j, k) in m.vox and abs(math.hypot(j - CJ, k - CK) - 2.2) < 0.8:
+                    m.put(i, j, k, DARKWOOD)
+    m.rod(22, 30, 0.7, IRON)                     # the shank
+    m.rod(30, 32, 1.2, DARKIRON)                 # the crown
+    for a in range(3):                           # three prongs, curling back
+        ang = a * 2.0 * math.pi / 3.0
+        dj, dk = math.cos(ang), math.sin(ang)
+        for s in range(0, 9):
+            t = s / 8.0
+            out = 1.5 + 4.0 * math.sin(t * math.pi * 0.6)
+            back = -t * t * 5.0
+            i = 32 + s * 0.6 + back
+            m.put(round(i), round(CJ + dj * out), round(CK + dk * out), IRON if s < 7 else BRIGHT)
+    m.palette[DARKIRON] = (70, 74, 84)
+    m.write("grappling_hook", "Grappling hook: thrown at grapple points and enemies (game/Grapple.h)")
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     pickaxe("wooden_pickaxe", DARKWOOD, DARKWOOD, "Wooden pickaxe")
@@ -325,6 +354,7 @@ if __name__ == "__main__":
     bow()
     dagger()
     greatsword()
+    grappling_hook()
     for name, gem in [("dev_wand", (90, 200, 255)), ("dev_fill", (90, 220, 120)), ("dev_replace", (240, 200, 70)),
                       ("dev_brush", (230, 120, 220)), ("dev_copy", (120, 150, 255)), ("dev_paste", (150, 120, 255)),
                       ("dev_explode", (255, 110, 60)), ("dev_breaker", (220, 70, 70)), ("dev_cube", (240, 240, 240)),
@@ -332,4 +362,8 @@ if __name__ == "__main__":
         dev_wand(name, gem, "Dev tool: " + name)
     spellbook("spellbook_wind", (70, 120, 140), (170, 235, 245), "Windburst spellbook")
     spellbook("spellbook_ice", (52, 78, 132), (150, 205, 255), "Ice spike spellbook")
+    spellbook("spellbook_fire", (140, 52, 30), (255, 160, 70), "Fire spellbook")
+    spellbook("spellbook_shock", (60, 60, 110), (200, 215, 255), "Shock spellbook")
+    spellbook("spellbook_arcane", (90, 40, 120), (215, 140, 255), "Arcane spellbook")
+    spellbook("spellbook_nature", (60, 95, 45), (150, 240, 120), "Nature spellbook")
     round_shield("wooden_shield", (150, 104, 62), (96, 98, 104), "Wooden shield")

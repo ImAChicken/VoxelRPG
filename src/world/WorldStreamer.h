@@ -118,6 +118,30 @@ public:
     int meshR() const { return meshRadius > 0 ? meshRadius : MESH_DISTANCE; }
     void setExtraCentres(std::vector<glm::ivec2> c) { extras = std::move(c); }
 
+    // ── Cutaway ───────────────────────────────────────────
+    // Boxes of world voxels meshed as air (the build camera's walls
+    // down). Changing them remeshes the sections they touch, old and new
+    void setCuts(const std::vector<MeshCut>& c) {
+        const std::vector<MeshCut>& old = cuts ? *cuts : std::vector<MeshCut>();
+        auto same = [](const MeshCut& a, const MeshCut& b) { return a.lo == b.lo && a.hi == b.hi; };
+        if (old.size() == c.size() && std::equal(old.begin(), old.end(), c.begin(), same)) return;
+        for (const std::vector<MeshCut>* list : { &old, &c })
+            for (const MeshCut& b : *list) {
+                uint8_t m = 0;
+                for (int sy = 0; sy < SECTIONS; sy++)
+                    if (b.hi.y + 1 >= sy * VOXEL_DIM && b.lo.y - 1 < (sy + 1) * VOXEL_DIM) m |= (uint8_t)(1u << sy);
+                for (int cx = ChunkManager::chunkCoord(b.lo.x - 1); cx <= ChunkManager::chunkCoord(b.hi.x + 1); cx++)
+                    for (int cz = ChunkManager::chunkCoord(b.lo.z - 1); cz <= ChunkManager::chunkCoord(b.hi.z + 1); cz++) {
+                        if (!world.inWorld(cx, cz)) continue;
+                        Slot& s = slot(cx, cz);
+                        if (!s.hasMesh) continue;
+                        s.version++;
+                        s.needMask |= m;
+                    }
+            }
+        cuts = c.empty() ? nullptr : std::make_shared<const std::vector<MeshCut>>(c);
+    }
+
     void update(int playerCX, int playerCZ) {
         collectResults(playerCX, playerCZ);
         collectEdits();
@@ -280,6 +304,7 @@ private:
         ColumnSnap nw, ne, sw, se;     // diagonals, for light
         std::shared_ptr<const BlockRenderTable> table;
         std::shared_ptr<const light::LightTable> lights;
+        std::shared_ptr<const std::vector<MeshCut>> cuts;
     };
 
     struct Result {
@@ -297,6 +322,7 @@ private:
     ChunkSource   source;
     std::shared_ptr<const BlockRenderTable> table;
     std::shared_ptr<const light::LightTable> lightTable;
+    std::shared_ptr<const std::vector<MeshCut>> cuts;   // setCuts
     std::unordered_map<uint16_t, GLuint> uniformTex;
     std::unordered_map<int, ColumnInfo> info;
     uint32_t infoVersion = 0;
@@ -495,6 +521,8 @@ private:
                     in.below  = sy > 0 ? job.center[sy - 1] : nullptr;
                     in.bottomOfWorld = sy == 0;
                     in.table  = job.table;
+                    in.origin = glm::ivec3(job.cx * VOXEL_DIM, sy * VOXEL_DIM, job.cz * VOXEL_DIM);
+                    in.cuts   = job.cuts;
                     ChunkMesher::build(in, result.meshes[sy]);
                 }
             }
@@ -733,5 +761,6 @@ private:
         snap(job.cx + 1, job.cz - 1, job.se);
         job.table = table;
         job.lights = lightTable;
+        job.cuts = cuts;
     }
 };

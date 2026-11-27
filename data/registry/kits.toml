@@ -17,6 +17,11 @@ items = [
   "blast_wand",       # explosions, for testing destruction
   "windburst",        # spellbooks: in combat, the X slot (1) casts; 4 steps to the next
   "ice_spike",
+  "grappling_hook",   # goes in B (combat) by itself: pull to grapple points, swing (hold), lunge at enemies
+  # the spell groundwork's books (spells.toml), one of every delivery and use
+  "book_firebolt", "book_spark_fan", "book_arc_beam", "book_frost_nova", "book_frost_rune",
+  "book_shocking_grasp", "book_spore_cloud", "book_stone_wall", "book_call_mushnubs",
+  "book_mending", "book_bark_skin", "book_blink", "book_ember_aura",
   "iron_sword",
   "wooden_shield",    # the off hand of both loadouts: Q / LT guards with it
   "iron_axe",

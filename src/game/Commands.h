@@ -721,6 +721,26 @@ inline void registerDefaultCommands(CommandRegistry& reg) {
                 if (Human* h = c.sim->find(id)) { c.sim->toolHit(c.player.uuid, id, 9999.0f, 999.0f, h->bodyPoint(0.6f), h->facing * -1.0f); n++; }
             c.log("smote " + std::to_string(n));
         });
+    reg.add("cast", "cast <spell> [power]",
+        "cast a spell (spells.toml) where you look, as if from a book: no cost, no cast time (testing)",
+        [](C& c, const Args& a) {
+            if (!c.sim) { c.log("no world"); return; }
+            if (a.empty()) { c.log("cast <spell> [power]   (spells lists them)"); return; }
+            float power = a.size() > 1 ? (float)std::atof(a[1].c_str()) : 1.0f;
+            if (!c.sim->castNow(c.player, a[0], power > 0.0f ? power : 1.0f)) { c.log("no spell '" + a[0] + "'"); return; }
+            c.log("cast " + a[0]);
+        });
+    reg.add("spells", "spells [tag]",
+        "list the spells (spells.toml): delivery, use, school; a tag lists only those",
+        [](C& c, const Args& a) {
+            int n = 0;
+            for (const auto& d : gSpells.all()) {
+                if (!a.empty() && !d->has(a[0]) && d->school != a[0]) continue;
+                c.log(d->id + "  " + spell::deliveryName(d->delivery) + " / " + spell::useName(d->use) + " / " + d->school);
+                n++;
+            }
+            c.log(std::to_string(n) + " spell(s)");
+        });
     reg.add("outline", "outline <effect> [me|npc]",
         "flash an outline effect (data/registry/outline.toml: hurt, blocked, guard_break …) on you or the nearest NPC",
         [](C& c, const Args& a) {

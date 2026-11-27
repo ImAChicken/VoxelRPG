@@ -10,6 +10,7 @@
 #include "../world/Woodcutting.h"
 #include "../world/Chests.h"
 #include "../world/TerrainOps.h"
+#include "../world/PlanManager.h"
 #include "AxeSwing.h"
 #include "BuildTool.h"
 #include "WorldActions.h"
@@ -87,6 +88,7 @@ public:
 
     // Builder's Hammer preview (drawn by the main loop)
     bool        hammerActive = false;   // hammer held this frame
+    PlanManager* plans = nullptr;       // the world's building plans (the hammer's Build tab; none on a server's client)
     // Blueprint and Copy modes: the boxes of every piece, to outline
     std::vector<std::pair<glm::ivec3, glm::ivec3>> previewBoxes;
     bool        previewHas   = false;   // there is a spot to show
@@ -120,6 +122,9 @@ public:
     // A station E was pressed on (workbench, forge …; main.cpp
     // opens its menu and sets this back to 0)
     uint32_t openStation = 0;
+    // A bonfire or bed E was pressed on (tag "rest" or "bed"):
+    // main.cpp heals the player and makes it their spawn point
+    uint32_t restAt = 0;
 
     // Look for the block under the crosshair. Call every
     // frame a body exists, before update().
@@ -132,6 +137,7 @@ public:
         reach += glm::length(camera.position - eyes);
         target = physics.raycast(camera.position, camera.front, reach);
         lookDir = camera.front;
+        lookFrom = camera.position;
     }
 
     void clearTarget() {
@@ -147,6 +153,7 @@ public:
         if (t && t->kind == StructureKind::Door) submit(request(WorldRequest::Op::Door, 0), player, editor, structs);
         if (t && t->slots > 0) openChest = aimed->id;                // a chest, or anything with storage (on a server: main.cpp asks it)
         else if (t && t->kind == StructureKind::Station) openStation = aimed->id;
+        else if (t && (t->hasTag("rest") || t->hasTag("bed"))) restAt = aimed->id;
     }
     // In a fight (combat stance, a weapon drawn): only what E does, and the
     // label of what it would do, so doors, chests and gates still work
@@ -230,6 +237,12 @@ public:
         if (held.is(IC_TOOL) && held.tool == ToolKind::Hoe) {
             breakProgress = 0.0f;
             hoeKeys(player, editor, structs, held, dt);
+            return;
+        }
+        // ── Grappling hook in hand: thrown with use (out of combat;
+        // PlayerController reads the button, main.cpp aims it) ──
+        if (held.grappleRange > 0.0f) {
+            breakProgress = 0.0f;
             return;
         }
         // ── Blast wand: explosions (left; right: twice as big)
@@ -341,6 +354,7 @@ public:
 private:
     float breakTimer = 0.0f, placeTimer = 0.0f;
     glm::vec3 lookDir = {0, 0, -1};
+    glm::vec3 lookFrom{ 0.0f };     // where the aim's ray starts (the camera)
     // Hold-to-repeat timers for the nudge keys
     float nudgeTimers[7] = {};
 
@@ -505,6 +519,8 @@ private:
             aimLabel = t->displayName + (s->state ? "   {interact}: close" : "   {interact}: open");
         else if (t->kind == StructureKind::Station)
             aimLabel = t->displayName + "   {interact}: use";
+        else if (t->hasTag("rest") || t->hasTag("bed"))
+            aimLabel = t->displayName + "   {interact}: rest";
         else if (t->kind == StructureKind::Chest) {
             char b[112];
             std::string name = t->displayName;
@@ -579,6 +595,7 @@ private:
                 return;
             }
         }
+        if (build.mode == HammerMode::Plan)      { planKeys(build, structs); return; }
         if (build.mode == HammerMode::Copy)      { copyKeys(structs, build); return; }
         if (build.mode == HammerMode::Blueprint) { blueprintKeys(player, editor, structs, build, survival, src, dt); return; }
         const StructureType* t = build.type();
@@ -721,6 +738,340 @@ private:
     glm::ivec3 copyLo{ 0 };
 
     std::string mergeAsk;          // a just-copied blueprint whose palettes could merge (asking)
+
+    // ── The Build tab: buildings as plans (world/PlanManager.h) ──
+    void planKeys(BuildTool& build, StructureManager& structs) {
+        previewHas = false;
+        previewWhy.clear();
+        if (!plans || remote) { previewWhy = "the Build tab works in your own worlds for now"; build.planDrag = false; return; }
+        if (gInput.isPressed(InputAction::Undo)) say(plans->undoLast() ? "undone" : "nothing to undo");
+        if (gInput.isPressed(InputAction::ToolCancel)) build.planDrag = false;
+        plans->railsDefault = build.planRails;
+        if (build.planRailsChanged) {
+            build.planRailsChanged = false;
+            plans->setRailsAll(build.planRails);
+            say(build.planRails ? "railings round stairwells and open floor edges" : "no railings of their own (the fence tool still makes them)");
+        }
+        build.planHasCursor = target.hit;
+        if (build.planTool != PlanTool::Frame && build.planTool != PlanTool::Stair) build.planFrameShow = false;
+        const bool press = gInput.isPressed(InputAction::UseLeft), up = gInput.isReleased(InputAction::UseLeft);
+        // the storey: Page Up / Down (the Height tool keeps those keys)
+        if (build.planTool != PlanTool::Height && !build.planDrag) {
+            if (gInput.isPressed(InputAction::NudgeUp)) build.planLevel = std::min(build.planLevel + 1, plan::MAX_LEVELS - 1);
+            if (gInput.isPressed(InputAction::NudgeDown)) build.planLevel = std::max(build.planLevel - 1, 0);
+        }
+        const int level = build.planLevel;
+        const bool placing = build.planTool == PlanTool::Foundation || build.planTool == PlanTool::Room || build.planTool == PlanTool::Wall ||
+                             build.planTool == PlanTool::Pillar || build.planTool == PlanTool::Stair || build.planTool == PlanTool::Fence ||
+                             (build.planTool == PlanTool::Roof && build.planDrag);
+        // upstairs the tools place on the level's floor: where the aim's ray
+        // crosses it over a building (not where it hits the ground under)
+        bool overLevel = false;
+        glm::vec3 levelHit(0.0f);
+        int levelFloor = 0;
+        if (level > 0 && std::fabs(lookDir.y) > 1e-3f) {
+            float best = 1e9f;
+            for (const plan::Plan& p : plans->all()) {
+                int y = p.levelY(level);
+                float t = ((float)y - lookFrom.y) / lookDir.y;
+                if (t <= 0.0f || t >= best) continue;     // (through anything in the way: the walls below are seen through)
+                glm::vec3 q = lookFrom + lookDir * t;
+                glm::ivec2 lo, hi;
+                p.bounds(lo, hi, 12);
+                glm::ivec2 v((int)std::floor(q.x) - p.origin.x, (int)std::floor(q.z) - p.origin.z);
+                if (v.x < lo.x || v.y < lo.y || v.x > hi.x || v.y > hi.y) continue;
+                best = t; levelHit = q; levelFloor = y; overLevel = true;
+            }
+        }
+        if (level > 0 && placing && !overLevel) {
+            previewWhy = "level " + std::to_string(level) + ": aim over a building (Page Down: lower)";
+            build.planHasCursor = false;
+            if (up) build.planDrag = false;
+            return;
+        }
+        if (!target.hit && !(level > 0 && overLevel)) {
+            previewWhy = "aim at the ground";
+            if (up) build.planDrag = false;
+            return;
+        }
+        build.planHasCursor = true;
+        glm::vec3 hp = target.hit ? target.position : levelHit;
+        glm::vec3 inside = target.hit ? hp - target.normal * 0.5f : hp, outside = target.hit ? hp + target.normal * 0.5f : hp;
+        int groundY = target.hit ? target.blockPos.y + 1 : levelFloor;
+        // on a plan's foundation: its floor
+        if (target.hit)
+            if (plan::Plan* over = plans->planOver((int)std::floor(hp.x), (int)std::floor(hp.z), target.blockPos.y))
+                if (over->hasFoundation() && over->onFoundation({ (int)std::floor(hp.x) - over->origin.x, (int)std::floor(hp.z) - over->origin.z }))
+                    groundY = over->floorY();
+        if (level > 0 && placing) { hp = levelHit; inside = outside = levelHit + glm::vec3(0, 0.5f, 0); groundY = levelFloor; }
+        // the ground floor in the build camera's cutaway: where the aim hits
+        // a building over its floor (what's cut away), its floor under that
+        if (level == 0 && placing && build.planCutActive && target.hit && std::fabs(lookDir.y) > 1e-3f)
+            for (const plan::Plan& p : plans->all()) {
+                const int y = p.floorY();
+                if (target.position.y < (float)y + 1.5f) continue;
+                glm::ivec2 lo, hi;
+                p.bounds(lo, hi, 2);
+                auto in = [&](glm::vec3 q) {
+                    glm::ivec2 v((int)std::floor(q.x) - p.origin.x, (int)std::floor(q.z) - p.origin.z);
+                    return v.x >= lo.x && v.y >= lo.y && v.x <= hi.x && v.y <= hi.y;
+                };
+                if (!in(target.position) || target.position.y > (float)p.topY() + 2.0f) continue;
+                const float t = ((float)y - lookFrom.y) / lookDir.y;
+                if (t <= 0.0f) continue;
+                glm::vec3 q = lookFrom + lookDir * t;
+                if (!in(q)) continue;
+                hp = q; inside = outside = q + glm::vec3(0, 0.5f, 0); groundY = y;
+                break;
+            }
+        build.planHoverY = (float)(level > 0 && placing ? levelFloor : hp.y);
+        const char* undoHint = "   {undo}: undo";
+        const std::string lvName = level > 0 ? "level " + std::to_string(level) + ": " : std::string();
+        switch (build.planTool) {
+        case PlanTool::Foundation: {
+            build.planCursor = PlanManager::cell(hp);
+            if (press) { build.planDrag = true; build.planA = build.planCursor; build.planY = groundY; }
+            if (build.planDrag) build.planB = build.planCursor;
+            if (up && build.planDrag) {
+                build.planDrag = false;
+                glm::ivec2 n = glm::abs(build.planB - build.planA) + glm::ivec2(1);
+                if (n.x * n.y > 400) say("a foundation of at most 400 cells (60 x 60 ft)");
+                else if (level > 0) { if (!plans->addDeck(build.planA, build.planB, level)) say("a floor goes over a building"); }
+                else if (plans->addFoundation(build.planA, build.planB, build.planY, build.planFloor, build.palette))
+                    say("foundation " + std::to_string(n.x * 3) + " x " + std::to_string(n.y * 3) + " ft");
+            }
+            aimLabel = lvName + (build.planDrag ? "let go: lay it" : level > 0 ? "{use_left} drag: a floor" : "{use_left} drag: a foundation") + undoHint;
+            break;
+        }
+        case PlanTool::Room:
+        case PlanTool::Wall:
+        case PlanTool::Pillar: {
+            const bool room = build.planTool == PlanTool::Room;
+            // the cursor: a part close by (a wall's end or middle, a pillar, a
+            // foundation's corner, an old piece's corner), else the grid;
+            // sprint held: free
+            const bool free = gInput.isHeld(InputAction::Sprint);
+            std::vector<glm::ivec2> corners;
+            if (!free) structs.forEachInstance([&](const StructureInstance& si) {
+                if (glm::length(glm::vec2(si.origin.x - hp.x, si.origin.z - hp.z)) > 40.0f) return;
+                const StructureType* t = structs.typeOf(si);
+                if (!t || t->kind != StructureKind::Build) return;
+                glm::ivec3 lo, hi;
+                structs.bounds(si, lo, hi);
+                if (std::fabs(hp.y - lo.y) > 40.0f) return;
+                corners.push_back({ lo.x, lo.z }); corners.push_back({ hi.x, hi.z });
+                corners.push_back({ lo.x, hi.z }); corners.push_back({ hi.x, lo.z });
+            });
+            PlanManager::Snap sn = plans->snap(hp, free, corners);
+            build.planCursor = sn.at;
+            build.planSnap = sn.kind;
+            if (build.planTool == PlanTool::Pillar) {
+                aimLabel = std::string("{use_left}: a pillar   hold {sprint}: off the grid") + undoHint;
+                aimLabel = lvName + aimLabel;
+                if (press) plans->addPillar(sn.at, groundY, build.planPillar, build.planRound, 0, build.palette, level);
+                break;
+            }
+            if (press) { build.planDrag = true; build.planA = build.planCursor; build.planY = groundY; }
+            if (build.planDrag) {
+                if (room) build.planB = build.planCursor;
+                else if (sn.kind == 1 && plan::allowedRun(build.planA, sn.at)) build.planB = sn.at;   // onto a part, at an allowed angle
+                else build.planB = plan::snapEnd(build.planA, glm::vec2(hp.x - 0.5f, hp.z - 0.5f),
+                                                  free || build.planA.x % plan::GRID || build.planA.y % plan::GRID ? 1 : plan::GRID);
+            }
+            if (up && build.planDrag) {
+                build.planDrag = false;
+                uint32_t id = room ? plans->addRoom(build.planA, build.planB, build.planY, build.planWallH, build.planThick, build.palette, level)
+                                   : plans->addWall(build.planA, build.planB, build.planY, build.planWallH, build.planThick, build.palette, level);
+                if (!id) say(room ? "a room needs width and depth" : "drag to where the wall ends");
+            }
+            aimLabel = lvName + (build.planDrag ? "let go: build it" : room ? "{use_left} drag: a room" : "{use_left} drag: a wall") +
+                       "   hold {sprint}: off the grid" + undoHint;
+            break;
+        }
+        case PlanTool::Frame: {
+            build.planFrameShow = false;
+            PlanManager::WallHit h = plans->wallAt(inside);
+            if (!h.plan) { aimLabel = "aim at a wall"; break; }
+            const plan::Plan& pl = *h.plan;
+            const plan::Wall& w = pl.walls[(size_t)h.wall];
+            glm::vec2 c((int)std::floor(inside.x) - pl.origin.x + 0.5f, (int)std::floor(inside.z) - pl.origin.z + 0.5f);
+            const int along = (int)std::lround(w.along(c));
+            static const char* FILL[] = { "an open frame", "a door", "a window" };
+            const int sill = build.planFill == 2 ? std::max(1, build.planSill) : build.planFill == 1 ? 0 : build.planSill;
+            // the outline: the hole in the wall's face toward you
+            {
+                glm::vec2 A = w.va(), B = w.vb(), u = glm::length(B - A) > 1e-3f ? glm::normalize(B - A) : glm::vec2(1, 0);
+                glm::vec2 n(-u.y, u.x);
+                float side = glm::dot(glm::vec2(outside.x - pl.origin.x, outside.z - pl.origin.z) - A, n) > 0.0f ? 1.0f : -1.0f;
+                glm::vec2 m = A + u * (float)along + n * side * (w.thick * 0.5f + 0.1f) + glm::vec2(pl.origin.x, pl.origin.z);
+                float half = build.planOpenW * 0.5f, y0 = (float)(pl.floorY() + sill), y1 = y0 + build.planOpenH;
+                glm::vec2 l = m - u * half, r = m + u * half;
+                build.planFrame[0] = { l.x, y0, l.y }; build.planFrame[1] = { r.x, y0, r.y };
+                build.planFrame[2] = { r.x, y1, r.y }; build.planFrame[3] = { l.x, y1, l.y };
+                build.planFrameShow = true;
+            }
+            aimLabel = std::string("{use_left}: ") + FILL[std::clamp(build.planFill, 0, 2)] + " here (sizes in the menu)" +
+                       (build.planFill == 1 && !w.straight() ? "   (left open: a door needs a straight wall)" : "") + undoHint;
+            if (press && plans->addOpening(pl.id, h.wall, along, build.planOpenW, build.planOpenH, sill, (plan::Fill)build.planFill, build.planDoor) < 0)
+                say("no room for that in this wall");
+            break;
+        }
+        case PlanTool::Roof: {
+            const plan::RoofStyle style = (plan::RoofStyle)std::clamp(build.planRoofStyle, 0, 3);
+            PlanManager::RoofHit rh = build.planDrag ? PlanManager::RoofHit() : plans->roofAt(inside);
+            if (rh.plan) {
+                plan::Roof r = rh.plan->roofs[(size_t)rh.roof];
+                aimLabel = std::string("a ") + plan::roofStyleName(r.style) + " roof, peak " + std::to_string(r.peak) +
+                           "   {use_left}: make it " + plan::roofStyleName(style) + " " + std::to_string(build.planPeak) +
+                           "   {rotate_piece}: turn the ridge" + undoHint;
+                if (press) { r.style = style; r.peak = build.planPeak; r.overhang = build.planOverhang; plans->setRoof(rh.plan->id, rh.roof, r); }
+                else if (gInput.isPressed(InputAction::RotatePiece)) {
+                    r.axis = r.style == plan::RoofStyle::Shed ? (r.axis + 1) & 3 : r.axis ^ 1;
+                    plans->setRoof(rh.plan->id, rh.roof, r);
+                }
+                break;
+            }
+            PlanManager::Snap sn = plans->snap(hp, gInput.isHeld(InputAction::Sprint));
+            build.planCursor = sn.at;
+            build.planSnap = sn.kind;
+            if (press) { build.planDrag = true; build.planA = build.planCursor; build.planY = groundY; }
+            if (build.planDrag) build.planB = build.planCursor;
+            if (up && build.planDrag) {
+                build.planDrag = false;
+                glm::ivec2 d = glm::abs(build.planB - build.planA);
+                uint32_t made = 0;
+                if (d.x < 4 && d.y < 4) {     // a click: over the building there
+                    glm::vec3 at = level > 0 && overLevel ? levelHit : inside;
+                    made = plans->roofRoom({ (int)std::floor(at.x), (int)std::floor(at.z) }, style, -1, build.planPeak, build.planOverhang, 0, level);
+                } else made = plans->addRoof(build.planA, build.planB, style, -1, build.planPeak, build.planOverhang, 0, level);
+                if (!made) say("a roof goes over a building's walls");
+            }
+            aimLabel = lvName + (build.planDrag ? "let go: a roof over this" : "{use_left}: a roof over this room   drag: over a rectangle") + undoHint;
+            break;
+        }
+        case PlanTool::Stair: {
+            PlanManager::Snap sn = plans->snap(hp, gInput.isHeld(InputAction::Sprint));
+            build.planCursor = sn.at; build.planSnap = sn.kind;
+            if (press) { build.planDrag = true; build.planA = sn.at; build.planY = groundY; }
+            // which way it climbs: the drag's, else the way you look
+            glm::vec2 d = build.planDrag ? glm::vec2(glm::vec2(hp.x, hp.z) - (glm::vec2(build.planA) + 0.5f)) : glm::vec2(0.0f);
+            if (glm::length(d) < 3.0f) d = glm::vec2(lookDir.x, lookDir.z);
+            int dir = std::fabs(d.x) >= std::fabs(d.y) ? (d.x >= 0 ? 0 : 2) : (d.y >= 0 ? 1 : 3);
+            const plan::StairShape shape = (plan::StairShape)build.planStairShape;
+            if (shape != plan::StairShape::Straight && gInput.isPressed(InputAction::RotatePiece)) build.planStairTurn = -build.planStairTurn;
+            // its outline (the cursor's plan's rise, else a storey's): a
+            // straight one's slope, else the ground it takes
+            {
+                int rise = plan::WALL_H + plan::DECK;
+                if (plan::Plan* p = plans->planUpstairs(build.planDrag ? build.planA : sn.at, build.planDrag ? build.planA : sn.at)) rise = p->stairRise(level);
+                plan::Stair t; t.at = build.planDrag ? build.planA : sn.at; t.dir = dir; t.width = build.planStairW;
+                t.shape = shape; t.turn = build.planStairTurn;
+                float y0 = build.planHoverY + 0.1f;
+                if (build.planDrag) y0 = (float)build.planY + 0.1f;
+                if (shape == plan::StairShape::Straight) {
+                    glm::vec2 f(t.fwd()), sd(t.side());
+                    glm::vec2 a = glm::vec2(t.at) + 0.5f - f * 0.5f, len = f * (float)plan::Stair::length(rise);
+                    glm::vec2 l = sd * (-(float)(t.width / 2) - 0.5f), r = sd * ((float)(t.width - t.width / 2) - 0.5f);
+                    build.planFrame[0] = { a.x + l.x, y0, a.y + l.y };
+                    build.planFrame[1] = { a.x + r.x, y0, a.y + r.y };
+                    build.planFrame[2] = { a.x + r.x + len.x, y0 + rise, a.y + r.y + len.y };
+                    build.planFrame[3] = { a.x + l.x + len.x, y0 + rise, a.y + l.y + len.y };
+                } else {
+                    glm::ivec2 lo, hi;
+                    t.box(rise, lo, hi);
+                    build.planFrame[0] = { (float)lo.x, y0, (float)lo.y };
+                    build.planFrame[1] = { (float)hi.x + 1, y0, (float)lo.y };
+                    build.planFrame[2] = { (float)hi.x + 1, y0, (float)hi.y + 1 };
+                    build.planFrame[3] = { (float)lo.x, y0, (float)hi.y + 1 };
+                }
+                build.planFrameShow = true;
+            }
+            if (up && build.planDrag) {
+                build.planDrag = false;
+                if (!plans->addStair(build.planA, dir, build.planStairW, level, build.planY, build.palette, shape, build.planStairTurn))
+                    say("a stair upstairs goes in a building");
+            }
+            aimLabel = lvName + (build.planDrag ? std::string("let go: a stair up to the next level")
+                                                : std::string("{use_left} drag the way it climbs: a ") + plan::stairShapeName(shape) + " stair" +
+                                                  (shape != plan::StairShape::Straight ? (build.planStairTurn > 0 ? ", turning right  {rotate_piece}: left" : ", turning left  {rotate_piece}: right") : "")) + undoHint;
+            break;
+        }
+        case PlanTool::Fence: {
+            PlanManager::Snap sn = plans->snap(hp, gInput.isHeld(InputAction::Sprint));
+            build.planCursor = sn.at; build.planSnap = sn.kind;
+            if (press) { build.planDrag = true; build.planA = sn.at; build.planY = groundY; }
+            if (build.planDrag) {
+                PlanManager::Snap e = plans->snap(hp, gInput.isHeld(InputAction::Sprint));
+                build.planB = e.kind == 1 && plan::allowedRun(build.planA, e.at) ? e.at : plan::snapEnd(build.planA, glm::vec2(hp.x - 0.5f, hp.z - 0.5f), 1);
+            }
+            if (up && build.planDrag) {
+                build.planDrag = false;
+                if (!plans->addFence(build.planA, build.planB, build.planY, (plan::FenceStyle)build.planFenceStyle, build.planFenceH, level, build.palette))
+                    say("drag to where it ends");
+            }
+            aimLabel = lvName + (build.planDrag ? "let go: put it up" : std::string("{use_left} drag: a ") + plan::fenceStyleName((plan::FenceStyle)build.planFenceStyle) +
+                       " fence   hold {sprint}: off the grid") + undoHint;
+            break;
+        }
+        case PlanTool::Paint: {
+            if (PlanManager::RoofHit rh = plans->roofAt(inside); rh.plan) {
+                uint16_t block = build.planPaint.empty() ? 0 : gRegistry.getIDByName(build.planPaint);
+                aimLabel = std::string("{use_left}: this roof in ") + (build.planPaint.empty() ? "the palette's" : build.planPaint) + undoHint;
+                if (press) { plan::Roof r = rh.plan->roofs[(size_t)rh.roof]; r.block = block; plans->setRoof(rh.plan->id, rh.roof, r); }
+                break;
+            }
+            PlanManager::WallHit h = plans->wallAt(inside);
+            if (!h.plan) { aimLabel = "aim at a wall"; break; }
+            const plan::Wall& w = h.plan->walls[(size_t)h.wall];
+            int side = w.side(glm::vec2(outside.x - h.plan->origin.x, outside.z - h.plan->origin.z));
+            uint16_t block = build.planPaint.empty() ? 0 : gRegistry.getIDByName(build.planPaint);
+            aimLabel = std::string("{use_left}: paint this side ") + (build.planPaint.empty() ? "(the palette's)" : build.planPaint) + undoHint;
+            if (press) plans->paint(h.plan->id, h.wall, side, block);
+            break;
+        }
+        case PlanTool::Height: {
+            int up3 = (gInput.isPressed(InputAction::NudgeUp) || gInput.isPressed(InputAction::NudgeForward) ||
+                       (press && !gInput.isHeld(InputAction::Crouch))) ? 1 : 0;
+            int down3 = (gInput.isPressed(InputAction::NudgeDown) || gInput.isPressed(InputAction::NudgeBack) ||
+                         (press && gInput.isHeld(InputAction::Crouch))) ? 1 : 0;
+            if (PlanManager::RoofHit rh = plans->roofAt(inside); rh.plan) {
+                plan::Roof r = rh.plan->roofs[(size_t)rh.roof];
+                aimLabel = "roof peak " + std::to_string(r.peak) + " voxels   {use_left}: up 3   {crouch} + {use_left}: down" + undoHint;
+                if (up3 || down3) { r.peak = std::max(0, r.peak + (up3 ? 3 : -3)); plans->setRoof(rh.plan->id, rh.roof, r); }
+                break;
+            }
+            PlanManager::WallHit h = plans->wallAt(inside);
+            if (h.plan) {
+                // the level's walls (all that follow it), or with sprint held this one alone
+                const plan::Wall& w = h.plan->walls[(size_t)h.wall];
+                const bool one = gInput.isHeld(InputAction::Sprint);
+                const int now = h.plan->heightOf(w), lv = w.level;
+                aimLabel = (one ? "this wall " : "level " + std::to_string(lv) + "'s walls ") + std::to_string(now / 3) +
+                           " ft   {use_left}: up 1 ft   {crouch} + {use_left}: down   hold {sprint}: " + (one ? "the level's" : "this wall only") + undoHint;
+                if (up3 || down3) {
+                    int to = now + (up3 ? 3 : -3);
+                    if (one) plans->setWallHeight(h.plan->id, h.wall, to);
+                    else plans->setLevelHeight(h.plan->id, lv, to);
+                }
+                break;
+            }
+            plan::Plan* p = plans->planOver((int)std::floor(inside.x), (int)std::floor(inside.z), (int)std::floor(inside.y));
+            if (p && p->hasFoundation()) {
+                aimLabel = "floor " + std::to_string(p->floor) + " voxels up   {use_left}: up   {crouch} + {use_left}: down" + undoHint;
+                if (up3 || down3) plans->setFloor(p->id, p->floor + (up3 ? 1 : -1));
+                break;
+            }
+            aimLabel = "aim at a wall or a foundation";
+            break;
+        }
+        case PlanTool::Remove: {
+            aimLabel = std::string("{use_left}: take away the roof, frame, pillar, wall or foundation under the cursor") + undoHint;
+            if (press && !plans->removeAt(inside)) say("nothing of a plan there");
+            break;
+        }
+        default: break;
+        }
+    }
 
     void copyKeys(StructureManager& structs, BuildTool& build) {
         previewHas = false;

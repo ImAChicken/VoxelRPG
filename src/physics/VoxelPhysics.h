@@ -1,6 +1,7 @@
 #pragma once
 #include "IPhysics.h"
 #include "../game/CombatMoves.h"
+#include "../game/Grapple.h"
 #include "../chunk/ChunkManager.h"
 #include "../entity/Human.h"
 #include "../voxel/VoxelRegistry.h"
@@ -65,6 +66,8 @@ public:
         return 1.0f + std::min(-h.grade, 1.0f) * Human::DOWNHILL_BONUS;
     }
 
+    uint16_t blockAt(int x, int y, int z) const override { return world ? world->typeAtVoxel(x, y, z) : (uint16_t)0; }
+
     void moveHuman(Human& h, const HumanIntent& intent,
                    float dt) override {
         if (!world) return;
@@ -80,6 +83,7 @@ public:
         // the capsule). Getting up: gravity, but no steering.
         if (h.ragdoll.isLimp() && !intent.fly) {
             h.velocity = glm::vec3(0.0f);
+            h.grapple = GrappleState();                  // (knocked down: the rope's dropped)
             return;
         }
         // getting up: a dodge rolls out of it
@@ -88,11 +92,19 @@ public:
         locked.fly = intent.fly; locked.flyMove = intent.flyMove; locked.flyFast = intent.flyFast;
         // down, getting up, dead or reeling from a hit: no say in it
         // (what's pressed meanwhile is dropped, not saved for later)
-        const HumanIntent& in = (h.ragdoll.controlsLocked() || h.dead() || h.hitstun > 0.0f) ? locked : intent;
+        HumanIntent in = (h.ragdoll.controlsLocked() || h.dead() || h.hitstun > 0.0f) ? locked : intent;
+        // spells on it (sim/SpellSystem.h): frozen, it can't move or act;
+        // slowed or hasted, it goes slower or faster
+        if (!h.statuses.empty() && !in.fly) {
+            float k = h.statusSpeed();
+            if (k <= 0.0f) { HumanIntent still; in = still; }
+            else in.speedScale *= k;
+        }
         if (h.dead()) h.attack = AttackState();
 
         // ── Fly mode: no gravity, no collision ────────────
         if (in.fly) {
+            h.grapple = GrappleState();
             flyTick(h, in, dt);
             return;
         }
@@ -112,7 +124,7 @@ public:
         }
 
         // ── Below the bottom of the world ─────────────────
-        if (h.position.y < KILL_Y) {
+        if (h.position.y < killY) {
             h.fellOutOfWorld = true;
             return;
         }
@@ -127,7 +139,7 @@ public:
         // hit's shove, if any, carries it
         if (h.hitStop > 0.0f) {
             h.hitStop -= dt;
-            if (h.attack.active()) h.attack.held = in.heavyHeld;
+            if (h.attack.active()) h.attack.held = h.attack.kind == AttackKind::Cast ? (in.castHeld || in.heavyHeld) : in.heavyHeld;
             if (h.hitStop > 0.0f) return;
             h.hitStop = 0.0f;
         }
@@ -150,6 +162,21 @@ public:
 
         updateCrouch(h, in, dt);
 
+        // ── A flier (a flying monster): no gravity while alive ──
+        if (h.flier && !h.dead()) {
+            flierTick(h, in, dt);
+            combat::regainPoise(h, dt);
+            return;
+        }
+
+        // ── The grapple (game/Grapple.h): on the rope, it moves the body ──
+        if (grappleTick(h, in, dt)) {
+            combat::advanceAttack(h, dt);
+            combat::regainStamina(h, dt);
+            combat::regainPoise(h, dt);
+            return;
+        }
+
         // ── Freeze: hang in the air, momentum stored ──────
         // An attack breaks the freeze (the window it was made for)
         if (h.freeze != Human::Freeze::None) {
@@ -166,7 +193,7 @@ public:
         // ── Attacks (game/Combat.h) ───────────────────────
         combat::startAttack(h, in);
         bool attacking = h.attack.active();
-        if (attacking) h.attack.held = in.heavyHeld;
+        if (attacking) h.attack.held = h.attack.kind == AttackKind::Cast ? (in.castHeld || in.heavyHeld) : in.heavyHeld;
         h.guarding = in.guard && !attacking && h.grounded && h.move == Human::Move::None &&
                      (h.weaponDamage > 0.0f || h.guardStyle.shield) && h.exposed <= 0.0f;
         h.guardTime = h.guarding ? h.guardTime + dt : 0.0f;     // a hit just after raising it is parried
@@ -444,7 +471,7 @@ public:
             h.position = glm::vec3(p.x, rd.bottom(), p.z);
             h.velocity = glm::vec3(0.0f);
             h.grounded = true;
-            if (p.y < KILL_Y) {             // tumbled out of the world
+            if (p.y < killY) {              // tumbled out of the world
                 rd.reset();
                 h.fellOutOfWorld = true;
             }
@@ -599,6 +626,12 @@ private:
 
     // Body fell this far below the world → respawn
     static constexpr float KILL_Y = -64.0f;
+    // Below this a body has left the world (the sky world: its void,
+    // worldgen/SkyGenerator.h; GameSession sets it)
+    float killY = KILL_Y;
+public:
+    void setKillY(float y) { killY = y; }
+private:
 
     // Largest move tested in one go. Smaller than a voxel so
     // a fast body cannot pass through a one-voxel wall.
@@ -733,6 +766,209 @@ private:
                world->isColumnLoaded(x1, z0) &&
                world->isColumnLoaded(x0, z1) &&
                world->isColumnLoaded(x1, z1);
+    }
+
+    // ── A flier (npcs.toml fly): where intent.flyMove points ──
+    // Its length is how fast (1: flySpeed; sprint: flyFast); it eases
+    // to that velocity and slides along what it bumps into
+    static constexpr float FLIER_ACCEL = 70.0f;
+    void flierTick(Human& h, const HumanIntent& in, float dt) {
+        h.grapple = GrappleState();
+        float top = in.sprint ? h.flyFast : h.flySpeed;
+        glm::vec3 want = in.flyMove;
+        float len = glm::length(want);
+        if (len > 1.0f) want /= len;
+        want *= top * std::clamp(in.speedScale, 0.0f, 1.0f);
+        if (h.hitstun > 0.0f) want *= 0.2f;                  // knocked about: it drifts a moment
+        glm::vec3 diff = want - h.velocity;
+        float d = glm::length(diff), step = FLIER_ACCEL * dt;
+        h.velocity = d <= step ? want : h.velocity + diff * (step / d);
+        // a hit's shove carries it off its line for a moment
+        if (glm::dot(h.pendingShove, h.pendingShove) > 1e-4f || h.pendingLift != 0.0f) {
+            h.velocity += h.pendingShove + glm::vec3(0.0f, h.pendingLift, 0.0f);
+            h.pendingShove = glm::vec3(0.0f); h.pendingLift = 0.0f;
+        }
+        h.grounded = false;
+        moveAndCollide(h, h.velocity * dt);
+        h.grounded = false;
+        h.crouching = false;
+        h.height = h.standHeight;
+        if (h.attack.active()) combat::advanceAttack(h, dt);
+    }
+
+    // ── The grapple (game/Grapple.h) ──────────────────────
+    // true: the rope moved the body this tick (the rest of moveHuman
+    // is skipped)
+    static void releaseGrapple(Human& h) {
+        h.grapple = GrappleState();
+        h.hasDoubleJump = true;                    // off the rope: the air moves come back
+        h.hasAirDodge = true;
+        h.hasAirAttack = true;
+    }
+    // Pressed on the way in: it comes out now (a lunge's arrival)
+    static void playQueued(Human& h, const GrappleState& g) {
+        if (!(g.queuedLight || g.queuedHeavy || g.queuedItem)) return;
+        HumanIntent q;
+        q.attackLight = g.queuedLight && !g.queuedHeavy;
+        q.attackHeavy = g.queuedHeavy;
+        q.useItem = g.queuedItem;
+        combat::startAttack(h, q);
+    }
+    bool grappleTick(Human& h, const HumanIntent& in, float dt) {
+        GrappleState& g = h.grapple;
+        // ── a throw ──
+        if (in.grapple && h.grappleReach > 0.0f && !h.dead() && h.hitstun <= 0.0f && !h.lying &&
+            glm::length(in.grappleAt - grapple::hand(h)) <= h.grappleReach * 1.1f) {
+            g = GrappleState();
+            g.phase = GrappleState::Phase::Throw;
+            g.anchor = in.grappleAt;
+            g.from = grapple::hand(h);
+            g.on = in.grappleOn;
+            g.swingable = !in.grappleOn || in.grappleSwing;
+            g.speed = h.grappleSpeed > 0.0f ? h.grappleSpeed : 90.0f;
+            g.reach = h.grappleReach;
+            g.held = true;
+            h.attack = AttackState();
+            h.move = Human::Move::None;
+            h.freeze = Human::Freeze::None;
+        }
+        if (!g.active()) return false;
+        g.t += dt;
+        if (h.dead() || h.hitstun > 0.0f || h.lying) { g = GrappleState(); return false; }
+        if (!in.grappleHeld) g.held = false;
+        // presses on the way: kept for the arrival (a lunge)
+        if (in.attackLight) g.queuedLight = true;
+        if (in.attackHeavy) g.queuedHeavy = true;
+        if (in.useItem) {
+            // a spell that may be cast mid-pull (when = grappling) goes now;
+            // anything else waits for the arrival
+            const ItemDef& it = gItems.get(in.useItem);
+            const spell::Def* sd = it.spell.empty() ? nullptr : gSpells.find(it.spell);
+            if (sd && (sd->when & spell::WHEN_GRAPPLE) && g.phase != GrappleState::Phase::Throw) combat::startAttack(h, in);
+            else g.queuedItem = in.useItem;
+        }
+        glm::vec3 handAt = grapple::hand(h);
+        glm::vec3 to = g.anchor - handAt;
+        float d = glm::length(to);
+        if (d > g.reach * grapple::SNAP) { g = GrappleState(); return false; }      // stretched past its reach
+        glm::vec3 dir = d > 1e-3f ? to / d : glm::vec3(0, 1, 0);
+        glm::vec2 flat(dir.x, dir.z);
+        if (glm::length(flat) > 1e-3f) { flat = glm::normalize(flat); h.facing = glm::vec3(flat.x, 0.0f, flat.y); }
+
+        // jump: let go, with a hop
+        if (in.jump && g.phase != GrappleState::Phase::Throw) {
+            releaseGrapple(h);
+            h.velocity.y = std::max(h.velocity.y, 0.0f) + launchSpeed(Human::JUMP_HEIGHT * 0.7f);
+            h.grounded = false;
+            return false;
+        }
+        // a dodge: let go and dodge (the normal moves do it)
+        if (in.dodge && g.phase != GrappleState::Phase::Throw) { releaseGrapple(h); return false; }
+
+        switch (g.phase) {
+        case GrappleState::Phase::Throw: {
+            // the hook flies out; the body carries on as it was going
+            // (no steering, no attacks: those wait for the arrival)
+            float flight = glm::length(g.anchor - g.from) / grapple::THROW_SPEED;
+            if (g.t < flight) {
+                if (!h.grounded) h.velocity.y = std::max(h.velocity.y - Human::GRAVITY * dt, -Human::MAX_FALL_SPEED);
+                else h.velocity *= std::exp(-dt * 10.0f);
+                moveAndCollide(h, h.velocity * dt);
+                return true;
+            }
+            g.phase = GrappleState::Phase::Zip;
+            g.t = 0.0f;
+            h.grounded = false;
+            [[fallthrough]];
+        }
+        case GrappleState::Phase::Zip: {
+            // held past a tap, from something it can swing from: a swing
+            // (and clear of the ground: near it, it keeps pulling you up first)
+            if (g.held && in.grappleHeld && g.swingable && g.t >= grapple::TAP && !h.grounded && !groundWithin(h, grapple::SWING_CLEAR)) {
+                g.phase = GrappleState::Phase::Swing;
+                g.length = std::max(d, grapple::SWING_MIN);
+                // the rope goes taut now: only the speed across it is kept
+                // (what was pulling it in is gone; no slack to fall through)
+                h.velocity -= dir * glm::dot(h.velocity, dir);
+                return swingStep(h, in, dt);
+            }
+            if (g.pull <= 0.0f) g.pull = std::max(0.0f, glm::dot(h.velocity, dir));   // (from how it was going that way)
+            float speed = g.pull = std::min(g.speed, g.pull + grapple::ZIP_ACCEL * dt);
+            // there? A point: the hand at it. A body: beside it (flat
+            // distance; it's as tall as it is), in reach to hit it
+            bool there;
+            if (g.on) {
+                float flatD = glm::length(glm::vec2(to.x, to.z));
+                there = flatD - speed * dt <= grapple::LUNGE_STOP + h.radius() && std::fabs(to.y) < h.height;
+            } else there = d - speed * dt <= grapple::ARRIVE;
+            if (there) {
+                // there
+                if (!g.on) moveAndCollide(h, dir * std::max(0.0f, d - grapple::ARRIVE));
+                GrappleState done = g;
+                releaseGrapple(h);
+                if (done.on) {
+                    // a lunge: it stops short, in reach, and the attack pressed comes out
+                    h.velocity = glm::vec3(flat.x, 0.0f, flat.y) * 10.0f + glm::vec3(0.0f, 4.0f, 0.0f);
+                    playQueued(h, done);
+                } else {
+                    // a point: up over it with a hop, on the way you came
+                    h.velocity = glm::vec3(flat.x, 0.0f, flat.y) * grapple::ARRIVE_CARRY +
+                                 glm::vec3(0.0f, launchSpeed(grapple::ARRIVE_HOP), 0.0f);
+                }
+                h.grounded = false;
+                return true;
+            }
+            h.velocity = dir * speed;
+            glm::vec3 before = h.position;
+            h.grounded = false;
+            moveAndCollide(h, h.velocity * dt);
+            float moved = glm::length(h.position - before);
+            g.stuck = moved < speed * dt * 0.3f ? g.stuck + dt : 0.0f;
+            if (g.stuck > grapple::STUCK_TIME) { releaseGrapple(h); h.velocity = glm::vec3(0.0f); return true; }
+            return true;
+        }
+        case GrappleState::Phase::Swing:
+            return swingStep(h, in, dt);
+        default:
+            return false;
+        }
+    }
+    // A pendulum: gravity, the rope holding the body at its length,
+    // steering pumping it
+    bool swingStep(Human& h, const HumanIntent& in, float dt) {
+        GrappleState& g = h.grapple;
+        if (!in.grappleHeld) { releaseGrapple(h); return false; }        // let go: off with its speed
+        if (in.crouch) g.length = std::max(grapple::SWING_MIN, g.length - grapple::CLIMB_SPEED * dt);
+        glm::vec3 v = h.velocity;
+        v.y -= Human::GRAVITY * dt;
+        glm::vec2 wish = wishDir(in);
+        v += glm::vec3(wish.x, 0.0f, wish.y) * grapple::SWING_PUMP * dt;
+        v *= 1.0f - grapple::SWING_DRAG * dt;
+        const float up = h.height * grapple::HAND_UP;
+        glm::vec3 c = h.position + glm::vec3(0.0f, up, 0.0f) + v * dt;
+        glm::vec3 r = c - g.anchor;
+        float rl = glm::length(r);
+        if (rl > g.length && rl > 1e-3f) {
+            glm::vec3 n = r / rl;
+            c = g.anchor + n * g.length;
+            float out = glm::dot(v, n);
+            if (out > 0.0f) v -= n * out;                              // the rope takes what pulls away
+        }
+        float sp = glm::length(v);
+        if (sp > grapple::MAX_SPEED) v *= grapple::MAX_SPEED / sp;
+        h.velocity = v;
+        h.grounded = false;
+        moveAndCollide(h, c - glm::vec3(0.0f, up, 0.0f) - h.position);
+        // feet down: still holding, it pulls you up off the ground again
+        if (h.grounded) { g.phase = GrappleState::Phase::Zip; g.pull = 0.0f; g.t = 0.0f; }
+        return true;
+    }
+    // Ground under the body's feet within 'depth' voxels?
+    bool groundWithin(const Human& h, float depth) const {
+        int x = (int)std::floor(h.position.x), z = (int)std::floor(h.position.z);
+        for (float d = 0.5f; d <= depth; d += 1.0f)
+            if (worldSolidAt(x, (int)std::floor(h.position.y - d), z)) return true;
+        return false;
     }
 
     void flyTick(Human& h, const HumanIntent& in, float dt) {

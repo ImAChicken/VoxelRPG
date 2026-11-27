@@ -47,6 +47,8 @@ struct GameSettings {
                              // spot, rounded light, swaying in the wind (shaders/chunk.vert)
     int waterStyle    = 1;   // 0 plain, 1 moving: rivers run downstream, still water ripples
     int glassStyle    = 1;   // 0 plain cubes, 1 panes: one see-through sheet, tinting what's behind
+    int skyFarView    = 2;   // the sky world's distant islands (render/SkyFarView.h): 0 off, 1 tops only, 2 full
+    int skyFarShape   = 1;   // … their shape: 0 blocky (coarse cubes), 1 smooth (surface nets)
     int roofStyle     = 1;   // 0 plain voxels, 1 smooth: one sloped surface with courses and overhanging eaves
 
     // Saving: ordinary worlds save themselves every few minutes
@@ -83,7 +85,7 @@ struct GameSettings {
         renderDistance   = DEF_RENDER_DISTANCE;
         eyeHeight        = DEF_EYE_HEIGHT;
         charEdges = 1; charLineColor = 0; charHairMesh = 1;
-        plantStyle = 1; waterStyle = 1; roofStyle = 1; glassStyle = 1;
+        plantStyle = 1; waterStyle = 1; roofStyle = 1; glassStyle = 1; skyFarView = 2; skyFarShape = 1;
         autosave = 1;
         controlHints = 1;
         rumble = 2; particles = 2; lightCurve = 1; occlusion = 1; renderScale = 0; sunShading = 1; terrainShadows = 1; cloudShadows = 0; cameraShake = 1.0f; damageNumbers = 1; hitPhysics = 1;
@@ -104,6 +106,8 @@ struct GameSettings {
         waterStyle    = std::clamp(waterStyle, 0, 1);
         roofStyle     = std::clamp(roofStyle, 0, 1);
         glassStyle    = std::clamp(glassStyle, 0, 1);
+        skyFarView    = std::clamp(skyFarView, 0, 2);
+        skyFarShape   = std::clamp(skyFarShape, 0, 1);
         autosave      = std::clamp(autosave, 0, 1);
         controlHints  = std::clamp(controlHints, 0, 1);
         rumble        = std::clamp(rumble, 0, 2);
@@ -138,6 +142,8 @@ struct GameSettings {
             waterStyle    = (int)t["world"]["water"].value_or((int64_t)waterStyle);
             roofStyle     = (int)t["world"]["roofs"].value_or((int64_t)roofStyle);
             glassStyle    = (int)t["world"]["glass"].value_or((int64_t)glassStyle);
+            skyFarView    = (int)t["world"]["sky_far"].value_or((int64_t)skyFarView);
+            skyFarShape   = (int)t["world"]["sky_far_shape"].value_or((int64_t)skyFarShape);
             autosave      = (int)t["game"]["autosave"].value_or((int64_t)autosave);
             controlHints  = (int)t["game"]["control_hints"].value_or((int64_t)controlHints);
             rumble        = (int)t["game"]["rumble"].value_or((int64_t)rumble);
@@ -187,6 +193,8 @@ struct GameSettings {
           << "plants = " << plantStyle << "   # 0 plain pictures, 1 natural: off-grid, rounded light, wind\n"
           << "water  = " << waterStyle << "   # 0 plain, 1 moving: rivers run downstream\n"
           << "glass  = " << glassStyle << "   # 0 plain cubes, 1 panes: see-through sheets that tint what's behind\n"
+          << "sky_far = " << skyFarView << "   # the sky world's distant islands: 0 off, 1 tops only (cheap), 2 full\n"
+          << "sky_far_shape = " << skyFarShape << "   # their shape: 0 blocky (coarse cubes), 1 smooth (surface nets)\n"
           << "roofs  = " << roofStyle << "   # 0 plain voxels, 1 smooth: sloped, with courses and overhanging eaves\n"
           << "sun_shading = " << sunShading << "   # 0 plain, 1 terrain: hillsides lit by their slope to the sun\n"
           << "terrain_shadows = " << terrainShadows << "   # 0 off, 1 on: hills shade what's behind them from the sun\n"

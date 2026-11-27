@@ -449,10 +449,10 @@ private:
         // ── World type, and what it is ────────────────────
         rowLabel(ui, theme, "Type", lx, ly, bh, true);
         {
-            static const WorldType ORDER[] = { WorldType::Island, WorldType::SingleBiome, WorldType::Classic, WorldType::Flat, WorldType::Dungeon };
+            static const WorldType ORDER[] = { WorldType::Island, WorldType::Sky, WorldType::SingleBiome, WorldType::Classic, WorldType::Flat, WorldType::Dungeon };
             std::vector<std::string> names;
             int sel = 0;
-            for (int k = 0; k < 5; k++) { names.push_back(worldTypeName(ORDER[k])); if (ORDER[k] == worldType) sel = k; }
+            for (int k = 0; k < 6; k++) { names.push_back(worldTypeName(ORDER[k])); if (ORDER[k] == worldType) sel = k; }
             int c = choiceRow(ui, theme, cx, ly, cw, names, sel);
             if (c >= 0) worldType = ORDER[c];
         }

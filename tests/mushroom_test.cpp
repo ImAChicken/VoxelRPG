@@ -59,16 +59,21 @@ int main() {
         float before = p.health;
         int blocked = 0;
         HumanIntent g; g.guard = true;
+        int through = 0;                                // swings that got past it (his spore cloud is no swing)
+        w.sim.takeEvents();                             // (what happened before)
         for (int i = 0; i < 60 * 15; i++) {
             glm::vec3 d = k->position - p.position;
             if (glm::length(glm::vec2(d.x, d.z)) > 1e-3f) p.facing = glm::normalize(glm::vec3(d.x, 0, d.z));
             w.sim.setIntent(p.uuid, g);
             p.stamina = p.maxStamina;
             w.sim.step(DT);
-            for (const SimEvent& e : w.sim.takeEvents()) if (e.kind == SimEvent::Kind::Hit && e.a == k->uuid && e.blocked) blocked++;
+            for (const SimEvent& e : w.sim.takeEvents()) {
+                if (e.kind == SimEvent::Kind::Hit && e.a == k->uuid && e.blocked) blocked++;
+                if (e.kind == SimEvent::Kind::Hit && e.a == k->uuid && !e.blocked && e.attack != AttackKind::Cast) through++;
+            }
         }
-        before = std::min(before, p.maxHealth);
-        check(blocked > 0 && p.health >= before - 0.01f, "a guard toward him blocks his swings (" + std::to_string(blocked) + " blocked)");
+        (void)before;
+        check(blocked > 0 && through == 0, "a guard toward him blocks his swings (" + std::to_string(blocked) + " blocked)");
 
         // hit hard, he's only pushed: never limp
         bool limp = false;

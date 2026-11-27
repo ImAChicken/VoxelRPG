@@ -27,6 +27,8 @@ enum class InputAction {
     // ── Interaction ──────────────────────────────────────
     Interact,       // use/open/talk
     LedgeGrab,      // burst to face, hang, second press = lift
+    BuildCamera,    // the hammer's Build tab: the build camera over the ground on / off
+    BuildView,      // … in it: everything / walls up / walls down (the cutaway)
 
     // ── Toolbar ──────────────────────────────────────────
     Inventory,      // open full inventory

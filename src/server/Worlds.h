@@ -222,6 +222,7 @@ public:
                 std::vector<glm::vec3> at;
                 for (auto& p : s.sim.players()) at.push_back(p->position);
                 s.tickVillages(at);
+                s.tickSky(at);
             }
             const bool unseen = s.sim.players().empty() && e.watched.empty() && !e.beforeStep && !e.afterStep;
             int run = steps, mult = 1;

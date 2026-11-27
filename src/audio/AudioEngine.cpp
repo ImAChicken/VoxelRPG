@@ -15,6 +15,27 @@
 #endif
 #endif
 #include <miniaudio.h>
+// stb_vorbis decodes the recordings (.ogg; public domain, one file)
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-value"
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#endif
+#ifdef _MSC_VER
+#pragma warning(push, 0)
+#endif
+#define STB_VORBIS_NO_PUSHDATA_API
+#include "../third_party/stb_vorbis.inl"   // (not .c: the game globs src/*.c, and it must only compile here)
+#undef L
+#undef C
+#undef R
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
+#include <toml++/toml.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -248,7 +269,71 @@ void AudioEngine::mix(float* out, uint32_t frames) {
 }
 
 // ── The banks ────────────────────────────────────────────
+const char* SfxBank::kindName(sfx::Kind k) {
+    static const char* N[] = { "step", "land", "break", "place", "chop", "hit", "block", "swing", "cast", "door", "blast", "splash", "wind" };
+    return (size_t)k < sizeof(N) / sizeof(N[0]) ? N[(size_t)k] : "?";
+}
+
+int SfxBank::loadRecorded(const std::string& path, const std::string& dir) {
+    recordedRead = true;
+    takes.clear();
+    toml::table t;
+    try { t = toml::parse_file(path); }
+    catch (const std::exception&) { return 0; }       // no file: every sound made in code
+    for (auto& [kind, kt] : t) {
+        auto* materials = kt.as_table();
+        if (!materials) continue;
+        for (auto& [mat, mt] : *materials) {
+            auto* e = mt.as_table();
+            if (!e) continue;
+            float gain = (float)(*e)["gain"].value_or(1.0);
+            std::vector<sfx::Buffer> got;
+            if (auto* files = (*e)["files"].as_array())
+                for (auto& f : *files) {
+                    std::string name = f.value_or(std::string());
+                    if (name.empty()) continue;
+                    std::string full = dir + "/" + name;
+                    int ch = 0, rate = 0;
+                    short* pcm = nullptr;
+                    int frames = stb_vorbis_decode_filename(full.c_str(), &ch, &rate, &pcm);
+                    if (frames <= 0 || !pcm || ch <= 0) { std::cerr << path << ": can't read " << full << "\n"; if (pcm) free(pcm); continue; }
+                    sfx::Buffer b;
+                    b.rate = rate;
+                    b.samples.resize((size_t)frames);
+                    for (int i = 0; i < frames; i++) {                  // to one channel
+                        float v = 0.0f;
+                        for (int c = 0; c < ch; c++) v += pcm[(size_t)i * ch + c];
+                        b.samples[(size_t)i] = v / (32768.0f * ch) * gain;
+                    }
+                    free(pcm);
+                    got.push_back(std::move(b));
+                }
+            if (!got.empty()) takes[std::string(kind.str()) + "." + std::string(mat.str())] = std::move(got);
+        }
+    }
+    size_t n = 0;
+    for (auto& [k, v] : takes) n += v.size();
+    std::cout << "Sounds: " << n << " recordings for " << takes.size() << " kinds of sound (" << path << ")\n";
+    return (int)takes.size();
+}
+
+const std::vector<sfx::Buffer>* SfxBank::recorded(sfx::Kind k, const std::string& material) const {
+    auto it = takes.find(std::string(kindName(k)) + "." + material);
+    if (it == takes.end()) it = takes.find(std::string(kindName(k)) + ".any");
+    return it == takes.end() ? nullptr : &it->second;
+}
+
 const sfx::Buffer& SfxBank::get(sfx::Kind k, const std::string& material, uint32_t variant, float size) {
+    if (!recordedRead) loadRecorded();
+    if (const std::vector<sfx::Buffer>* r = recorded(k, material)) {
+        // a big blow takes from the second half of the list (the heavy ones), a small from the first
+        size_t n = r->size();
+        if (n >= 4 && size != 1.0f) {
+            size_t half = n / 2, base = size > 1.0f ? n - half : 0;
+            return (*r)[base + variant % half];
+        }
+        return (*r)[variant % n];
+    }
     variant %= VARIANTS;
     int sizeKey = (int)std::lround(size * 4.0f);
     auto key = std::make_tuple((int)k, material, variant, sizeKey);

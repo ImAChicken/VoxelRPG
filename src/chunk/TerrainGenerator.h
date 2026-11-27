@@ -51,6 +51,12 @@ struct TerrainColumn {
     // instead (canyon walls show bands). strataOff tilts the bands.
     uint8_t  strata     = 0;                  // 0 none, 1 sandstone, 2 limestone
     int8_t   strataOff  = 0;
+    // A floating column (the sky world, worldgen/SkyGenerator.h): the
+    // ground starts at 'floor', air below it. 'under' is the block of
+    // its bottom 'underDepth' voxels (the rock seen from below)
+    int      floor      = 0;
+    uint16_t under      = 0;                  // 0: the deep block
+    int      underDepth = 0;
 };
 
 // Sandstone bands by height: a repeating 37-voxel sequence of beds
@@ -209,6 +215,7 @@ public:
         // ── Step 1 — what each column is made of ──────────
         std::vector<TerrainColumn> cols((size_t)D * D);
         int highest = 0;
+        int highestFloor = 0;              // (floating ground: air under it)
         int lowestRock = WORLD_HEIGHT;     // lowest top of the 'deep' layer
         uint16_t deepId = 0;
         bool oneDeep = true;
@@ -221,6 +228,7 @@ public:
             highest = std::max({ highest, c.ground, c.waterLevel,
                                  c.deckY >= 0 ? c.deckY + 1 : 0 });
             lowestRock = std::min(lowestRock, c.ground - 1 - c.subDepth);
+            highestFloor = std::max(highestFloor, c.floor + c.underDepth);
             if (x == 0 && z == 0) deepId = c.deep;
             else if (c.deep != deepId) oneDeep = false;
         }
@@ -291,7 +299,8 @@ public:
         }
         std::vector<PlantPlace> plants;
         if (decorSet) placePlants(cols, x0, z0, landmarks, plants, treeTop);
-        int contentTop = std::max(highest, treeTop);
+        int contentTop = std::max({ highest, treeTop, partsTop(cx, cz) });
+        const int lowFloor = lowestFloor(cols);
 
         // ── Step 2 — each section ─────────────────────────
         static thread_local std::vector<uint16_t> scratch;
@@ -302,7 +311,7 @@ public:
                 sec.setRle(ChunkSection::allAirShared());
                 continue;
             }
-            if (oneDeep && y1 <= lowestRock && !carvesInto(cx, cz, sy)) {   // solid rock
+            if (oneDeep && y1 <= lowestRock && y0 >= highestFloor && !carvesInto(cx, cz, sy)) {   // solid rock
                 auto r = std::make_shared<RleData>();
                 r->ends.push_back((uint32_t)VOXEL_COUNT);
                 r->types.push_back(deepId);
@@ -316,7 +325,7 @@ public:
             // (Y-major, so this writes in memory order)
             for (int y = y0; y < y1; y++) {
                 uint16_t* slice = vox + (size_t)(y - y0) * D * D;
-                if (y >= highest) {
+                if (y >= highest || y < lowFloor) {
                     std::memset(slice, 0, (size_t)D * D * sizeof(uint16_t));
                     continue;
                 }
@@ -330,7 +339,9 @@ public:
                         else if (y == c.deckY) id = c.deck;
                         else                   id = BLOCK_AIR;
                     }
+                    else if (y < c.floor)             id = BLOCK_AIR;        // under floating ground
                     else if (y == h - 1)              id = c.top;
+                    else if (c.under && y < c.floor + c.underDepth) id = c.under;
                     else if (c.strata)                id = strataBlock(y + c.strataOff, c.strata);
                     else if (y >= h - 1 - c.subDepth) id = c.sub;
                     else                              id = c.deep;
@@ -356,6 +367,18 @@ public:
         // decorations: forest under the trees, plains elsewhere
         c.eco = forestCover(wx, wz) > 0.5f ? 12 /* Forest */ : 9 /* Plains */;
         return c;
+    }
+
+    // Floating ground: shapes standing above every column's ground
+    // in this chunk (arches, rings; the sky world), so those sections
+    // aren't skipped as open sky. 0: none
+    virtual int partsTop(int cx, int cz) const { (void)cx; (void)cz; return 0; }
+    // The lowest floor of any column with ground (sections all below
+    // it are air). Columns with no ground (floor >= ground) don't count
+    static int lowestFloor(const std::vector<TerrainColumn>& cols) {
+        int lo = WORLD_HEIGHT;
+        for (const TerrainColumn& c : cols) if (c.ground > c.floor || c.waterLevel > c.floor) lo = std::min(lo, c.floor);
+        return lo == WORLD_HEIGHT ? 0 : lo;
     }
 
     // Where new players appear (world voxels, feet)

@@ -72,6 +72,11 @@ public:
     // fight starts, a review when it ends. Neither pauses.
     std::string encounterBanner;
     bool        devWorld = false;          // the open world is a dev world (main.cpp sets it)
+    // What the grapple would catch, on screen (main.cpp sets it each
+    // frame from grapple::aim): framed, so it's plain which it'll take
+    bool        grappleMark = false, grappleMarkBody = false;
+    float       grappleMarkX = 0.0f, grappleMarkY = 0.0f;   // UI pixels
+    std::string grappleLabel;                               // its prompt, drawn under the frame
     float encounterBannerAge = 99.0f;
     std::vector<std::string> review;
     float reviewAge = 99.0f;
@@ -124,6 +129,8 @@ public:
             drawTargetRing(ui, sw * 0.5f, sh * 0.5f);
         else if (rules.hasBody)
             drawCrosshair(ui, sw * 0.5f, sh * 0.5f);
+
+        if (grappleMark) drawGrappleMark(ui);
 
         // Dig progress under the crosshair
         if (hands.breakProgress > 0.0f && !combat) {
@@ -368,7 +375,13 @@ public:
             std::string line3 = hands.previewWhy.empty()
                 ? (build->locked ? "LOCKED - {use_left} builds   {tool_cancel}: let go" : "{use_left} builds")
                 : hands.previewWhy;
-            if (build->mode == HammerMode::Copy) {
+            if (build->mode == HammerMode::Plan) {
+                line1 = std::string("Build: ") + planToolName(build->planTool) + "   " +
+                        (build->planLevel > 0 ? "level " + std::to_string(build->planLevel) : std::string("ground floor")) +
+                        "   walls " + std::to_string(build->planThick) + " thick";
+                line2 = "{use_right}: tools   {build_camera}: build camera   {nudge_up} / {nudge_down}: level";
+                line3 = hands.previewWhy.empty() ? std::string() : hands.previewWhy;
+            } else if (build->mode == HammerMode::Copy) {
                 line1 = "Copy a building";
                 line2 = "{use_left} any piece of it to save the whole building";
                 line3 = hands.previewWhy.empty() ? hands.aimLabel : hands.previewWhy;
@@ -383,6 +396,7 @@ public:
             float y = sh - 196.0f;     // above the held item's name
             const std::string* lines[3] = { &line1, &line2, &line3 };
             for (int i = 0; i < 3; i++) {
+                if (lines[i]->empty()) continue;
                 float w = keytext::width(ui, *lines[i], 2);
                 ui.drawRect((sw - w) * 0.5f - 6, y - 3, w + 12, 21, SHADOW);
                 const float* col = i == 2 ? (hands.previewWhy.empty() ? theme.accent : COMBAT_RED)
@@ -431,6 +445,36 @@ private:
     void drawCrosshair(UIRenderer& ui, float cx, float cy) {
         ui.drawRect(cx - 7.0f, cy - 1.0f, 14.0f, 2.0f, WHITE);
         ui.drawRect(cx - 1.0f, cy - 7.0f, 2.0f, 14.0f, WHITE);
+    }
+
+    // The grapple's target: four corners closing in and out, and a
+    // dot in the middle (yellow a point, red an enemy)
+    void drawGrappleMark(UIRenderer& ui) {
+        const float pulse = 0.5f + 0.5f * std::sin((float)glfwGetTime() * 7.0f);
+        const float r = (grappleMarkBody ? 20.0f : 13.0f) + 4.0f * pulse, len = 7.0f, t = 3.0f;
+        const float Y[4] = { 255, 228, 110, 255 }, R[4] = { 255, 110, 90, 255 }, D[4] = { 0, 0, 0, 160 };
+        const float* c = grappleMarkBody ? R : Y;
+        const float cx = grappleMarkX, cy = grappleMarkY;
+        for (int pass = 0; pass < 2; pass++) {             // a dark edge, then the colour
+            const float* col = pass ? c : D;
+            float o = pass ? 0.0f : 1.0f, tt = t + (pass ? 0.0f : 2.0f);
+            for (int sx = -1; sx <= 1; sx += 2)
+            for (int sy = -1; sy <= 1; sy += 2) {
+                float x = cx + sx * r, y = cy + sy * r;
+                ui.drawRect((sx < 0 ? x : x - len) - o, y - tt * 0.5f, len + 2.0f * o, tt, col);
+                ui.drawRect(x - tt * 0.5f, (sy < 0 ? y : y - len) - o, tt, len + 2.0f * o, col);
+            }
+            ui.drawRect(cx - 2.0f - o, cy - 2.0f - o, 4.0f + 2.0f * o, 4.0f + 2.0f * o, col);
+        }
+        if (!grappleLabel.empty()) {                       // the prompt under it (kept on the screen)
+            const auto& theme = gResourcePacks.getTheme();
+            const float SH[4] = { 0, 0, 0, 150 };
+            float w = keytext::width(ui, grappleLabel, 1);
+            float sw = (float)ui.getWidth(), sh = (float)ui.getHeight();
+            float x = std::clamp(cx - w * 0.5f, 8.0f, sw - w - 8.0f), y = std::clamp(cy + r + 8.0f, 8.0f, sh - 24.0f);
+            ui.drawRect(x - 4, y - 3, w + 8, 14, SH);
+            keytext::draw(ui, grappleLabel, x, y, c, 1, theme.accent);
+        }
     }
 
     // Four corner brackets — where a locked-on target will

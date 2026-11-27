@@ -133,8 +133,8 @@ int main() {
     const uint16_t SWORD = gItems.find("iron_sword"), CLUB = gItems.find("wooden_club"), WIND = gItems.find("windburst"),
                    TORCH = gItems.find("torch"), ICE = gItems.find("ice_spike"), PICK = gItems.find("iron_pickaxe"),
                    AXE = gItems.find("iron_axe");
-    check(SWORD && CLUB && WIND && gItems.get(WIND).is(IC_SPELL) && gItems.get(WIND).cast == "windburst_cast",
-          "Windburst is a spell item that casts windburst_cast");
+    check(SWORD && CLUB && WIND && gItems.get(WIND).is(IC_SPELL) && gItems.get(WIND).spell == "windburst",
+          "Windburst is a spell item that casts the windburst spell");
     {
         Inventory inv;
         inv.add(SWORD, 1); inv.add(CLUB, 1); inv.add(WIND, 1); inv.add(TORCH, 4); inv.add(ICE, 1);

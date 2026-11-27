@@ -61,8 +61,13 @@ struct AnimMap {
             walkToRun = (float)t["switch"]["walk_to_run"].value_or(18.0);
             runToSprint = (float)t["switch"]["run_to_sprint"].value_or(46.0);
             blendWidth = std::max(0.5f, (float)t["switch"]["blend"].value_or(5.0));
-            if (auto* a = t["attacks"].as_table())
-                for (auto& [k, v] : *a) {
+            // [attacks] by moveset attack id; [casts] by spell cast pose
+            // (spells.toml anim: push, overhead …), kept as "cast_<pose>",
+            // the pose of every spell's cast attack (game/Spells.h)
+            for (const char* tableName : { "attacks", "casts" })
+            if (auto* a = t[tableName].as_table())
+                for (auto& [k0, v] : *a) {
+                    struct { std::string s; const std::string& str() const { return s; } } k{ std::string(tableName) == "casts" ? "cast_" + std::string(k0.str()) : std::string(k0.str()) };
                     // "Clip"  or  { clip = "Clip", strike = [from, to] }
                     std::string n = v.value_or(std::string());
                     Strike st;
@@ -99,6 +104,11 @@ struct AnimMap {
         if (t < activeStart) return s.from * std::max(t, 0.0f) / activeStart;
         if (t <= activeEnd)  return s.from + (s.to - s.from) * (t - activeStart) / (activeEnd - activeStart);
         return std::min(1.0f, s.to + (1.0f - s.to) * (t - activeEnd) / (d - activeEnd));
+    }
+    // The key an attack's clip is found by: its id, else its pose (a
+    // spell's cast: "cast_push")
+    const std::string& attackKey(const std::string& id, const std::string& pose) const {
+        return attacks.count(id) ? id : pose;
     }
     int attackClip(const std::string& id) const {
         if (!useClips) return -1;

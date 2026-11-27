@@ -177,6 +177,26 @@ int main() {
         }
     }
 
+    // ── Recordings (data/audio/sounds.toml) ──
+    std::printf("\nrecordings\n");
+    {
+        sound::SfxBank bank;
+        int sets = bank.loadRecorded();
+        check(sets >= 10, "sounds.toml names its sets and the files read (" + std::to_string(sets) + ")");
+        const auto* hit = bank.recorded(sfx::Kind::Hit, "dirt");
+        check(hit && hit->size() == 10, "a blow on a body: 10 recordings");
+        bool real = hit && !hit->empty() && (*hit)[0].samples.size() > 1000 && (*hit)[0].rate >= 22050;
+        check(real, "decoded to sound (samples, a rate)");
+        if (hit && hit->size() == 10) {
+            const sfx::Buffer& heavy = bank.get(sfx::Kind::Hit, "dirt", 2, 2.0f);
+            const sfx::Buffer& light = bank.get(sfx::Kind::Hit, "dirt", 2, 0.5f);
+            check(&heavy == &(*hit)[7] && &light == &(*hit)[2], "a big blow takes a heavy one, a small blow a light one");
+        }
+        check(bank.recorded(sfx::Kind::Step, "stone") != nullptr, "stone footsteps are recorded");
+        check(bank.recorded(sfx::Kind::Swing, "air") == nullptr && !bank.get(sfx::Kind::Swing, "air", 0).samples.empty(),
+              "a sound with no recording is still made in code (a swing)");
+    }
+
     std::printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);
     return failures ? 1 : 0;
 }

@@ -219,6 +219,103 @@ private:
     // caught very close): out comes the sidearm, and it fights like
     // anyone (false: the melee code takes this tick) until it has
     // room again.
+    // ── Spells (npcs.toml casts): now and then, when the target's
+    // at a range one of them suits, it casts it (the same spells the
+    // player has: game/Spells.h). true: it's casting this tick
+    bool castSpell(Npc& n, const Human& t, float dist, float dt) {
+        n.castWait -= dt;
+        if (n.castWait > 0.0f || !n.seesTarget || n.attack.active() || n.swing >= 0) return false;
+        for (const NpcType::Cast& c : n.type->casts) {
+            if (dist < c.rangeMin || dist > c.rangeMax) continue;
+            const AttackDef* a = gSpells.attack(c.spell);
+            if (!a) continue;
+            n.castWait = c.every * n.randRange(0.7f, 1.3f);
+            n.face(t.position);
+            n.intent.special = a;
+            n.intent.move = glm::vec2(0.0f);
+            n.intent.flyMove = glm::vec3(0.0f);
+            return true;
+        }
+        n.castWait = 0.5f;
+        return false;
+    }
+
+    // ── A flier (npcs.toml fly: the Hywirl) ────────────────
+    // Circles over its target out of reach, turning now and then; on
+    // its turn to attack it dives straight in, fast, swings (Headbutt,
+    // Punch: its swings) as it gets there, and climbs away again. Its
+    // grapple point is how you get at it (game/Grapple.h).
+    float orbit = 0.0f;
+    static constexpr float FLY_RING = 18.0f;        // vox from the target it circles at
+    void flyerFight(Npc& n, NpcWorld& w, const Human& t, float dt) {
+        HumanIntent& in = n.intent;
+        glm::vec3 tp = (n.seesTarget ? t.position : n.lastKnown) + glm::vec3(0.0f, t.height * 0.5f, 0.0f);
+        glm::vec3 off = tp - (n.position + glm::vec3(0.0f, n.height * 0.5f, 0.0f));
+        float d3 = glm::length(off);
+        glm::vec2 flat(off.x, off.z);
+        if (glm::length(flat) > 1e-3f) { flat = glm::normalize(flat); n.facing = glm::vec3(flat.x, 0.0f, flat.y); }
+        if (n.swing >= 0) { in.flyMove = glm::vec3(0.0f); return; }       // mid-swing: it hangs there
+        float reach = 8.0f;
+        if (n.type) for (const NpcType::Swing& sw : n.type->swings) reach = std::max(reach, sw.reach);
+        float hover = n.type ? n.type->hover * 0.6f : 10.0f;
+        auto toward = [&](glm::vec3 goal, float ease) {
+            glm::vec3 d = goal - n.position;
+            float l = glm::length(d);
+            in.flyMove = l > 1e-3f ? d / std::max(l, ease) : glm::vec3(0.0f);
+        };
+        bool attackingNow = n.swing >= 0 || sub == Sub::Attack;
+        if (!attackingNow && wasAttacking) w.releaseAttack(n);
+        wasAttacking = attackingNow;
+        in.sprint = false;
+        in.speedScale = 1.0f;
+        switch (sub) {
+        case Sub::Approach:
+        case Sub::Circle:
+        case Sub::Guard: {
+            orbit += side * 0.5f * dt;
+            glm::vec3 ring(std::cos(orbit), 0.0f, std::sin(orbit));
+            if (sub == Sub::Approach) {                   // first: round to where it is now
+                glm::vec3 fromT = n.position - tp; fromT.y = 0.0f;
+                if (glm::length(fromT) > 1e-3f) orbit = std::atan2(fromT.z, fromT.x);
+                to(Sub::Circle, n.randRange(1.5f, 3.0f));
+            }
+            toward(tp + ring * FLY_RING + glm::vec3(0.0f, hover, 0.0f), 8.0f);
+            in.speedScale = 0.8f;
+            if (subTime <= 0.0f) {
+                float aggression = n.type ? n.type->aggression : 0.7f;
+                if (n.seesTarget && n.rand01() < aggression && w.requestAttack(n)) to(Sub::Attack, 3.0f);
+                else { if (n.rand01() < 0.35f) side = -side; to(Sub::Circle, n.randRange(1.0f, 2.5f)); }
+            }
+            break;
+        }
+        case Sub::Attack: {
+            // the dive: straight at it, fast
+            if (subTime <= 0.0f) { w.releaseAttack(n); to(Sub::Recover, 1.0f); break; }
+            toward(tp, 1.0f);
+            in.sprint = true;
+            if (d3 <= reach * 0.75f && n.type && !n.type->swings.empty()) {
+                const auto& sws = n.type->swings;
+                float total = 0.0f;
+                for (const NpcType::Swing& sw : sws) total += sw.weight;
+                float r = n.rand01() * total;
+                int k = 0;
+                for (; k + 1 < (int)sws.size(); k++) { if (r < sws[k].weight) break; r -= sws[k].weight; }
+                n.swing = k; n.swingT = 0.0f; n.swingDone = false;
+                in.flyMove = glm::vec3(0.0f);
+                n.velocity *= 0.3f;
+                to(Sub::Recover, n.randRange(1.0f, 1.6f));
+            }
+            break;
+        }
+        case Sub::Recover:
+            // climbs away to circle again
+            toward(n.position + glm::vec3(-flat.x * 10.0f, 12.0f, -flat.y * 10.0f), 6.0f);
+            in.speedScale = 0.9f;
+            if (subTime <= 0.0f) to(Sub::Circle, n.randRange(1.0f, 2.0f));
+            break;
+        }
+    }
+
     // ── A boss (style "boss": the Crypt Lord) ──────────────
     // Never guards or rolls; picks its move by how far the target is:
     //   close (its reach)   a sweep (sometimes back again), or the slam
@@ -386,6 +483,8 @@ private:
         subTime -= dt;
         if (n.type && n.type->style == "ranged" && rangedFight(n, w, t, dist, dir, left, dt)) return;
         if (n.type && n.type->style == "boss") { bossFight(n, w, t, dist, dir, dt); return; }
+        if (n.type && !n.type->casts.empty() && castSpell(n, t, dist, dt)) return;
+        if (n.flier) { flyerFight(n, w, t, dt); return; }
         // a hopper (a slime): no weapon, no guard, no rolls. Its
         // attack is a lunge, a long hop at the target; it hurts by
         // touching (Simulation::contactDamage). The lunge decides

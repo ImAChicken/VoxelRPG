@@ -869,6 +869,27 @@ layers = [
   [ "ss...........pp", "s.............p", "...............", "...............", "...............", "..............." ],
 ]
 
+# A bonfire (the sky world: worldgen/SkyGenerator.h places one in
+# the bowl): E to rest there. Resting heals you and makes it where you
+# come back after dying (game/PlayerInteraction.h, tag "rest"; beds do
+# the same, tag "bed"). (Claude, 2026-11-25)
+[[structure]]
+name = "bonfire"
+display = "Bonfire"
+part = "light"
+kind = "build"
+tags = ["rest", "light"]
+menu = false
+cost = { cobblestone = 12, planks = 6 }
+legend = { c = "cobblestone", m = "moss_stone", x = "charred_log", e = "ember", f = "fire", a = "ash" }
+layers = [
+  [ "...cmc...", "..m...c..", ".c.aaa.m.", "m.aeeea.c", "c.aeeea.c", "m.aeeea.m", ".c.aaa.c.", "..c...m..", "...mcm..." ],
+  [ "...c.m...", "..m...c..", ".........", "c...x...m", "...xex...", "m...x...c", ".........", "..c...m..", "...m.c..." ],
+  [ ".........", ".........", ".........", "....x....", "...xfx...", "....x....", ".........", ".........", "........." ],
+  [ ".........", ".........", ".........", ".........", "....f....", ".........", ".........", ".........", "........." ],
+  [ ".........", ".........", ".........", ".........", "....f....", ".........", ".........", ".........", "........." ],
+]
+
 [[structure]]
 name = "campfire"
 display = "Campfire"
@@ -1736,4 +1757,30 @@ layers = [
   [ ".....", "...i.", ".ii..", ".....", "....." ],
   [ ".....", ".....", "..i..", ".....", "....." ],
   [ ".....", ".....", "..i..", ".....", "....." ],
+]
+
+# A Stone Wall spell (spells.toml stone_wall): 16 wide, 2 deep, 14
+# high (a body's shoulders), set across the caster's way; crumbles
+# after 12 s.
+[[structure]]
+name = "spell_stone_wall"
+display = "Stone wall"
+kind = "effect"
+lifetime = 12
+legend = { c = "cobblestone", s = "stone" }
+layers = [
+  [ "cccccccccccccccc", "cccccccccccccccc" ],
+  [ "scscscscscscscsc", "cscscscscscscscs" ],
+  [ "cccccccccccccccc", "cccccccccccccccc" ],
+  [ "cccccccccccccccc", "cccccccccccccccc" ],
+  [ "cscscscscscscscs", "scscscscscscscsc" ],
+  [ "cccccccccccccccc", "cccccccccccccccc" ],
+  [ "cccccccccccccccc", "cccccccccccccccc" ],
+  [ "scscscscscscscsc", "cscscscscscscscs" ],
+  [ "cccccccccccccccc", "cccccccccccccccc" ],
+  [ "cccccccccccccccc", "cccccccccccccccc" ],
+  [ "cscscscscscscscs", "scscscscscscscsc" ],
+  [ "cccccccccccccccc", "cccccccccccccccc" ],
+  [ "cccccccccccccccc", "cccccccccccccccc" ],
+  [ "cc..cc..cc..cc..", "cc..cc..cc..cc.." ],
 ]

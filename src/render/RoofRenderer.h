@@ -7,6 +7,7 @@
 #include "Sky.h"
 #include "AtlasTexture.h"
 #include "../world/StructureManager.h"
+#include "../world/PlanManager.h"
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -32,27 +33,43 @@
 //     slope, the ends (verges) 2 past the gable, with a fascia, barge
 //     boards and a soffit under them. Where another roof piece carries
 //     on (along the ridge, or down the slope) there's no overhang
+// Roofs of the hammer's Build tab (world/PlanManager.h, plan::Roof) are
+// drawn the same way: each of their slopes a plane, cut where it meets
+// the others (ridge, hips), edged with a fascia all round.
 // Only drawn: the voxels are as they were (the plain setting shows
 // them). Lit like props: the world's baked light per vertex (block
 // RGB, sky, canopy), sampled just off the surface.
 class RoofRenderer {
 public:
     bool init() { return shader.load("shaders/roof.vert", "shaders/roof.frag"); }
-    void cleanup() { for (auto& [id, m] : meshes) m.release(); meshes.clear(); seen = ~0ull; }
+    void cleanup() {
+        for (auto& [id, m] : meshes) m.release();
+        for (auto& [id, m] : planMeshes) m.release();
+        meshes.clear(); planMeshes.clear(); seen = ~0ull; seenPlans = ~0ull;
+    }
     void setBlocks(std::shared_ptr<const BlockRenderTable> t) { table = std::move(t); cleanup(); }
 
     // Keep the meshes in step with the roofs placed (cheap when
     // nothing changed), relight a few each frame, draw them all
-    void draw(const StructureManager& sm, const glm::mat4& view, const glm::mat4& proj, glm::vec3 camPos,
+    void draw(const StructureManager& sm, const PlanManager* plans, const glm::mat4& view, const glm::mat4& proj, glm::vec3 camPos,
               const AtlasTexture& atlas, const PropLightFn& lightAt) {
         if (sm.revision() != seen) { rebuild(sm); seen = sm.revision(); }
-        if (meshes.empty()) return;
+        if (plans && plans->revision() != seenPlans) { rebuildPlans(*plans); seenPlans = plans->revision(); }
+        if (!plans && !planMeshes.empty()) { for (auto& [id, m] : planMeshes) m.release(); planMeshes.clear(); seenPlans = ~0ull; }
+        if (meshes.empty() && planMeshes.empty()) return;
         // relight round-robin: light changes slowly (lamps, chunks loading)
         int n = 0;
-        for (auto& [id, m] : meshes) {
-            if (n >= 6) break;
-            if (m.relightIn-- <= 0) { relight(m, lightAt); m.relightIn = 90 + (int)(id % 30); n++; }
-        }
+        for (auto* all : { &meshes, &planMeshes })
+            for (auto& [id, m] : *all) {
+                if (n >= 6) break;
+                if (m.relightIn-- <= 0) {
+                    relight(m, lightAt);
+                    // just made: soon again (the world's light is baked again after the edit)
+                    m.relightIn = m.fresh > 0 ? 12 : 90 + (int)(id % 30);
+                    if (m.fresh > 0) m.fresh--;
+                    n++;
+                }
+            }
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
         glDisable(GL_CULL_FACE);               // thin edges are seen from both sides
@@ -74,18 +91,25 @@ public:
         terrainlight::bindFrame(p);
         atlas.bind(0);
         const float far2 = 900.0f * 900.0f;
-        for (auto& [id, m] : meshes) {
-            if (!m.count) continue;
-            glm::vec3 d = m.centre - camPos;
-            if (glm::dot(d, d) > far2) continue;
-            glBindVertexArray(m.vao);
-            glDrawArrays(GL_TRIANGLES, 0, m.count);
-        }
+        for (auto* all : { &meshes, &planMeshes })
+            for (auto& [id, m] : *all) {
+                if (!m.count) continue;
+                if (all == &planMeshes && !cuts.empty()) {      // the build camera's cutaway
+                    auto c = cuts.find((uint32_t)(id >> 16));
+                    if (c != cuts.end() && m.baseY >= (float)c->second) continue;
+                }
+                glm::vec3 d = m.centre - camPos;
+                if (glm::dot(d, d) > far2) continue;
+                glBindVertexArray(m.vao);
+                glDrawArrays(GL_TRIANGLES, 0, m.count);
+            }
         glBindVertexArray(0);
         glEnable(GL_CULL_FACE);
     }
 
-    size_t count() const { return meshes.size(); }
+    size_t count() const { return meshes.size() + planMeshes.size(); }
+    // plan id → world height: its roofs from there up aren't drawn (the build camera's cutaway)
+    std::unordered_map<uint32_t, int> cuts;
 
     // ── The shape (public for tests) ──────────────────────
     // A roof piece's overhangs: 0 where another roof piece carries on
@@ -158,8 +182,10 @@ private:
         GLsizei count = 0;
         std::vector<Vert> verts;
         glm::vec3 centre{ 0.0f };
+        float baseY = 0.0f;            // a plan roof's eaves (world)
         uint64_t sig = 0;
         int relightIn = 0;
+        int fresh = 0;                 // relights left at the quick pace
         void release() {
             if (vbo) glDeleteBuffers(1, &vbo);
             if (vao) glDeleteVertexArrays(1, &vao);
@@ -169,8 +195,9 @@ private:
 
     Shader shader;
     std::shared_ptr<const BlockRenderTable> table;
-    std::unordered_map<uint32_t, Mesh> meshes;
-    uint64_t seen = ~0ull;
+    std::unordered_map<uint64_t, Mesh> meshes;            // roof pieces, by instance id
+    std::unordered_map<uint64_t, Mesh> planMeshes;     // (plan << 16) | roof
+    uint64_t seen = ~0ull, seenPlans = ~0ull;
 
     static uint8_t styleOf(const std::string& block) {
         if (block.find("thatch") != std::string::npos) return 2;
@@ -273,6 +300,119 @@ private:
         m.centre = c;
         upload(m);
         m.relightIn = 0;
+        m.fresh = 5;
+    }
+
+    // ── Plan roofs (the Build tab) ────────────────────────
+    void rebuildPlans(const PlanManager& pm) {
+        std::unordered_map<uint64_t, bool> alive;
+        for (const plan::Plan& p : pm.all())
+            for (size_t i = 0; i < p.roofs.size(); i++) {
+                const plan::Roof& r = p.roofs[i];
+                uint64_t key = ((uint64_t)p.id << 16) | (uint64_t)i;
+                alive[key] = true;
+                uint16_t block = r.block ? r.block : pm.looksFor(p).roof;
+                uint64_t sig = 1469598103934665603ull;
+                for (int v : { r.a.x, r.a.y, r.b.x, r.b.y, (int)r.style, r.axis, r.peak, r.overhang, r.thick, p.roofBase(r), p.levelY(r.level),
+                               p.origin.x, p.origin.z, (int)block })
+                    sig = (sig ^ (uint64_t)(uint32_t)v) * 1099511628211ull;
+                Mesh& m = planMeshes[key];
+                if (m.count && m.sig == sig) continue;
+                m.sig = sig;
+                buildPlanRoof(m, p, r, block);
+            }
+        for (auto it = planMeshes.begin(); it != planMeshes.end();)
+            if (!alive.count(it->first)) { it->second.release(); it = planMeshes.erase(it); }
+            else ++it;
+    }
+    // a convex polygon (x, z) cut to where a * x + b * z + c <= 0
+    static std::vector<glm::vec2> clipPoly(const std::vector<glm::vec2>& in, glm::vec3 h) {
+        std::vector<glm::vec2> out;
+        for (size_t i = 0; i < in.size(); i++) {
+            glm::vec2 p = in[i], q = in[(i + 1) % in.size()];
+            float dp = h.x * p.x + h.y * p.y + h.z, dq = h.x * q.x + h.y * q.y + h.z;
+            if (dp <= 0) out.push_back(p);
+            if ((dp < 0) != (dq < 0) && std::fabs(dp - dq) > 1e-6f) out.push_back(p + (q - p) * (dp / (dp - dq)));
+        }
+        return out;
+    }
+    void buildPlanRoof(Mesh& m, const plan::Plan& p, const plan::Roof& r, uint16_t block) {
+        const std::vector<glm::vec3> F = r.facets();
+        float kmax = 0.0f;
+        for (const glm::vec3& f : F) kmax = std::max(kmax, glm::length(glm::vec2(f.x, f.y)));
+        const glm::vec3 O((float)p.origin.x, (float)(p.levelY(r.level) + p.roofBase(r)), (float)p.origin.z);
+        m.baseY = O.y;
+        const float eps = 0.04f;
+        const float upTop = 1.0f + kmax * 0.5f + eps, downUnder = (float)r.thick - 1.0f + std::max(1.0f, kmax) + eps;
+        const glm::vec2 lo = glm::vec2(r.lo() - glm::ivec2(r.overhang)), hi = glm::vec2(r.hi() + glm::ivec2(r.overhang + 1));
+        const std::string bname = gRegistry.get(block).name;
+        const uint8_t style = styleOf(bname);
+        uint8_t tx = 0, ty = 0, ex = 0, ey = 0;
+        if (table) {
+            const BlockRenderInfo& b = table->get(block);
+            tx = b.tileX[0]; ty = b.tileY[0]; ex = b.tileX[2]; ey = b.tileY[2];
+        }
+        std::vector<Vert>& out = m.verts;
+        out.clear();
+        auto put = [&](glm::vec3 w, glm::vec3 n, glm::vec2 uv, uint8_t st, bool edge) {
+            out.push_back({ w.x, w.y, w.z, uv.x, uv.y, n.x, n.y, n.z, edge ? ex : tx, edge ? ey : ty, st, 0, 0, 0, 0, 255, 0.0f });
+        };
+        const std::vector<glm::vec2> rect = { lo, { hi.x, lo.y }, hi, { lo.x, hi.y } };
+        for (size_t i = 0; i < F.size(); i++) {
+            // this slope's part: where it's the lowest
+            std::vector<glm::vec2> poly = rect;
+            for (size_t j = 0; j < F.size() && poly.size() >= 3; j++)
+                if (j != i) poly = clipPoly(poly, F[i] - F[j]);
+            if (poly.size() < 3) continue;
+            const glm::vec3 f = F[i];
+            const glm::vec2 g(f.x, f.y);
+            const float k = glm::length(g);
+            const glm::vec2 up = k > 1e-4f ? g / k : glm::vec2(0, 1), along(-up.y, up.x);
+            const float L = std::sqrt(1.0f + k * k);
+            const glm::vec3 nTop = glm::normalize(glm::vec3(-f.x, 1.0f, -f.y));
+            auto h = [&](glm::vec2 q) { return f.x * q.x + f.y * q.y + f.z; };
+            auto uv = [&](glm::vec2 q) { glm::vec2 w = q + glm::vec2(O.x, O.z); return glm::vec2(glm::dot(w, along), glm::dot(w, up) * L); };
+            // in 3 x 3 cells (the light is per vertex)
+            glm::vec2 plo(1e9f), phi(-1e9f);
+            for (glm::vec2 q : poly) { plo = glm::min(plo, q); phi = glm::max(phi, q); }
+            for (float cz = std::floor(plo.y / 3.0f) * 3.0f; cz < phi.y; cz += 3.0f)
+                for (float cx = std::floor(plo.x / 3.0f) * 3.0f; cx < phi.x; cx += 3.0f) {
+                    std::vector<glm::vec2> c = poly;
+                    c = clipPoly(c, { -1, 0, cx }); if (c.size() < 3) continue;
+                    c = clipPoly(c, { 1, 0, -(cx + 3.0f) }); if (c.size() < 3) continue;
+                    c = clipPoly(c, { 0, -1, cz }); if (c.size() < 3) continue;
+                    c = clipPoly(c, { 0, 1, -(cz + 3.0f) }); if (c.size() < 3) continue;
+                    for (size_t t = 1; t + 1 < c.size(); t++) {
+                        glm::vec2 a = c[0], b = c[t], d = c[t + 1];
+                        for (glm::vec2 q : { a, b, d }) put(O + glm::vec3(q.x, h(q) + upTop, q.y), nTop, uv(q), style, false);
+                        for (glm::vec2 q : { a, d, b }) put(O + glm::vec3(q.x, h(q) - downUnder, q.y), -nTop, uv(q), 3, true);
+                    }
+                }
+            // the fascia and barge boards: its edges on the roof's outline
+            for (size_t e = 0; e < poly.size(); e++) {
+                glm::vec2 a = poly[e], b = poly[(e + 1) % poly.size()];
+                glm::vec2 n(0);
+                if (std::fabs(a.x - lo.x) < 1e-3f && std::fabs(b.x - lo.x) < 1e-3f) n = { -1, 0 };
+                else if (std::fabs(a.x - hi.x) < 1e-3f && std::fabs(b.x - hi.x) < 1e-3f) n = { 1, 0 };
+                else if (std::fabs(a.y - lo.y) < 1e-3f && std::fabs(b.y - lo.y) < 1e-3f) n = { 0, -1 };
+                else if (std::fabs(a.y - hi.y) < 1e-3f && std::fabs(b.y - hi.y) < 1e-3f) n = { 0, 1 };
+                if (n == glm::vec2(0)) continue;
+                const int seg = std::max(1, (int)std::ceil(glm::length(b - a) / 3.0f));
+                for (int j = 0; j < seg; j++) {
+                    glm::vec2 qa = a + (b - a) * ((float)j / seg), qb = a + (b - a) * ((float)(j + 1) / seg);
+                    glm::vec3 A = O + glm::vec3(qa.x, h(qa) - downUnder, qa.y), B = O + glm::vec3(qb.x, h(qb) - downUnder, qb.y);
+                    glm::vec3 C = O + glm::vec3(qb.x, h(qb) + upTop, qb.y), D = O + glm::vec3(qa.x, h(qa) + upTop, qa.y);
+                    glm::vec3 nn(n.x, 0, n.y);
+                    float ua = glm::dot(qa, glm::vec2(-n.y, n.x)), ub = glm::dot(qb, glm::vec2(-n.y, n.x)), th = upTop + downUnder;
+                    put(A, nn, { ua, 0 }, 3, true); put(B, nn, { ub, 0 }, 3, true); put(C, nn, { ub, th }, 3, true);
+                    put(A, nn, { ua, 0 }, 3, true); put(C, nn, { ub, th }, 3, true); put(D, nn, { ua, th }, 3, true);
+                }
+            }
+        }
+        m.centre = O + glm::vec3((lo.x + hi.x) * 0.5f, r.peak * 0.5f, (lo.y + hi.y) * 0.5f);
+        upload(m);
+        m.relightIn = 0;
+        m.fresh = 5;
     }
 
     void relight(Mesh& m, const PropLightFn& lightAt) {

@@ -19,7 +19,7 @@ inline const int GROUND = 40;     // bodies stand at y = GROUND
 
 inline bool loadData() {
     return gRegistry.load("data/registry/blocks.toml") && gItems.load(gRegistry, "data/registry/items.toml") &&
-           gMovesets.load("data/registry/movesets.toml") && gFactions.load("data/registry/factions.toml") &&
+           gMovesets.load("data/registry/movesets.toml") && gSpells.load() && gFactions.load("data/registry/factions.toml") &&
            gLoot.load("data/registry/loot.toml") && gNpcTypes.load("data/registry/npcs.toml", "data/characters/presets.toml");
 }
 

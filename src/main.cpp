@@ -48,6 +48,8 @@
 #include "chunk/ChunkManager.h"
 #include "chunk/ChunkLoader.h"
 #include "render/FarTerrain.h"
+#include "render/SkyFarView.h"
+#include "game/Grapple.h"
 #include "render/CharacterRenderer.h"
 #include "character/HumanAnim.h"
 #include "render/OutlineFx.h"
@@ -282,6 +284,7 @@ int main() {
     // Items: every block, plus tools / weapons / dev tools
     gItems.load(gRegistry, "data/registry/items.toml");
     gMovesets.load("data/registry/movesets.toml");
+    gSpells.load();
     gHeldModels.loadDir("data/models/held");
     gFactions.load("data/registry/factions.toml");
 
@@ -552,6 +555,16 @@ int main() {
         farStreamers.erase(it);
     };
     std::unique_ptr<FarTerrain>       farView;   // distant terrain
+    std::unique_ptr<SkyFarView>       skyFar;    // the sky world's distant islands (a coarse voxel copy)
+    grapple::Target grappleAim;                  // what the grapple would catch where you look (game/Grapple.h)
+    bool scriptCamOn = false; glm::vec3 scriptCam(0.0f);  // script "camat"
+    grapple::PointCache grapplePoints;           // the grapple points around you (aim picks from them)
+    const void* grapplePointsIn = nullptr;       // … in this world
+    std::string grappleButton;                   // the button that throws it ("{use_slot_b}" …), for the label
+    // The build camera (the hammer's Build tab, B): over the ground looking
+    // down at a focus point, WASD moving it, the wheel zooming, the mouse
+    // turning round it; the body stays where it is
+    struct BuildCam { bool on = false; glm::vec3 focus{ 0.0f }; float dist = 70.0f; } buildCam;
     std::unordered_map<uint64_t, float> animOwed;   // NPCs animated less often far off: the time owed them
     uint32_t animFrame = 0;
     float autosaveTimer = 0.0f;
@@ -722,6 +735,7 @@ int main() {
         const bool away = portals.inInstance();
         here->save(true, [&](const std::string& stage) {
             memory.save(stage + "/lowres.dat");
+            if (skyFar) skyFar->save(stage + "/skyfar.dat");
             if (away) return;
             std::ofstream out(stage + "/player.dat");
             writePlayer(out);
@@ -761,6 +775,7 @@ int main() {
         dropFarStreamers();
         streamer.reset();
         farView.reset();
+        skyFar.reset();
         dev.attach(nullptr);
         hands.wood = nullptr;
         hands.remote = nullptr;
@@ -794,9 +809,30 @@ int main() {
                   << player.rules().name << "\n";
     };
 
+    // The sky world's distant islands (render/SkyFarView.h): each
+    // block's colour from afar, whether it fills a cell, whether it glows
+    auto makeSkyFar = [&](const std::string& savedAt) {
+        auto looks = std::make_shared<SkyFarView::LookTable>(blockTable->blocks.size());
+        for (size_t id = 1; id < blockTable->blocks.size() && id < gRegistry.size(); id++) {
+            const BlockRenderInfo& info = blockTable->get((uint16_t)id);
+            const VoxelTypeDef& d = gRegistry.get((uint16_t)id);
+            SkyFarView::BlockLook& L = (*looks)[id];
+            L.color = glr->tileAverage(info.tileX[FACE_TOP], info.tileY[FACE_TOP]);
+            L.kind = d.isFluid() ? 2 : (d.isPlant() || d.sprite || d.opacity == VoxelOpacity::None) ? 0 : 1;
+            L.glow = d.glows() && L.kind == 1;
+        }
+        skyFar = std::make_unique<SkyFarView>(*here->gen, here->world->sizeX(), here->world->sizeZ(), looks);
+        skyFar->load(savedAt);
+        skyFar->setMode(gSettings.skyFarView);
+        skyFar->setSmooth(gSettings.skyFarShape == 1);
+        if (!skyFar->initGL()) { std::cerr << "Sky far view shaders failed to load\n"; skyFar.reset(); }
+    };
     // The distant view of the focused world, coloured with each block's
     // average atlas colour (render/FarTerrain.h)
     auto makeFarView = [&]() {
+        // the sky world's islands float: a height map can't draw them
+        // (its own far view: render/SkyFarView.h)
+        if (dynamic_cast<const SkyGenerator*>(here->gen.get())) { farView.reset(); makeSkyFar(here->info.getWorldPath() + "/skyfar.dat"); return; }
         auto colors = std::make_shared<FarTerrain::ColorTable>(blockTable->blocks.size());
         for (size_t id = 0; id < blockTable->blocks.size(); id++) {
             const BlockRenderInfo& info = blockTable->get((uint16_t)id);
@@ -829,6 +865,7 @@ int main() {
         dropFarStreamers();
         streamer.reset();
         farView.reset();
+        skyFar.reset();
         // From the menu every world is closed (leaveWorld); on a trip
         // the one being left keeps running (server/Worlds.h), and the
         // one going to may already be open (its gate watched)
@@ -948,6 +985,7 @@ int main() {
         playerBody->resetAnimation();
         player.spawnPoint = glm::vec3(
             (float)spawnX, (float)ground, (float)spawnZ);
+        player.spawnChosen = false;                 // (a saved one is read below)
         camera = Camera();
         controller.thirdPersonWanted = false;
 
@@ -1075,6 +1113,7 @@ int main() {
         portalGun = PortalGun();
         lockOn.clear(); gParticles.clear(); trails.clear(); popups.clear();
         player.spawnPoint = glm::vec3(here->gen->spawnPoint(here->world->sizeX(), here->world->sizeZ()));
+        player.spawnChosen = false;                 // (a rest spot belongs to the world it's in)
         hud.devWorld = here->info.isDevWorld();
         portals.arrivedSeamless(here->name());
         std::cout << "through to " << here->name() << "\n";
@@ -1184,7 +1223,8 @@ int main() {
         streamer->skipLoad = [&](int cx, int cz) { return remote && remote->isModified(cx, cz); };
         memory.load(remote->cacheFolder() + "/lowres.dat");
         memorySeen = 0;
-        {
+        if (dynamic_cast<const SkyGenerator*>(here->gen.get())) makeSkyFar(remote->cacheFolder() + "/skyfar.dat");
+        else {
             auto colors = std::make_shared<FarTerrain::ColorTable>(blockTable->blocks.size());
             for (size_t id = 0; id < blockTable->blocks.size(); id++) {
                 const BlockRenderInfo& info = blockTable->get((uint16_t)id);
@@ -1202,6 +1242,7 @@ int main() {
         hands.clearTarget();
         playerBody->resetAnimation();
         player.spawnPoint = glm::vec3(here->gen->spawnPoint(here->world->sizeX(), here->world->sizeZ()));
+        player.spawnChosen = false;                 // (a rest spot belongs to the world it's in)
         camera = Camera();
         controller.thirdPersonWanted = false;
         camera.position = player.position + glm::vec3(0.0f, Human::eyeStand, 0.0f);
@@ -1270,6 +1311,8 @@ int main() {
                 int cx = idx / here->world->sizeZ(), cz = idx % here->world->sizeZ(), key = cz * here->world->sizeX() + cx;
                 auto it = memory.columns.find(key);
                 if (it != memory.columns.end() && it->second.summary == ci.summary) continue;
+                // the sky world's far view: this chunk's real voxels, shrunk
+                if (skyFar) if (Chunk* ch = here->world->getChunk(cx, cz)) skyFar->chunkChanged(cx, cz, *ch);
                 if (memory.remember(key, ci.summary, ci.emitters)) changed.push_back(key);
             }
             if (farView && !changed.empty()) {
@@ -1283,6 +1326,21 @@ int main() {
         // stepping aside wherever voxel chunks are drawn.
         // Then the depth buffer is cleared, so the voxels
         // always draw over it.
+        if (skyFar && !farView) {
+            static std::vector<uint8_t> nearMask;
+            nearMask.assign((size_t)here->world->sizeX() * here->world->sizeZ(), 0);
+            for (int cx = pc.x - MESH_DISTANCE; cx <= pc.x + MESH_DISTANCE; cx++)
+            for (int cz = pc.y - MESH_DISTANCE; cz <= pc.y + MESH_DISTANCE; cz++)
+                if (streamer->hasMesh(cx, cz) && cx >= 0 && cz >= 0 && cx < here->world->sizeX() && cz < here->world->sizeZ())
+                    nearMask[(size_t)cz * here->world->sizeX() + cx] = 1;
+            skyFar->setNearMask(nearMask);
+            skyFar->draw(glr->getViewMatrix(), Camera::FOV_DEG, aspect, camera.position);
+            glm::mat4 farProj = glm::perspective(glm::radians(Camera::FOV_DEG), aspect,
+                                                 SkyFarView::NEAR_PLANE, SkyFarView::FAR_PLANE);
+            distantLights.draw(memory, farProj * glr->getViewMatrix(), camera.position,
+                               (MESH_DISTANCE - 0.5f) * VOXEL_DIM, gFrameLight.sky.night);
+            glClear(GL_DEPTH_BUFFER_BIT);
+        }
         if (farView) {
             static std::vector<uint8_t> nearMask;
             nearMask.assign((size_t)here->world->sizeX() * here->world->sizeZ(), 0);
@@ -1652,7 +1710,7 @@ int main() {
                 s.shade = std::clamp(streamer->canopyAt(p.x, p.y, p.z), 0.0f, 1.0f);
                 return s;
             };
-            roofs.draw(*here->structs, glr->getViewMatrix(), proj, camera.position, glr->getAtlas(), lightAt);
+            roofs.draw(*here->structs, here->plans.get(), glr->getViewMatrix(), proj, camera.position, glr->getAtlas(), lightAt);
         }
 
         // ── The hammer's piece, as it will be: a ghost of its voxels,
@@ -1788,6 +1846,9 @@ int main() {
                     if (n.swing >= 0 && n.swing < (int)n.type->swings.size()) {
                         mi.attackClip = &n.type->swings[n.swing].clip;
                         mi.attackRate = n.type->swings[n.swing].speed;
+                    } else if (n.attack.active() && n.attack.kind == AttackKind::Cast && !n.type->clips.cast.empty()) {
+                        mi.attackClip = &n.type->clips.cast;              // a spell (npcs.toml casts): its cast clip
+                        mi.attackRate = std::max(0.3f, mm->seconds(mm->clip(n.type->clips.cast)) / std::max(n.attack.def().duration, 0.1f));
                     }
                     mi.airborne = !n.grounded && !n.dead();
                     mi.speed = glm::length(glm::vec2(n.velocity.x, n.velocity.z));
@@ -2073,6 +2134,138 @@ int main() {
                 glm::vec3 col = p.kind == "ice_spike" ? glm::vec3(0.72f, 0.90f, 1.0f) : glm::vec3(1.0f);
                 blobs.draw(vp, at - glm::vec3(0.0f, 0.5f, 0.0f), { 3.0f, 1.0f, 1.0f }, yaw, col);
                 blobs.draw(vp, at + f * 2.0f - glm::vec3(0.0f, 0.25f, 0.0f), { 1.2f, 0.5f, 0.5f }, yaw, col * 1.1f);
+            }
+        }
+
+        // Spells (sim/SpellSystem.h): bolts in their colour with a trail,
+        // beams, runes and areas as rings on the ground, auras round
+        // their bodies
+        if (gState == GameState::Playing) {
+            glm::mat4 vp = glm::perspective(glm::radians(Camera::FOV_DEG), aspect, Camera::NEAR_PLANE, Camera::FAR_PLANE) * glr->getViewMatrix();
+            const SpellSystem& ss = here->sim.spells();
+            float alpha = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
+            float now = (float)glfwGetTime();
+            for (const SpellSystem::Bolt& b : ss.bolts()) {
+                glm::vec3 at = b.pos + b.vel * (alpha * PHYSICS_STEP);
+                glm::vec3 d = glm::length(b.vel) > 1e-3f ? glm::normalize(b.vel) : glm::vec3(1, 0, 0);
+                glm::vec3 c = b.d->look.color;
+                blobs.beam(vp, at - d * 2.2f, at, 0.45f, c * 0.8f);
+                blobs.beam(vp, at - d * 0.8f, at + d * 0.4f, 0.9f, c * 1.1f);
+                gParticles.burst(b.d->look.trail, at - d * 1.0f, -d, 0.6f, 0.6f);
+            }
+            for (const SpellSystem::Beam& b : ss.beams()) {
+                float k = 1.0f - b.age / SpellSystem::BEAM_SHOW;
+                blobs.beam(vp, b.a, b.b, 0.25f + 0.35f * k, b.d->look.color * (0.8f + 0.4f * k));
+            }
+            auto ring = [&](glm::vec3 c, float r, glm::vec3 col, float lift, int n, float spin) {
+                for (int i = 0; i < n; i++) {
+                    float a0 = spin + 6.2831853f * i / n, a1 = spin + 6.2831853f * (i + 0.55f) / n;
+                    blobs.beam(vp, c + glm::vec3(std::cos(a0) * r, lift, std::sin(a0) * r), c + glm::vec3(std::cos(a1) * r, lift, std::sin(a1) * r), 0.25f, col);
+                }
+            };
+            for (const SpellSystem::Zone& z : ss.zones()) {
+                glm::vec3 col = z.d->look.color;
+                if (z.rune) {
+                    float pulse = z.arm > 0.0f ? 0.5f : 0.75f + 0.25f * std::sin(now * 4.0f);
+                    ring(z.pos, z.radius, col * pulse * 1.4f, 0.15f, 12, now * 0.6f);
+                    ring(z.pos, z.radius * 0.5f, col * pulse * 1.4f, 0.15f, 6, -now * 0.9f);
+                } else if (z.strip) {
+                    blobs.beam(vp, z.a + glm::vec3(0, 0.2f, 0), z.b + glm::vec3(0, 0.2f, 0), 0.4f, col);
+                } else if (z.left > 0.0f) {
+                    ring(z.pos, z.radius, col * 1.2f, 0.2f, 16, now * 0.3f);
+                }
+            }
+            for (Human* h : here->sim.bodies())
+                if (h->aura) ring(h->position, h->aura->radius, h->aura->look.color * (1.1f + 0.3f * std::sin(now * 5.0f)), 0.3f, 14, now);
+        }
+
+        // The Build tab (game/BuildPlan.h): the grid round the cursor, what
+        // it's snapped to, and what a drag would make (a foundation's
+        // outline, walls)
+        if (gState == GameState::Playing && hands.hammerActive && build.mode == HammerMode::Plan && build.planHasCursor) {
+            glm::mat4 vp = glm::perspective(glm::radians(Camera::FOV_DEG), aspect, Camera::NEAR_PLANE, Camera::FAR_PLANE) * glr->getViewMatrix();
+            const glm::vec3 GRIDC(0.55f, 0.6f, 0.7f), DRAG(1.0f, 0.85f, 0.35f), PART(0.35f, 0.95f, 1.0f), FREE(1.0f, 1.0f, 1.0f);
+            const float G = (float)plan::GRID;
+            const bool cells = build.planTool == PlanTool::Foundation;
+            float y = (build.planDrag ? (float)build.planY : build.planHoverY) + 0.15f;
+            glm::ivec2 c = build.planCursor;
+            if (build.planTool != PlanTool::Frame) {
+                // grid lines: cell edges (foundations) or the lines walls run on
+                glm::vec2 o = cells ? glm::vec2(c) * G : glm::vec2(glm::ivec2(PlanManager::gridOf(c.x), PlanManager::gridOf(c.y)) * plan::GRID) + glm::vec2(0.5f);
+                for (int i = -4; i <= 5; i++) {
+                    blobs.beam(vp, glm::vec3(o.x + i * G, y, o.y - 4 * G), glm::vec3(o.x + i * G, y, o.y + 5 * G), 0.12f, GRIDC);
+                    blobs.beam(vp, glm::vec3(o.x - 4 * G, y, o.y + i * G), glm::vec3(o.x + 5 * G, y, o.y + i * G), 0.12f, GRIDC);
+                }
+            }
+            auto post = [&](glm::vec2 at, float h, glm::vec3 col) { blobs.beam(vp, glm::vec3(at.x, y, at.y), glm::vec3(at.x, y + h, at.y), 0.5f, col); };
+            auto line = [&](glm::vec2 a, glm::vec2 b, float yy, glm::vec3 col) { blobs.beam(vp, glm::vec3(a.x, yy, a.y), glm::vec3(b.x, yy, b.y), 0.4f, col); };
+            const glm::vec3 snapCol = build.planSnap == 1 ? PART : build.planSnap == 2 ? FREE : DRAG;
+            if (build.planTool == PlanTool::Frame || build.planTool == PlanTool::Stair) {
+                if (build.planFrameShow)
+                    for (int i = 0; i < 4; i++) blobs.beam(vp, build.planFrame[i], build.planFrame[(i + 1) % 4], 0.35f, DRAG);
+            } else if (!build.planDrag) {
+                if (cells) { glm::vec2 lo = glm::vec2(c) * G, hi = lo + glm::vec2(G); line(lo, { hi.x, lo.y }, y, DRAG); line({ hi.x, lo.y }, hi, y, DRAG); line(hi, { lo.x, hi.y }, y, DRAG); line({ lo.x, hi.y }, lo, y, DRAG); }
+                else if (build.planTool == PlanTool::Pillar) {
+                    float r = build.planPillar * 0.5f; glm::vec2 m = glm::vec2(c) + glm::vec2(0.5f);
+                    line(m + glm::vec2(-r, -r), m + glm::vec2(r, -r), y, snapCol); line(m + glm::vec2(r, -r), m + glm::vec2(r, r), y, snapCol);
+                    line(m + glm::vec2(r, r), m + glm::vec2(-r, r), y, snapCol); line(m + glm::vec2(-r, r), m + glm::vec2(-r, -r), y, snapCol);
+                    post(m, (float)build.planWallH, snapCol);
+                }
+                else post(glm::vec2(c) + glm::vec2(0.5f), 6.0f, snapCol);
+            } else if (cells) {
+                glm::ivec2 lo = glm::min(build.planA, build.planB), hi = glm::max(build.planA, build.planB);
+                glm::vec2 a = glm::vec2(lo) * G - glm::vec2(1.0f), b = glm::vec2(hi + glm::ivec2(1)) * G + glm::vec2(1.0f);
+                float top = (float)(build.planY + build.planFloor) + 0.1f;
+                for (float yy : { y, top }) { line(a, { b.x, a.y }, yy, DRAG); line({ b.x, a.y }, b, yy, DRAG); line(b, { a.x, b.y }, yy, DRAG); line({ a.x, b.y }, a, yy, DRAG); }
+            } else {
+                float h = build.planTool == PlanTool::Roof ? (float)build.planPeak : build.planTool == PlanTool::Fence ? (float)build.planFenceH : (float)build.planWallH;
+                auto wall = [&](glm::ivec2 a, glm::ivec2 b) {
+                    glm::vec2 A = glm::vec2(a) + glm::vec2(0.5f), B = glm::vec2(b) + glm::vec2(0.5f);
+                    line(A, B, y, DRAG); line(A, B, y + h, DRAG);
+                    post(A, h, DRAG); post(B, h, snapCol);
+                };
+                if (build.planTool == PlanTool::Room || build.planTool == PlanTool::Roof) {
+                    glm::ivec2 lo = glm::min(build.planA, build.planB), hi = glm::max(build.planA, build.planB);
+                    wall(lo, { hi.x, lo.y }); wall({ hi.x, lo.y }, hi); wall(hi, { lo.x, hi.y }); wall({ lo.x, hi.y }, lo);
+                } else wall(build.planA, build.planB);
+            }
+        }
+
+        // The grapple (game/Grapple.h): each rope out, from the body's
+        // hand to the hook (flying out while it's thrown); and where
+        // yours would catch, outlined
+        if (gState == GameState::Playing) {
+            glm::mat4 vp = glm::perspective(glm::radians(Camera::FOV_DEG), aspect, Camera::NEAR_PLANE, Camera::FAR_PLANE) * glr->getViewMatrix();
+            const glm::vec3 ROPE(0.72f, 0.58f, 0.36f), HOOK(0.62f, 0.64f, 0.70f);
+            float alpha = std::clamp(physicsTime / PHYSICS_STEP, 0.0f, 1.0f);
+            auto rope = [&](const Human& h, glm::vec3 drawnAt) {
+                const GrappleState& g = h.grapple;
+                if (!g.active()) return;
+                glm::vec3 side(-h.facing.z, 0.0f, h.facing.x);
+                glm::vec3 from = drawnAt + glm::vec3(0.0f, h.height * grapple::HAND_UP, 0.0f) + h.facing * 1.2f + side * 1.0f;
+                glm::vec3 tip = g.tip(glm::length(g.anchor - g.from) / grapple::THROW_SPEED);
+                if (g.phase == GrappleState::Phase::Throw) tip = glm::mix(tip, g.anchor, std::min(1.0f, alpha * PHYSICS_STEP * grapple::THROW_SPEED / std::max(1.0f, glm::length(g.anchor - g.from))));
+                blobs.beam(vp, from, tip, 0.35f, ROPE);
+                glm::vec3 d = glm::length(tip - from) > 1e-3f ? glm::normalize(tip - from) : glm::vec3(0, 1, 0);
+                blobs.beam(vp, tip - d * 1.4f, tip, 0.8f, HOOK);                  // the hook
+            };
+            rope(player, controller.renderPosition);
+            for (const auto& p : here->sim.players()) if (p.get() != &player && p->uuid != player.uuid) rope(*p, p->position);
+            hud.grappleMark = false;
+            if (grappleAim.ok && !player.grapple.active()) {            // framed on the HUD too (Hud::drawGrappleMark)
+                glm::vec4 c = vp * glm::vec4(grappleAim.at, 1.0f);
+                if (c.w > 0.1f) {
+                    UIRenderer* uiR = gRenderer->getUIRenderer();
+                    hud.grappleMark = true; hud.grappleMarkBody = grappleAim.on != 0;
+                    hud.grappleMarkX = (c.x / c.w * 0.5f + 0.5f) * (float)uiR->getWidth();
+                    hud.grappleMarkY = (0.5f - c.y / c.w * 0.5f) * (float)uiR->getHeight();
+                }
+            }
+            if (grappleAim.ok && !player.grapple.active()) {
+                float pulse = 0.5f + 0.5f * std::sin((float)glfwGetTime() * 6.0f);
+                glm::vec3 c = grappleAim.on ? glm::vec3(1.0f, 0.45f, 0.35f) : glm::vec3(1.0f, 0.92f, 0.55f);
+                float r = grappleAim.on ? 1.2f : 0.75f + 0.1f * pulse;
+                blobs.drawOutline(vp, grappleAim.at - glm::vec3(0.0f, r, 0.0f), glm::vec3(r * 2.0f), 45.0f, c * (0.8f + 0.2f * pulse), 0.25f);
             }
         }
 
@@ -2454,8 +2647,14 @@ int main() {
     //   join <address> <name>  join a server
     //   look <yaw> <pitch>  turn the camera
     //   third 0|1           third-person camera on or off
+    //   newsky <name> <seed>  a new Mushroom Islands world
     //   wait <frames>
     //   walk <frames>       walk the way the camera looks
+    //   lookat x y z        turn the camera to look at a point
+    //   grapple <frames>    throw the grapple where the camera looks, held that long (0: a tap)
+    //   hold <item>         that item in hand
+    //   buildtool <tool>    the hammer's Build tab tool (foundation, room, wall, paint, height, remove)
+    //   buildcam x z dist   the build camera on over x z
     //   gun 0|1             fire the portal gun's blue / orange end where the camera looks
     //   shot <file.ppm>     save the screen
     //   dbg                 print where the player is, which world, portal trips
@@ -2467,6 +2666,8 @@ int main() {
     int scriptWait = 0;
     std::string pendingShot;
     int scriptWalk = 0;                       // frames left walking (walk <frames>: the way the camera faces)
+    bool scriptGrapple = false;               // grapple <frames>: throw it, held that many frames
+    int scriptGrappleHold = 0;
     if (const char* sp = std::getenv("VOXELRPG_SCRIPT")) {
         std::ifstream sf(sp);
         for (std::string l; std::getline(sf, l);) if (!l.empty() && l[0] != '#') scriptLines.push_back(l);
@@ -2490,6 +2691,9 @@ int main() {
         } else if (w == "newworld") {              // newworld <name> <seed>: a new small island world (survival)
             std::string name; uint64_t seed = 1; ls >> name >> seed;
             enterWorld(true, name, seed, GameMode::Survival, WorldType::Classic, 32);
+        } else if (w == "newsky") {                // newsky <name> <seed>: a new Mushroom Islands world (survival)
+            std::string name; uint64_t seed = 1; ls >> name >> seed;
+            enterWorld(true, name, seed, GameMode::Survival, WorldType::Sky, worldSizeFor(WorldType::Sky, 0));
         } else if (w == "join") {                  // join <address> <name>: a server
             std::string a, n; ls >> a >> n;
             std::string why = joinServer(a, n);
@@ -2520,6 +2724,55 @@ int main() {
         } else if (w == "walk") {
             ls >> scriptWalk;
             scriptWait = scriptWalk;
+        } else if (w == "lookat") {                // lookat x y z: turn the camera to look at a point
+            glm::vec3 at; ls >> at.x >> at.y >> at.z;
+            float raise = controller.usingThirdPerson(player.rules()) ? PlayerController::THIRD_PERSON_RAISE : 0.0f;
+            glm::vec3 d = at - (player.position + glm::vec3(0.0f, player.eyeHeight + raise, 0.0f));   // (from the eyes: a camera behind turns round them)
+            if (glm::length(d) > 1e-3f)
+                camera.setLook(glm::degrees(std::atan2(d.z, d.x)), glm::degrees(std::atan2(d.y, glm::length(glm::vec2(d.x, d.z)))));
+        } else if (w == "hold") {                  // hold <item>: the item in hand (the hotbar slot it's in)
+            std::string name; ls >> name;
+            Inventory& inv = player.activeInventory();
+            int slot = inv.find(gItems.find(name));
+            if (slot >= 0) inv.select(slot);
+            std::printf("script: hold %s %s\n", name.c_str(), slot >= 0 ? "ok" : "(not carried)");
+        } else if (w == "buildtool") {             // buildtool <foundation|room|wall|pillar|frame|roof|stair|fence|paint|height|remove> [open|door|window|<roof style>|<fence style>|<stair shape>|left|right]: the hammer's Build tab tool
+            std::string t, f; ls >> t >> f;
+            build.mode = HammerMode::Plan;
+            if (f == "open") build.planFill = 0;
+            if (f == "door") { build.planFill = 1; build.planOpenW = 10; build.planOpenH = 24; build.planSill = 0; }
+            if (f == "window") { build.planFill = 2; build.planOpenW = 9; build.planOpenH = 12; build.planSill = 9; }
+            for (int i = 0; i < (int)plan::RoofStyle::COUNT; i++) if (f == plan::roofStyleName((plan::RoofStyle)i)) build.planRoofStyle = i;
+            for (int i = 0; i < (int)plan::FenceStyle::COUNT; i++) if (f == plan::fenceStyleName((plan::FenceStyle)i)) build.planFenceStyle = i;
+            for (int i = 0; i < (int)plan::StairShape::COUNT; i++) if (f == plan::stairShapeName((plan::StairShape)i)) build.planStairShape = i;
+            if (f == "left") build.planStairTurn = -1;
+            if (f == "right") build.planStairTurn = 1;
+            for (int i = 0; i < (int)PlanTool::COUNT; i++) {
+                std::string n = planToolName((PlanTool)i);
+                for (char& ch : n) ch = (char)std::tolower(ch);
+                if (n == t) build.planTool = (PlanTool)i;
+            }
+        } else if (w == "buildlevel") {            // buildlevel <n>: the storey the Build tab's tools build on
+            int n = 0; ls >> n; build.planLevel = std::clamp(n, 0, plan::MAX_LEVELS - 1);
+        } else if (w == "buildview") {             // buildview <0|1|2>: the build camera shows everything / walls up / walls down
+            int n = 0; ls >> n; build.planView = std::clamp(n, 0, 2);
+        } else if (w == "buildrails") {            // buildrails <0|1>: the plans' own railings off / on
+            int n = 1; ls >> n; build.planRails = n != 0; build.planRailsChanged = true;
+        } else if (w == "planrefresh") {           // planrefresh: every plan written out whole again (an old save)
+            if (here->plans) here->plans->refreshAll();
+        } else if (w == "buildmenu") {             // buildmenu: open the hammer's menu (as a right click would)
+            hands.wantBuildMenu = true;
+        } else if (w == "camat") {                 // camat <x> <y> <z> | camat off: the camera held there (screenshots)
+            std::string a; ls >> a;
+            if (a == "off") scriptCamOn = false;
+            else { float y = 0, z = 0; ls >> y >> z; scriptCam = glm::vec3(std::stof(a), y, z); scriptCamOn = true; }
+        } else if (w == "buildcam") {              // buildcam <x> <z> <dist>: the build camera on, over there
+            float x, z, d = 70.0f; ls >> x >> z >> d;
+            buildCam.on = true; buildCam.focus = glm::vec3(x, player.position.y, z); buildCam.dist = d;
+        } else if (w == "grapple") {               // grapple <frames>: throw it where the camera looks, held that long
+            scriptGrapple = true;
+            scriptGrappleHold = 0;
+            ls >> scriptGrappleHold;
         } else if (w == "shot") {
             ls >> pendingShot;
         } else if (w == "pad") {                   // pad <buttons…>: what the pretend controller holds (VOXELRPG_FAKE_PAD)
@@ -2529,6 +2782,8 @@ int main() {
             std::string rest; std::getline(ls, rest);
             runCommand(rest.substr(rest.find_first_not_of(' ') == std::string::npos ? 0 : rest.find_first_not_of(' ')));
         } else if (w == "dbg") {
+            std::printf("dbg: at %.1f %.1f %.1f  grapple phase %d anchor %.1f %.1f %.1f  aim %d (%.1f %.1f %.1f) reach %.0f\n", player.position.x, player.position.y, player.position.z,
+                        (int)player.grapple.phase, player.grapple.anchor.x, player.grapple.anchor.y, player.grapple.anchor.z, (int)grappleAim.ok, grappleAim.at.x, grappleAim.at.y, grappleAim.at.z, player.grappleReach);
             std::printf("dbg: draws %d (portal views %d)  vertices %d, skipped facing away %d, hidden sections %d\n", lastFrameDraws, portalSectionDrawsShown,
                         lastFrameVerts, lastFrameSkipped, lastFrameHidden);
             if (streamer && here->world) {
@@ -2550,8 +2805,8 @@ int main() {
                         here->name().c_str(), camera.position.x, camera.position.y, camera.position.z, camera.yaw, camera.pitch,
                         player.position.x, player.position.y, player.position.z,
                         controller.renderPosition.x, controller.renderPosition.y, controller.renderPosition.z, (int)gState, (int)player.mode);
-            std::printf("dbg: combat %d  gate in reach %d  gate menu %d  aim '%s'\n", (int)player.combatStance,
-                        (int)portals.gateInReach(*here, player, camera.front), (int)portals.menuOpen, hands.aimLabel.c_str());
+            std::printf("dbg: combat %d  gate in reach %d  gate menu %d  aim '%s'  grapple '%s'\n", (int)player.combatStance,
+                        (int)portals.gateInReach(*here, player, camera.front), (int)portals.menuOpen, hands.aimLabel.c_str(), hud.grappleLabel.c_str());
         } else if (w == "quit") {
             glfwSetWindowShouldClose(window, true);
         } else if (!w.empty() && w[0] == '/') {
@@ -2774,7 +3029,7 @@ int main() {
 
             // Test Play building keys
             if (player.mode == GameMode::Dev) {
-                if (gInput.isPressed(InputAction::Undo)) dev.undo();
+                if (gInput.isPressed(InputAction::Undo) && !(hands.hammerActive && build.mode == HammerMode::Plan)) dev.undo();   // (the Build tab has its own)
                 if (gInput.isPressed(InputAction::Redo)) dev.redo();
                 if (gInput.isPressed(InputAction::BrushBigger))
                     dev.setBrush(dev.brushRadius + 1.0f);
@@ -2789,6 +3044,7 @@ int main() {
                 sound::gMaterials.bind();
                 gItems.load(gRegistry, "data/registry/items.toml");
                 gMovesets.load("data/registry/movesets.toml");
+                gSpells.load();
                 gHeldModels.loadDir("data/models/held");
                 gHeldModels.bump();
                 gFactions.load("data/registry/factions.toml");
@@ -2931,6 +3187,7 @@ int main() {
             {
                 float farVox = gSettings.renderAll() ? 0.0f : gSettings.renderDistance * VOXEL_DIM;
                 if (farView) farView->setMaxDistance(farVox);
+                if (skyFar) skyFar->setMaxDistance(farVox);
                 // a short render distance thickens the fog so
                 // the land fades out instead of ending in a line
                 OpenGLRenderer::fogDensity = farVox > 0.0f
@@ -2938,6 +3195,7 @@ int main() {
                     : OpenGLRenderer::FOG_DENSITY;
             }
             if (farView) farView->update(camera.position);
+            if (skyFar) { skyFar->setMode(gSettings.skyFarView); skyFar->setSmooth(gSettings.skyFarShape == 1); skyFar->update(camera.position); }
 
             // Big edits are spread over frames: a few
             // milliseconds of them per frame
@@ -3152,9 +3410,150 @@ int main() {
                 //    mode and stance (see PlayerController).
                 controller.slotKeysBlocked =
                     PlayerInteraction::blocksToolbarKeys(dev) || talkingTo != 0 || portals.menuOpen;   // (talking: the hotbar stays put)
+                controller.wheelBlocked = buildCam.on;
                 controller.readInput(player, camera, dt);
+                // the build camera: on / off (B, the hammer in the Build tab);
+                // while on, the keys move it and the body stands still
+                {
+                    const bool planHammer = hands.hammerActive && build.mode == HammerMode::Plan && !remote;
+                    if (planHammer && gInput.isPressed(InputAction::BuildCamera)) {
+                        buildCam.on = !buildCam.on;
+                        if (buildCam.on) { buildCam.focus = player.position; camera.setLook(camera.yaw, -50.0f); }
+                        say(buildCam.on ? "build camera: WASD moves, the wheel zooms, B back" : "build camera off");
+                    }
+                    if (!planHammer || !rules.hasBody) buildCam.on = false;
+                    if (buildCam.on) {
+                        float yaw = glm::radians(camera.yaw);
+                        glm::vec3 fwd(std::cos(yaw), 0.0f, std::sin(yaw)), right(-fwd.z, 0.0f, fwd.x);
+                        glm::vec3 mv(0.0f);
+                        if (gInput.isHeld(InputAction::MoveForward)) mv += fwd;
+                        if (gInput.isHeld(InputAction::MoveBackward)) mv -= fwd;
+                        if (gInput.isHeld(InputAction::StrafeRight)) mv += right;
+                        if (gInput.isHeld(InputAction::StrafeLeft)) mv -= right;
+                        if (glm::length(mv) > 0.0f) buildCam.focus += glm::normalize(mv) * (buildCam.dist * 0.9f + 20.0f) * dt;
+                        float wheel = gInput.getScrollDelta();
+                        buildCam.dist = std::clamp(buildCam.dist * (1.0f - 0.12f * wheel), 20.0f, 260.0f);
+                        if (here->world) {
+                            int gy = terrain::groundLevel(*here->world, (int)std::floor(buildCam.focus.x), (int)std::floor(buildCam.focus.z),
+                                                          (int)buildCam.focus.y + 60, 160);
+                            if (gy > 0) buildCam.focus.y += ((float)gy - buildCam.focus.y) * std::min(1.0f, dt * 6.0f);
+                        }
+                        bool fly = controller.intent.fly;
+                        controller.intent = HumanIntent();
+                        controller.intent.fly = fly;
+                        if (gInput.isPressed(InputAction::BuildView)) {
+                            build.planView = (build.planView + 1) % 3;
+                            static const char* VW[] = { "build camera: everything", "build camera: walls up (the levels over hidden)", "build camera: walls down" };
+                            say(VW[build.planView]);
+                        }
+                    }
+                    // the cutaway: each building near the camera cut off over the
+                    // level you build on (walls down: just over its floor), so
+                    // you see into it. The chunks are meshed with those boxes as air
+                    std::vector<MeshCut> cuts;
+                    std::unordered_map<uint32_t, int> roofCut;
+                    if (buildCam.on && build.planView > 0 && here->plans) {
+                        const int lv = build.planLevel;
+                        for (const plan::Plan& p : here->plans->all()) {
+                            glm::ivec2 lo, hi;
+                            p.bounds(lo, hi, 2);
+                            glm::vec2 c = glm::vec2(p.origin.x + (lo.x + hi.x) * 0.5f, p.origin.z + (lo.y + hi.y) * 0.5f);
+                            if (glm::distance(c, glm::vec2(buildCam.focus.x, buildCam.focus.z)) > 300.0f) continue;
+                            // (walls up: 2 under their tops, where a roof's slab sits on them)
+                            const int cutY = p.levelY(lv) + (build.planView == 2 ? 3 : p.levelHeight(lv) - 2);
+                            const int top = std::max(p.topY(), p.levelY(p.levelCount())) + 12;
+                            if (cutY > top) continue;
+                            MeshCut m;
+                            m.lo = glm::ivec3(p.origin.x + lo.x, cutY, p.origin.z + lo.y);
+                            m.hi = glm::ivec3(p.origin.x + hi.x, top, p.origin.z + hi.y);
+                            cuts.push_back(m);
+                            roofCut[p.id] = cutY;
+                            // walls up: the eaves of its roofs hang down past the walls' tops (outside them)
+                            if (build.planView == 1)
+                                for (const plan::Roof& rf : p.roofs) {
+                                    if (rf.level != lv) continue;
+                                    const glm::ivec2 rl = rf.lo(), rh = rf.hi();
+                                    // (down to the lowest of the eaves' slab, at its corners)
+                                    const std::vector<glm::vec3> F = rf.facets();
+                                    float tmin = 0.0f;
+                                    for (glm::ivec2 c : { rl, rh, glm::ivec2(rl.x, rh.y), glm::ivec2(rh.x, rl.y) }) {
+                                        glm::vec2 q = glm::vec2(c) + glm::vec2(c.x <= rl.x ? -rf.overhang : rf.overhang, c.y <= rl.y ? -rf.overhang : rf.overhang);
+                                        tmin = std::min(tmin, plan::Roof::at(F, q));
+                                    }
+                                    const int ov = rf.overhang + 1, y1 = cutY - 1;
+                                    const int y0 = p.levelY(lv) + p.roofBase(rf) + (int)std::floor(tmin) - rf.thick - 1;
+                                    const glm::ivec3 o(p.origin.x, 0, p.origin.z);
+                                    auto strip = [&](int x0, int z0, int x1, int z1) {
+                                        if (x0 > x1 || z0 > z1) return;
+                                        MeshCut sc; sc.lo = o + glm::ivec3(x0, y0, z0); sc.hi = o + glm::ivec3(x1, y1, z1);
+                                        cuts.push_back(sc);
+                                    };
+                                    strip(rl.x - ov, rl.y - ov, rl.x - 1, rh.y + ov);
+                                    strip(rh.x + 1, rl.y - ov, rh.x + ov, rh.y + ov);
+                                    strip(rl.x, rl.y - ov, rh.x, rl.y - 1);
+                                    strip(rl.x, rh.y + 1, rh.x, rh.y + ov);
+                                }
+                        }
+                    }
+                    if (streamer) streamer->setCuts(cuts);
+                    build.planCutActive = buildCam.on && build.planView > 0;
+                    roofs.cuts = roofCut;
+                }
                 // talking: standing still, hands down (keys and mouse too)
                 if (talkingTo || portals.menuOpen || fadePhase != 0) { bool fly = controller.intent.fly; controller.intent = HumanIntent(); controller.intent.fly = fly; }
+                // the grapple (game/Grapple.h): equipped like a spellbook (an
+                // ability slot, a quick option, the off hand: CombatKit);
+                // while one's ready, the aim assist marks what it would
+                // catch near where you look, and its button throws it
+                // there. The simulation checks the throw (Simulation::grappleOk)
+                if (scriptGrapple) { controller.grappleWanted = true; scriptGrapple = false; }
+                if (scriptGrappleHold > 0) { controller.intent.grappleHeld = true; scriptGrappleHold--; }
+                player.refreshGrapple();
+                {
+                    grapple::Target was = grappleAim;
+                    grappleAim = grapple::Target();
+                    grappleButton.clear();
+                    bool ready = controller.grappleWanted || controller.intent.grappleHeld;
+                    if (!player.combatStance && player.activeInventory().heldDef().grappleRange > 0.0f) {
+                        ready = true; grappleButton = "{use_left}";        // held from the hotbar, out of combat
+                    } else if (player.mode == GameMode::Survival) {
+                        int b = -1;
+                        if (player.kit.grappleReady(player.combatStance, &b)) {
+                            ready = true;
+                            static const char* XYB[3] = { "{use_slot_x}", "{use_slot_y}", "{use_slot_b}" };
+                            std::string quick = "{toolbar_slot_" + std::to_string(b - 3) + "}";   // (the pad's shows the Start combo itself)
+                            grappleButton = b < 3 ? XYB[b] : b == 3 ? "{block}" : gInput.padLastUsed() ? quick : "{quick_layer}+" + quick;
+                        }
+                    }
+                    if (here->world.get() != grapplePointsIn) { grapplePoints.clear(); grapplePointsIn = here->world.get(); }
+                    if (ready && player.rules().hasBody && player.grappleReach > 0.0f && here->world && !player.dead()) {
+                        std::vector<grapple::Candidate> bodies;
+                        for (auto& n : here->sim.npcs().all()) {
+                            if (n->dead() || n->uuid == player.uuid || !here->sim.hostile(*n, player)) continue;
+                            if (glm::length(n->position - player.position) > player.grappleReach + 30.0f) continue;
+                            grapple::Candidate c;
+                            c.id = n->uuid; c.point = grappleAnchor(*n);
+                            c.radius = std::max(n->hitRadius, 2.0f);
+                            c.swingable = n->type && n->type->grapplePoint;
+                            bodies.push_back(c);
+                        }
+                        glm::vec3 hand = grapple::hand(player);
+                        grapplePoints.update(*here->world, hand, player.grappleReach, frameDt);
+                        grapple::Aim a;
+                        a.eye = camera.position; a.dir = glm::normalize(camera.front);
+                        a.hand = hand; a.reach = player.grappleReach; a.prev = &was;
+                        grappleAim = grapple::aim(*here->world, a, grapplePoints.points, bodies);
+                    }
+                }
+                if (controller.grappleWanted) {
+                    controller.grappleWanted = false;
+                    if (grappleAim.ok && !talkingTo && fadePhase == 0) {
+                        controller.intent.grapple = true;
+                        controller.intent.grappleAt = grappleAim.at;
+                        controller.intent.grappleOn = grappleAim.on;
+                        controller.intent.grappleSwing = grappleAim.swingable;
+                    }
+                }
                 if (scriptWalk > 0) {                  // a test script walking (VOXELRPG_SCRIPT walk)
                     scriptWalk--;
                     glm::vec2 f(camera.front.x, camera.front.z);
@@ -3183,6 +3582,7 @@ int main() {
                         }
                 // the world's village sites, built when a player first comes near
                 if (!remote) here->tickVillages({ player.position }, [&](const std::string& s) { say("a village: " + s); });
+                if (!remote) here->tickSky({ player.position }, [&](const std::string& s) { say(s); });
                 if (!remote)
                     for (const auto& fx : here->tickDungeon({ &player }, dt)) {      // a Dungeon world's markers coming alive
                         if (!fx.particle.empty()) gParticles.burst(fx.particle, fx.at, glm::vec3(0, 1, 0), 1.0f, fx.size, fx.size);
@@ -3313,6 +3713,26 @@ int main() {
                 for (const SimEvent& e : happened) {
                     gOutlineFx.onEvent(e);       // flashing outlines (hurt, blocked …)
                     gParticles.onEvent(e, here->sim);  // sparks, puffs, splats at the contact
+                    // spells (sim/SpellSystem.h): their particles by stage (spells.toml look)
+                    if (e.kind == SimEvent::Kind::Spell)
+                        if (const spell::Def* sd = gSpells.at(e.spell)) {
+                            switch (e.stage) {
+                            case SpellSystem::Cast:   gParticles.burst(sd->look.cast, e.at, e.dir); break;
+                            case SpellSystem::Hit:    gParticles.burst(sd->look.hit, e.at, e.dir, 1.0f, 1.2f); break;
+                            case SpellSystem::Expire: gParticles.burst(sd->look.hit, e.at, e.dir, 0.6f, 0.8f); break;
+                            case SpellSystem::Light:  gParticles.burst(sd->look.tick, e.at, glm::vec3(0, 1, 0), 2.0f, 2.0f, 1.5f); break;
+                            case SpellSystem::AuraOn: case SpellSystem::AuraOff: gParticles.burst(sd->look.cast, e.at + glm::vec3(0, 8, 0), glm::vec3(0, 1, 0), 1.0f, 1.5f); break;
+                            default: {
+                                // a pulse: puffs round its circle (an area, an aura)
+                                float r = std::max(2.0f, sd->radius);
+                                int k = std::clamp((int)(r / 2.5f), 2, 10);
+                                for (int i = 0; i < k; i++) {
+                                    float a = 6.2831853f * (i + 0.5f * (float)(e.a % 7)) / k;
+                                    gParticles.burst(sd->look.tick, e.at + glm::vec3(std::cos(a) * r * 0.7f, 0.5f, std::sin(a) * r * 0.7f), glm::vec3(0, 1, 0));
+                                }
+                            }
+                            }
+                        }
                     // the camera: your hits and hits on you shake it, by how big
                     if (e.kind == SimEvent::Kind::Hit && (e.a == player.uuid || e.b == player.uuid)) {
                         float k = e.parried ? 0.35f : e.blocked ? 0.15f
@@ -3465,6 +3885,11 @@ int main() {
                 controller.updateCamera(player, camera,
                     physicsTime / PHYSICS_STEP, dt,
                     here->physics.get());
+                if (buildCam.on) {
+                    camera.setLook(camera.yaw, std::clamp(camera.pitch, -88.0f, -15.0f));
+                    camera.position = buildCam.focus + glm::vec3(0.0f, 2.0f, 0.0f) - camera.front * buildCam.dist;
+                }
+                if (scriptCamOn) camera.position = scriptCam;       // script "camat": a look from anywhere
 
                 // A new dev world's showcase chests, once you stand on
                 // its ground (the chunks have to be there first)
@@ -3532,6 +3957,11 @@ int main() {
                     else if (fadePhase == 0 && portals.interact(*here, player, camera.front)) {
                         talkSel = 0;
                         talkPadPrev = gInput.padNow();
+                        // a portal is a spawn point too (Eddie, 2026-11-22)
+                        if (!player.spawnChosen || glm::distance(player.spawnPoint, player.position) > 16.0f) {
+                            player.chooseSpawn(player.position);
+                            say("You'll come back by this portal.");
+                        }
                     }
                     else if (remote) {}
                     else if (Npc* body = (hands.target.hit && here->structs->instanceAt(hands.target.blockPos)) ? nullptr : bodyInView()) {
@@ -3650,6 +4080,7 @@ int main() {
                 if (rules.worldInteraction || (rules.hasBody && player.mode != GameMode::Spectator)) {
                     hands.aim(camera, eyes, *here->physics,
                               player.mode == GameMode::Dev);
+                    hands.plans = remote ? nullptr : here->plans.get();
                     if (rules.worldInteraction) hands.update(player, *here->editor, dev, *here->structs, build, dt);
                     else hands.interactOnly(player, *here->editor, *here->structs);
                     // the portal gun (game/PortalGun.h): ends on walls or standing on the ground
@@ -3669,6 +4100,9 @@ int main() {
                         if (Npc* body = bodyInView()) hands.aimLabel = body->name + (body->pack.mayHoldItems() ? "   {interact}: search" : "   searched - empty");
                     if (hands.aimLabel.empty() && !talkingTo && !portals.menuOpen && portals.gateInReach(*here, player, camera.front))
                         hands.aimLabel = "Portal   {interact}: use";
+                    // the grapple's prompt goes under its frame on the target (Hud::drawGrappleMark)
+                    hud.grappleLabel = grappleButton.empty() || talkingTo || !grappleAim.ok || player.grapple.active() ? std::string()
+                                     : grappleAim.on ? grappleButton + ": grapple (lunge)" : grappleButton + ": grapple   hold: swing";
 
                     // E on a chest → the inventory, the chest beside it (on a
                     // server: asked for, opened when its items come)
@@ -3694,6 +4128,21 @@ int main() {
                         }
                     }
 
+                    // E on a bonfire or a bed: rest there. Healed, and it's
+                    // where you come back after dying (saved with you)
+                    if (hands.restAt) {
+                        uint32_t rid = hands.restAt;
+                        hands.restAt = 0;
+                        const StructureInstance* rs = nullptr;
+                        here->structs->forEachInstance([&](const StructureInstance& si) { if (si.id == rid) rs = &si; });
+                        if (rs && !player.dead()) {
+                            player.health = player.maxHealth;
+                            player.stamina = player.maxStamina;
+                            player.chooseSpawn(player.position);
+                            const StructureType* rt = gStructures.get(rs->type);
+                            say(std::string("You rest by the ") + (rt ? rt->displayName : std::string("fire")) + ". You'll come back here.");
+                        }
+                    }
                     // E on a station → its menu
                     if (hands.openStation) {
                         uint32_t sid = hands.openStation;

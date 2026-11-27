@@ -33,6 +33,200 @@ mark yours there.
   shaders/terrainlight.glsl); render scale Auto's steering; hidden
   chunk culling's one-frame pop-in coming round a hill.
 
+## Build mode: Sims-style building (Eddie, 2026-11-25)
+A new tab of the Builder's Hammer ("Build"); every current feature
+(pieces, palettes, blueprints, copy) stays as it is. Buildings are kept
+as plans (game/BuildPlan.h, world/PlanManager.h): what they're made of,
+the voxels made from it, hand edits kept on top, so any part changes
+without rebuilding the rest.
+
+**Decided (Eddie, 2026-11-25)**
+- Paint objects with the palette: walls have an outside and an inside
+  colour (two insides for an inside wall), each side its own.
+- A 3 ft grid (9 voxels) for now; may change for some dynamic shapes.
+- Walls 3 voxels thick by default (a setting per wall).
+- Walls straight, at 45° and at 22.5° (the 2-to-1 on the voxel grid).
+- Pillars that overwrite walls (and fill the joins of angled walls).
+- Walls snap to parts: wall ends and middles, pillars, foundation edges
+  and corners, other buildings, old build pieces.
+- Round and curved building: arcs, circles (round rooms and towers),
+  round pillars, later cone and dome roofs.
+- Wall height and foundation height change without tearing the
+  building down; what was done by hand stays.
+- Window and door frames of any size anywhere along a wall, then a door
+  or window in the frame, or left open.
+- Roofs with adjustable peaks like Sims 4.
+- A top-down build camera.
+- Survival: building costs nothing for now.
+
+**Steps**
+1. Plan data, the Build tab, the build camera. (built 2026-11-25)
+2. Foundations. (built 2026-11-25: rectangles; round and angled later)
+3. Walls and rooms on the grid, inside / outside paint. (built
+   2026-11-25: straight, 45° and 2-to-1 walls, rooms, paint, heights)
+4. Pillars, snapping to parts. (built 2026-11-25)
+5. Curves and circles (arcs with a bend handle, round rooms).
+6. Smooth surfaces for angled and curved walls (like the roofs).
+7. Frames and openings; doors and windows sized to them. (built
+   2026-11-25; doors on straight walls only; arched frames still to come)
+8. Roofs with adjustable peaks; round towers' roofs. (built 2026-11-25:
+   gable, hip, shed, flat over rectangles; cone roofs with step 5)
+9. Floors and stairs (levels stacked). (built 2026-11-25: levels with
+   their own wall height, decks, straight / L / U / spiral stairs,
+   fences, automatic railings round stairwells and open deck edges)
+Also: plans on a server (walls-down in the build camera: built 2026-11-25)
+(clients send edits), villages built as plans (editable houses).
+
+## Mushroom Islands: the sky expanse as a journey (Eddie, 2026-11-22)
+Planned with Claude on 2026-11-22; this is the plan for "A new world
+type: the sky expanse" further down (its building notes still hold;
+where they differ, this wins: falling off is death, see below). Built
+area by area; each step leaves something playable.
+
+**The end goal.** You arrive by portal (or spawn beside it) on a small
+starting island and can see every other floating island in the
+distance, the nearest drawing you on. You jump across stepping-stone
+islands to the first big island: a bowl ringed with high mountains,
+one obvious way in, a bonfire, big glowing mushrooms round a
+shimmering lake, a road round the inner rim, ruins: somewhere people
+have been. The Mushnubs teach combat. You find a grapple: it pulls
+you to tagged grapple-point blocks (in the mushroom trees' branches,
+along the rim road) and lunges you at enemies. A flying enemy carries
+a grapple point you can swing from. The Mushroom King blocks the way
+on; beating him opens the abandoned mine, a tunnel through the
+mountains to the next area. Next, a small village island (a portal
+instead of a bonfire, a small lake, a few roads): its people are the
+only sane ones; everyone else worships a mad wizard. Named NPCs
+(unique to that copy of the world), quests, better gear. Then medium
+islands to clear, where the Mushroom King is now a common enemy. Then
+the giant mushroom: a vast open island crossed on a mount, a city
+round the mushroom's base, a holy site to the wizard. Last, the
+islands climb until they're level with the mushroom's top, where the
+world boss waits: a sorcerer commanding the flying grapple enemies.
+
+**Decided (Eddie, 2026-11-22)**
+- The other worlds stay as they are for now. Improvements that are
+  for every world (NPCs, weapons, shaders and such) still reach them;
+  what's built for the sky world (its generator, the coarse far view,
+  its sky) stays in the sky world unless Eddie says otherwise. It's an
+  extra area reached through a portal, and may become the starting
+  area later: keep it able to be the world a new game begins in.
+- Falling off (and any death): you die and return to your spawn
+  point; your equipment stays with you. Spawn points: beds, portals,
+  bonfires.
+- The bowl's miniboss is the Mushroom King, and he blocks the path
+  forward: the mine opens when he's beaten.
+- The bowl: about 1,000-1,500 voxels across its inner rim, the ring
+  along the foot of the mountains before they turn steep.
+- The layout is designed, the details come from the seed (Claude's
+  proposal): a layout file fixes which islands there are, their order,
+  roles and rough places and heights; the seed shapes each one and
+  places trees, ruins and enemies. Every copy plays the same journey
+  and looks different.
+- Height: the world is 1024 voxels tall today; if it stays that way,
+  roughly the start and first islands near 400, the giant mushroom's
+  top and the summit at 850-950 (see the height cap below).
+
+**Phases**
+1. **The bowl island** (the first part to build; steps below).
+   **Then: spell groundwork** (built 2026-11-25, CHANGELOG; left: mana,
+   staves, enchantments, the skill tree, spell sounds) (Eddie, 2026-11-22; between phase 1 and
+   2): `spells.toml` and one working example of every delivery (self,
+   touch, cone, projectile, beam, area, wall, rune or trap, summon) and
+   every use (tap, cast, charge, channel, toggle), each with its hit
+   shape and its cast animation (the pose names in "Spells" below), so
+   new spells are data from then on. From here on, each area is built
+   with spell progression in mind: what it teaches, drops or unlocks.
+2. **The grapple** (built 2026-11-25, CHANGELOG): pull to grapple points,
+   swing, lunge at enemies; grapple-point blocks. Left: others' ropes over
+   the network, points along the rim road.
+3. **Flyers** (built 2026-11-25: the Hywirl): a flying enemy with a
+   grapple point to swing from (the monster kit's flying set); flying AI,
+   grappling a moving target. Left: it doesn't feel your weight.
+4. **The village island**: portal, named NPCs (unique per world
+   copy), the wizard lore, gear; quests (new: no quest system yet).
+5. **Medium islands**: camps to clear, the Mushroom King common.
+6. **The giant mushroom**: the open island, a mount (new), the city
+   at its base, the holy site.
+7. **The ascent and the summit**: the sorcerer boss and his flyers.
+
+**How the land is made (agreed 2026-11-22)**
+- Islands are built from parts, each a 3D shape added or cut with its
+  own bounds, so a chunk only looks at the parts reaching it: a body
+  (big islands: a top and an underside from height maps, so the bake's
+  erosion and lake filling still work and the bowl's lake comes from
+  them), arches, floating rings, spires, overhangs (3D shapes with
+  noise), caves and the mine (cut out), the giant mushroom (stem and
+  cap stamped in). Small islands are a brush: a shape, noise and a
+  material recipe; the same brush goes in the world editor, to sculpt
+  islands by hand. The look to aim for: Eddie's reference picture of
+  giant glowing mushrooms, a rock arch, spires and a glowing lake.
+- The height cap: measure the world at 16 sections (2048 voxels)
+  before deciding. Empty sections are nearly free in memory; the light
+  bake, meshing and saves go section by section, so time is the cost.
+- The far view: the whole sky world can be seen from far away as long
+  as nothing is in the way. Not prebaked pictures from many angles
+  (too much memory, a rebake for every edit, flat). Instead a coarse
+  voxel copy of the world, 1 cell per 4 / 8 / 16 / 32 voxels by
+  distance, drawn as meshes. It grows `WorldMemory` (lowres.dat, now
+  a top surface per column) into 3D cells. Each cell keeps its average
+  colour (paint shows from afar), its glow (glowing caps are drawn
+  glowing, whatever the time of day) and its light (sky and nearby
+  glow, so a grove lights the ground round it at night). Places never
+  visited: the generator samples its parts at coarse points, and a
+  small light bake on the coarse grid spreads the glow. Visited or
+  edited: the chunk's voxels and its light bake are shrunk into the
+  cells when it's baked, and saved with the world. `DistantLights`
+  keeps drawing glow points on top. Built so it works for any world
+  (Eddie, 2026-11-22: "a good improvement for both"): once it works in
+  the sky world, try it on the main island as a setting (Far view:
+  height map / voxel / auto), the height map kept as the cheaper option.
+  For worlds that don't float (Eddie, 2026-11-22): use whichever looks
+  better, or the cheaper one on low-end hardware; "auto" picks by the
+  graphics preset or the machine (the sky world always needs the voxel
+  view; its low setting draws island tops only). There
+  the copy keeps only the cells on the surface (cells touching air),
+  since the ground is solid all the way down. What it brings there: real
+  shapes from afar (buildings, cliffs, overhangs, trees as blobs),
+  edits seen from across the island, and lighting: pools of light round
+  villages at night, distant shadows that see through arches and under
+  overhangs.
+- Shaders: everything that draws real blocks (water, glass, roofs,
+  plants, grass) works as it is. The coarse view uses the same light,
+  sky tint, fog and toon rules, so near and far match, and gives water
+  cells a simple sheen. What's built on a height map (terrain shadows,
+  the planned wind and snow maps) is wrong under arches and for an
+  island below another; the fix later is sun shadows (and per-island
+  wind and snow) from the coarse copy. Every new effect, the coarse
+  view too, gets a setting back to the plain look; its low setting
+  draws only the islands' tops.
+
+**Phase 1 steps** (all built 2026-11-25, CHANGELOG; left over: rest/spawn on servers, a portal from the main world)
+0. Measure the world at 16 sections and decide the height cap.
+1. World type "Mushroom Islands" on the New World menu and as a
+   portal's world: the layout file (`mushroom_islands.toml`) and the
+   parts generator (brush islands, the body shape for big ones, a void
+   below; arches and rings right after). You spawn by the portal on
+   the start island.
+2. Seeing them from afar: the coarse voxel far view above (colour,
+   glow, light; kept up to date by edits; saved). The biggest new
+   system in the phase, and it's needed first: the whole world pulls
+   you on by being in sight.
+   Built; skinned smooth with surface nets since 2026-11-27 (Settings >
+   Sky far shape). Left: closing the thin cracks where two levels of
+   detail meet (skirts, or the finer side's border snapped to the
+   coarser's).
+3. Stepping stones: gaps sized from the player's real jump and ledge
+   grab, so every one can be crossed and the next island is in view.
+4. The bowl: the mountain ring, the entrance notch, the lake, the
+   road round the inner rim, ruins.
+5. Glowing mushroom trees (emissive blocks; light at night), with
+   grapple-point blocks in their branches, ready for phase 2.
+6. Bonfire (rest: heal, set your spawn; beds and portals set spawn
+   too), roaming Mushnubs, the Mushroom King at the way on.
+7. The abandoned mine: sealed until the King is beaten, then the
+   tunnel through the mountains toward the village.
+
 ## Eddie's list (2026-11-21): the look of the land, villages, the sky expanse
 Talked through at the end of the 2026-11-21 session; not started.
 Every visual piece gets a setting back to the plain look. Build order
@@ -175,6 +369,44 @@ doesn't scale to many spells. Plan:
   balance the tree against. Keep the slot / equip code independent
   of the book item so the switch is small: a slot holds a spell id,
   whether it came from a book or from memory.
+
+**Spell types, use, animations and tags (Eddie, 2026-11-22)**
+Added to the plan above; same data file, `spells.toml`.
+- Each spell also says:
+  - `school`: fire, frost, shock, arcane, wind, nature (the fungal
+    magic of the sky world goes here);
+  - `use`, how the button works: tap (instant), cast (a wind-up,
+    then it goes), charge (hold to power up, release), channel (hold;
+    it drains while held), toggle (an aura on until turned off);
+  - `when`, where it can be used: ground, air, sprinting, grappling
+    (during a grapple pull; see below), rolling;
+  - `hands`: one (the other hand keeps its weapon or shield) or two;
+  - `anim`, a cast pose by name, not a clip: push (one hand forward),
+    overhead, slam (to the ground), self (to the chest), throw,
+    channel (a loop), sweep. `anim_map.toml [casts]` maps each name
+    to a clip, so new clips never touch the spells; the Mushroom
+    King's Wave / Yes / No clips map to his casts the same way;
+  - `tags`: free words for everything else to find spells by
+    (fire, projectile, aerial, grapple, melee_rider, npc, healing…).
+    Skill-tree nodes, items and enemy resistances refer to tags
+    ("+20% to fire", "projectiles pierce once"), never to spell ids.
+- Where a spell comes from doesn't matter to the rest: a combat slot
+  holds a spell id. Sources: a spellbook (teaches it or is held, as
+  now), a skill-tree unlock (later; it adds the id to the spells the
+  player knows), a staff, an enchanted weapon. Switching books for a
+  skill tree then only changes how ids are learned.
+- Staves: a staff names its spells and how it changes them (power,
+  cost, range); while it's held, its spells fill the combat slots,
+  cast with the staff's own moveset.
+- Enchanted weapons: an enchantment names a spell and when it fires:
+  on hit, on a heavy, on a kill, on a block, with a chance and a
+  cooldown. It's the spells' trigger system ("a trigger can start
+  another spell") hung on a weapon, so any spell can ride a sword.
+- The grapple (sky world phase 2) and spells: a light attack during a
+  grapple pull becomes a lunge strike on arrival (the pull's speed
+  adds to its damage and poise); spells whose `when` includes
+  grappling can be cast mid-pull (a shockwave as you land, a frost
+  burst on the enemy you're pulled to).
 
 ## Vehicles (Eddie, 2026-11-21; later down the line)
 - Horse-drawn carriages and cars, with physics. Tyre grip by the

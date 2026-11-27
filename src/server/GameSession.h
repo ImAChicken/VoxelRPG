@@ -10,6 +10,7 @@
 #include "../dungeon/Run.h"
 #include "../world/Woodcutting.h"
 #include "../world/WorldEditor.h"
+#include "../world/PlanManager.h"
 #include "../world/WorldSaveManager.h"
 #include "../world/TerrainOps.h"
 #include "../game/Village.h"
@@ -73,6 +74,7 @@ public:
     std::unique_ptr<IPhysics>         physics;
     std::unique_ptr<WorldEditor>      editor;
     std::unique_ptr<StructureManager> structs;
+    std::unique_ptr<PlanManager>      plans;      // buildings kept as plans (the hammer's Build tab; plans.dat)
     ChestStore                        chests;
     PortalLinks                       portals;     // this world's portals (world/PortalLinks.h)
     std::unique_ptr<Woodcutting>      wood;
@@ -119,6 +121,9 @@ public:
         structs = std::make_unique<StructureManager>(*world, *editor, *gen);
         structs->log = log;
         structs->load(path);
+        plans = std::make_unique<PlanManager>(*world, *editor, structs.get());
+        plans->load(path + "/plans.dat");
+        editor->onEdit = [this](glm::ivec3 p, uint16_t id, const std::string& label) { if (plans) plans->noteEdit(p, id, label); };
         chests.worldSeed = (uint32_t)info.getSeed();
         chests.load(path);
         wood = std::make_unique<Woodcutting>();
@@ -140,6 +145,11 @@ public:
         // bodies collide with fallen logs; raycasts hit them
         physics->setLooseSolids([this](int x, int y, int z) { return wood && wood->solidAt(x, y, z); });
         sim.attachWorld(physics.get(), wood.get());
+        // the sky world: below its void you die (worldgen/SkyGenerator.h)
+        if (auto* sky = dynamic_cast<const SkyGenerator*>(gen.get())) {
+            if (auto* vp = dynamic_cast<VoxelPhysics*>(physics.get())) vp->setKillY(sky->voidY());
+            sim.setVoidKills(true);
+        }
         // portals: bodies cross them, and walk into the wall behind one
         sim.portals = &portals;
         if (auto* vp = dynamic_cast<VoxelPhysics*>(physics.get())) vp->setPassable([this](int x, int y, int z) { return portals.passable(x, y, z); });
@@ -157,6 +167,7 @@ public:
         sim.roaming.resetTimers();
         sim.roaming.worldSpawn = glm::vec3(gen->spawnPoint(world->sizeX(), world->sizeZ()));
         sim.roaming.hasWorldSpawn = true;
+        sim.roaming.worldKey = worldTypeKey(info.getWorldType());
         sim.roaming.biomeAt = [this](int x, int z) {
             int e = gen ? (int)gen->column(x, z).eco : -1;
             return e == 255 ? -1 : e;
@@ -189,6 +200,17 @@ public:
             while (vf >> x >> z)
                 for (size_t i = 0; i < sites.size(); i++)
                     if (sites[i].at == glm::ivec2(x, z)) sitesBuilt[i] = true;
+        }
+        // the sky world's bowl: what's been done there (sky.dat)
+        sky = SkyState();
+        {
+            std::ifstream sf(path + "/sky.dat");
+            std::string k;
+            while (sf >> k) {
+                if (k == "bonfire") sky.bonfire = true;
+                else if (k == "king") { sf >> sky.kingId; sky.kingSpawned = true; }
+                else if (k == "king_down") sky.kingDown = true;
+            }
         }
         // a Dungeon world: its markers come alive as players get to them
         dungeonRun.reset();
@@ -283,7 +305,7 @@ public:
         const VoxelVolume& v = t.shape(0, 0);
         for (int up = 0; up <= 2; up++) {
             glm::ivec3 o = at + glm::ivec3(0, up, 0);
-            if (!structs->checkPlace(type, o, 0, false).empty()) continue;
+            if (!structs->checkPlace(type, o, l.rot, false).empty()) continue;
             glm::vec3 lo = glm::vec3(o - v.anchor), hi = lo + glm::vec3(v.size);
             bool body = false;
             for (Human* b : sim.bodies()) {
@@ -293,7 +315,7 @@ public:
                     b->position.y < hi.y && b->position.y + b->height > lo.y) { body = true; break; }
             }
             if (body) return false;
-            structs->place(type, o, 0, EditSource::Command, 0);
+            structs->place(type, o, l.rot, EditSource::Command, 0);
             return true;
         }
         return false;
@@ -352,6 +374,61 @@ public:
             if (say) say(line);
         }
     }
+    // ── The sky world's bowl (worldgen/SkyGenerator.h Sites) ──
+    // Once a player comes near and the ground has loaded: the bonfire is
+    // built just inside the pass, and the Mushroom King set in front of
+    // the mine's mouth. When he falls, the boards across the mine come
+    // down (ROADMAP Mushroom Islands phase 1, steps 6 and 7). Kept in
+    // sky.dat. Not on a client: its server does it.
+    struct SkyState { bool bonfire = false, kingSpawned = false, kingDown = false; uint64_t kingId = 0; };
+    SkyState sky;
+    void tickSky(const std::vector<glm::vec3>& players, const std::function<void(const std::string&)>& say = nullptr) {
+        const auto* sg = dynamic_cast<const SkyGenerator*>(gen.get());
+        if (!sg || !world || !structs || !editor) return;
+        const SkyGenerator::Sites& S = sg->bowlSites();
+        if (!S.ok) return;
+        auto nearAny = [&](glm::vec3 p, float r) {
+            for (const glm::vec3& q : players) if (glm::length(glm::vec2(q.x - p.x, q.z - p.z)) < r) return true;
+            return false;
+        };
+        auto loadedRound = [&](glm::vec3 p, int r) {
+            return world->isColumnLoaded((int)p.x, (int)p.z) && world->isColumnLoaded((int)p.x + r, (int)p.z) &&
+                   world->isColumnLoaded((int)p.x - r, (int)p.z) && world->isColumnLoaded((int)p.x, (int)p.z + r) &&
+                   world->isColumnLoaded((int)p.x, (int)p.z - r);
+        };
+        // the bonfire
+        if (!sky.bonfire && nearAny(S.bonfire, 400.0f) && loadedRound(S.bonfire, 16)) {
+            uint16_t type = gStructures.find("bonfire");
+            if (type) {
+                int y = terrain::groundLevel(*world, (int)S.bonfire.x, (int)S.bonfire.z, 1000, 1000);
+                if (y > 0) structs->place(type, glm::ivec3((int)S.bonfire.x, y, (int)S.bonfire.z), 0, EditSource::Script, 0);
+            }
+            sky.bonfire = true;
+        }
+        // the Mushroom King at the mine
+        if (!sky.kingSpawned && nearAny(S.king, 360.0f) && loadedRound(S.king, 24)) {
+            glm::vec3 face = glm::normalize(glm::vec3(-std::cos(S.mineAngle), 0.0f, -std::sin(S.mineAngle)));   // toward the bowl
+            int y = terrain::groundLevel(*world, (int)S.king.x, (int)S.king.z, 1000, 1000);
+            if (Npc* k = sim.npcs().spawn("mushroom_king", glm::vec3(S.king.x, (float)std::max(y, 1), S.king.z), face)) {
+                sky.kingId = k->uuid;
+                sky.kingSpawned = true;
+            }
+        }
+        // he's fallen: the boards come down
+        if (sky.kingSpawned && !sky.kingDown) {
+            Npc* k = sim.npcs().find(sky.kingId);
+            if (!k || k->dead()) {
+                sky.kingDown = true;
+                EditBatch b; b.source = EditSource::Script; b.label = "the mine opens"; b.undoable = false;
+                for (int x = S.sealLo.x; x <= S.sealHi.x; x++)
+                for (int y = S.sealLo.y; y <= S.sealHi.y; y++)
+                for (int z = S.sealLo.z; z <= S.sealHi.z; z++)
+                    if (world->typeAtVoxel(x, y, z) == BLOCK_PLANKS && y > S.sealLo.y) b.set(x, y, z, BLOCK_AIR);
+                editor->submit(std::move(b));
+                if (say) say("The Mushroom King falls. The boards across the mine come down.");
+            }
+        }
+    }
     // A Dungeon world's markers (dungeon/Run.h): spawners, coffins, the
     // boss, chests, secret walls. Every tick; not on a client. What it
     // returns is for the game to show (particles, a line)
@@ -389,6 +466,13 @@ public:
         if (wood) ok = wood->save(stage) && ok;
         sim.npcs().save(stage + "/npcs.dat");
         { std::ofstream tf(stage + "/time.txt"); tf << sim.day.time << "\n"; }
+        if (plans) plans->save(stage + "/plans.dat");          // buildings kept as plans
+        if (dynamic_cast<const SkyGenerator*>(gen.get())) {   // the sky world's bowl
+            std::ofstream sf(stage + "/sky.dat");
+            if (sky.bonfire) sf << "bonfire\n";
+            if (sky.kingSpawned) sf << "king " << sky.kingId << "\n";
+            if (sky.kingDown) sf << "king_down\n";
+        }
         {   // the village sites built so far
             std::ofstream vf(stage + "/villages.dat");
             for (size_t i = 0; i < sites.size(); i++) if (sitesBuilt[i]) vf << sites[i].at.x << " " << sites[i].at.y << "\n";
@@ -406,7 +490,9 @@ public:
         wood.reset();
         dungeonRun.reset();
         structs.reset();
+        plans.reset();
         chests.clear();
+        if (editor) editor->onEdit = nullptr;
         editor.reset();
         physics.reset();
         world.reset();

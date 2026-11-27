@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <glm/glm.hpp>
 #include <cstring>
 #include <memory>
 #include <vector>
@@ -129,7 +130,13 @@ struct BlockRenderTable {
 // side neighbour (edge of the world) or a null section above
 // (top of the world) reads as air; below the bottom section
 // is treated as solid, since nobody can look up from there.
+// A box of world voxels drawn as air (the build camera's cutaway:
+// the walls of a building cut down to see into it). Inclusive
+struct MeshCut { glm::ivec3 lo{ 0 }, hi{ -1 }; };
+
 struct MeshInput {
+    glm::ivec3 origin{ 0 };                 // the section's first voxel, world (for cuts)
+    std::shared_ptr<const std::vector<MeshCut>> cuts;
     std::shared_ptr<const RleData> center;
     std::shared_ptr<const RleData> west;    // column at cx - 1
     std::shared_ptr<const RleData> east;    // column at cx + 1
@@ -170,6 +177,7 @@ public:
 
         Scratch& s = scratch();
         fillVolume(in, s);
+        if (in.cuts) applyCuts(in, s);
 
         const BlockRenderTable& table = *in.table;
         s.cutout.clear();
@@ -234,6 +242,16 @@ private:
             s.mask.resize((size_t)DIM * DIM);
         }
         return s;
+    }
+
+    static void applyCuts(const MeshInput& in, Scratch& s) {
+        for (const MeshCut& c : *in.cuts) {
+            glm::ivec3 lo = glm::max(c.lo - in.origin, glm::ivec3(-1)), hi = glm::min(c.hi - in.origin, glm::ivec3(DIM));
+            if (lo.x > hi.x || lo.y > hi.y || lo.z > hi.z) continue;
+            for (int y = lo.y; y <= hi.y; y++)
+                for (int x = lo.x; x <= hi.x; x++)
+                    std::memset(&s.vol[(size_t)pidx(x, y, lo.z)], 0, (size_t)(hi.z - lo.z + 1) * sizeof(uint16_t));
+        }
     }
 
     static void fillVolume(const MeshInput& in, Scratch& s) {
@@ -436,6 +454,7 @@ private:
             if (info.sprite)
                 for (uint32_t i = start; i < end; i++) {
                     int z = (int)(i % DIM), x = (int)((i / DIM) % DIM), y = (int)(i / (DIM * DIM));
+                    if (s.vol[(size_t)pidx(x, y, z)] != id) continue;          // cut away (MeshCut)
                     if (s.vol[(size_t)pidx(x, y - 1, z)] == id) continue;      // not the bottom of a stack
                     int h = 1;
                     while (y + h <= DIM && s.vol[(size_t)pidx(x, y + h, z)] == id) h++;

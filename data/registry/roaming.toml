@@ -41,6 +41,8 @@ night            = [20, 6] # hours that count as night
 # from_spawn [min, max] distance from the world's spawn point it may
 #            appear at (0 = no limit): tougher groups farther out
 # spread     how far apart the members stand
+# worlds     world types it comes in (["sky"]: Mushroom Islands only);
+#            left out: any
 
 [[group]]
 id = "bandit_scouts"
@@ -75,6 +77,16 @@ biomes = ["forest", "dense_forest", "swamp", "marsh", "autumn_uplands"]
 npcs = { mushnub = 3, mushnub_evolved = 1 }
 size = [2, 4]
 weight = 3
+time = "any"
+
+# Hywirls (the sky world's fliers): over the mushroom bowl
+[[group]]
+id = "hywirls"
+biomes = ["dense_forest"]
+worlds = ["sky"]
+npcs = { hywirl = 1 }
+size = [1, 2]
+weight = 2
 time = "any"
 
 [[group]]

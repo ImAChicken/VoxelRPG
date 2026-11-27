@@ -104,3 +104,26 @@ gs_slam         = { clip = "Sword_Regular_C", strike = [0.30, 0.38] }
 gs_charge       = { clip = "Sword_Dash",      strike = [0.16, 0.26] }
 windburst_cast  = { clip = "Spell_Simple_Shoot", strike = [0.35, 0.55] }   # both hands thrust out: the wind goes
 ice_spike_cast  = { clip = "Spell_Simple_Shoot", strike = [0.35, 0.55] }   # the spike leaves the hands
+
+# Spell casts (spells.toml anim = "<pose>"; game/Spells.h): each cast
+# pose by name → a clip, the same forms as [attacks] (strike: where in
+# the clip the spell goes, lined up with the cast's moment). New clips
+# change only this table, never the spells. A charge holds just before
+# the strike while the button is down; a channel holds at it.
+#   push      one or both hands thrust forward (bolts, beams, cones)
+#   overhead  raised over the head and brought down (areas out ahead)
+#   slam      down to the ground (an area round you, a shockwave)
+#   self      drawn to the chest (heals, wards, auras)
+#   throw     an overhand throw (a lobbed projectile)
+#   channel   held out, a loop (beams held, channels)
+#   sweep     a wide sweep (walls, wide cones)
+#   place     bent to the ground (runes and traps, summons)
+[casts]
+push     = { clip = "Spell_Simple_Shoot", strike = [0.35, 0.55] }
+overhead = { clip = "Sword_Regular_C",    strike = [0.30, 0.38] }
+slam     = { clip = "Sword_Regular_C",    strike = [0.30, 0.38] }
+self     = { clip = "Consume",            strike = [0.40, 0.60] }
+throw    = { clip = "OverhandThrow",      strike = [0.40, 0.55] }
+channel  = { clip = "Spell_Simple_Shoot", strike = [0.35, 0.55] }
+sweep    = { clip = "Sword_Regular_A",    strike = [0.45, 0.65] }
+place    = { clip = "Farm_PlantSeed",     strike = [0.45, 0.65] }

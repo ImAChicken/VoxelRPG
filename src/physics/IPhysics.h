@@ -60,6 +60,8 @@ public:
     // Is the world column at (x, z) loaded? (bodies over unloaded
     // ground are frozen, not dropped through it)
     virtual bool columnLoaded(int x, int z) const = 0;
+    // The block at a voxel (0: air, or no world)
+    virtual uint16_t blockAt(int x, int y, int z) const { (void)x; (void)y; (void)z; return 0; }
     // Loose objects that bodies collide with, raycasts hit, etc.
     // (world/Woodcutting.h logs). Empty = none.
     virtual void setLooseSolids(std::function<bool(int, int, int)> fn) = 0;

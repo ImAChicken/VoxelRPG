@@ -200,6 +200,12 @@ public:
         return !rle || (rle->types.size() == 1 && rle->types[0] == BLOCK_AIR);
     }
 
+    // Read-only views for scans that skip most of the section
+    // (grapple::scanPoints): the runs, or the raw array while it's
+    // expanded; at most one is set (neither: all air)
+    const RleData*  runs()     const { return raw ? nullptr : rle.get(); }
+    const uint16_t* rawConst() const { return raw.get(); }
+
     bool   isCompressed()    const { return !raw; }
     size_t compressedBytes() const { return rle ? rle->bytes() : 0; }
 

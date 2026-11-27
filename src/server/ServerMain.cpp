@@ -125,6 +125,7 @@ bool loadData() {
     if (!gRegistry.load("data/registry/blocks.toml")) return false;
     gItems.load(gRegistry, "data/registry/items.toml");
     gMovesets.load("data/registry/movesets.toml");
+    gSpells.load();
     gHeldModels.loadDir("data/models/held");
     gFactions.load("data/registry/factions.toml");
     gLoot.load("data/registry/loot.toml");
@@ -178,8 +179,8 @@ int main(int argc, char** argv) {
         // not there: make one (server.toml new_world), so a machine
         // with only the server can start from nothing
         WorldType type = cfg.newWorld == "island" ? WorldType::Island : cfg.newWorld == "classic" ? WorldType::Classic :
-                         cfg.newWorld == "dungeon" ? WorldType::Dungeon : WorldType::Flat;
-        if (cfg.newWorld != "flat" && cfg.newWorld != "classic" && cfg.newWorld != "island" && cfg.newWorld != "dungeon") {
+                         cfg.newWorld == "dungeon" ? WorldType::Dungeon : cfg.newWorld == "sky" ? WorldType::Sky : WorldType::Flat;
+        if (cfg.newWorld != "flat" && cfg.newWorld != "classic" && cfg.newWorld != "island" && cfg.newWorld != "dungeon" && cfg.newWorld != "sky") {
             std::cerr << "No world '" << cfg.world << "' in " << WorldSaveManager::rootFor(cfg.dev)
                       << "/ (copy one in, make one in the game, or set new_world in server.toml)\n";
             return 1;

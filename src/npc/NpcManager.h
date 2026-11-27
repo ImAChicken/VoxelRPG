@@ -100,6 +100,8 @@ public:
         n.hop.on = t.hops;
         n.hop.every = t.hopEvery; n.hop.speed = t.hopSpeed; n.hop.height = t.hopHeight; n.hop.climb = t.hopClimb;
         n.hop.lungeSpeed = t.lungeSpeed; n.hop.lungeHeight = t.lungeHeight;
+        n.flier = t.flies; n.flySpeed = t.flySpeed; n.flyFast = t.flyFast;
+        for (int i = 0; i < (int)spell::Element::COUNT; i++) n.resist[i] = t.resist[i];
         if (!t.person()) n.eyeHeight = std::max(1.0f, n.height - 1.0f);
     }
 
@@ -149,7 +151,9 @@ public:
             if (!n.dead()) brain::hear(n, noises);
             // think, then move like any body
             std::string before = n.stateName;
+            if (n.flier) n.intent.flyMove = glm::vec3(0.0f);
             brain::think(n, world, dt);
+            if (n.flier && !n.dead()) flySteer(n, physics, world.now());
             if (before == "unavailable" && n.stateName != "unavailable") closedMenus.push_back(n.uuid);
             if (n.lying) { n.velocity = glm::vec3(0.0f); n.grounded = true; }   // in bed: held where it lies
             else if (restingStill(n) && ((++n.restTicks + (uint32_t)n.uuid) % 30u) != 0u) {
@@ -165,6 +169,29 @@ public:
             if (list[i]->deadFor > (list[i]->pack.mayHoldItems() ? KEEP_LOOT_BODY : REMOVE_DEAD_AFTER) ||
                 list[i]->fellOutOfWorld) list.erase(list.begin() + i);   // what it held (if unsearched: never rolled) goes with it
             else i++;
+    }
+
+    // A flier whose brain steered it like a walker (intent.move: the
+    // wander, going home): the same way through the air, keeping its
+    // type's hover height over the ground below (or its height, over
+    // the void), bobbing a little; it climbs over what's ahead
+    static void flySteer(Npc& n, IPhysics& physics, float now) {
+        if (glm::dot(n.intent.flyMove, n.intent.flyMove) > 1e-6f) return;      // its fight steers it itself
+        glm::vec3 m(n.intent.move.x, 0.0f, n.intent.move.y);
+        float hover = n.type ? n.type->hover : 18.0f;
+        int x = (int)std::floor(n.position.x), z = (int)std::floor(n.position.z), y0 = (int)std::floor(n.position.y);
+        float wantY = n.position.y;
+        for (int y = y0; y > y0 - 80; y--)
+            if (physics.worldSolidAt(x, y, z)) { wantY = (float)(y + 1) + hover; break; }
+        wantY += std::sin(now * 1.7f + (float)(n.uuid % 97)) * 1.5f;
+        m.y = std::clamp((wantY - n.position.y) / 10.0f, -0.6f, 0.6f);
+        // something solid ahead: up over it
+        if (glm::length(glm::vec2(m.x, m.z)) > 0.1f) {
+            glm::vec3 ahead = n.position + glm::normalize(glm::vec3(m.x, 0.0f, m.z)) * 8.0f;
+            for (float h = 0.0f; h < n.height; h += 3.0f)
+                if (physics.worldSolidAt((int)std::floor(ahead.x), (int)std::floor(ahead.y + h), (int)std::floor(ahead.z))) { m.y = 1.0f; break; }
+        }
+        n.intent.flyMove = m;
     }
 
     // Nothing to move it: on the ground, not trying to go anywhere,

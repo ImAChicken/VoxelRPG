@@ -1,4 +1,5 @@
 #pragma once
+#include "../game/BuildPlan.h"
 #include "UIScreen.h"
 #include "ItemIcon.h"
 #include "KeyText.h"
@@ -40,7 +41,7 @@ public:
 
     void setContext(Player* p, BuildTool* b) {
         player = p; build = b;
-        tab = (b && b->mode != HammerMode::Piece) ? 2 : (tab == 1 ? 1 : 0);
+        tab = (b && b->mode == HammerMode::Plan) ? 3 : (b && b->mode != HammerMode::Piece) ? 2 : (tab == 1 ? 1 : 0);
     }
 
     void onEnter() override {
@@ -67,9 +68,9 @@ public:
         drawPanel(ui, px, py, pw, ph);
 
         // tabs
-        const char* tabs[3] = { "Pieces", "Palettes", "Blueprints" };
+        const char* tabs[4] = { "Pieces", "Palettes", "Blueprints", "Build" };
         float tx = px + 16;
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             float tw = (float)ui.textWidth(tabs[i], 2) + 30, ty = py + 12;
             bool hov = hovered(tx, ty, tw, 34);
             ui.drawRect(tx, ty, tw, 34, tab == i ? theme.bgHover : theme.inputBg);
@@ -85,11 +86,13 @@ public:
         float top = py + 56, bottom = py + ph - 30;
         if (tab == 0)      piecesTab(ui, px, top, pw, bottom);
         else if (tab == 1) palettesTab(ui, px, top, pw, bottom);
-        else               blueprintsTab(ui, px, top, pw, bottom);
+        else if (tab == 2) blueprintsTab(ui, px, top, pw, bottom);
+        else               buildTab(ui, px, top, pw, bottom);
 
         keytext::draw(ui, tab == 0 ? "{click} to choose   {rotate_piece} turns it   {nudge} {nudge_up} {nudge_down} fine-tune"
                         : tab == 1 ? "{click} a palette to equip it: walls, posts and doors you place take it   < > change a block"
-                                   : "{click} a blueprint to place it   {rotate_piece} turns it   {nudge} fine-tune",
+                        : tab == 2 ? "{click} a blueprint to place it   {rotate_piece} turns it   {nudge} fine-tune"
+                                   : "{click} a tool, then drag in the world   {undo} undoes   {build_camera}: the build camera",
                       px + 16, py + ph - 22, theme.textDim, 1, theme.accent);
         if (rightDown && !rightPrev) result = ScreenResult::CloseMenu;
         ui.end();
@@ -302,6 +305,226 @@ private:
         sy += 40;
         if (choice(ui, sx, sy, styleW, "Reset style", ""))
             build->style = BlueprintStyle();
+    }
+
+    // ── Build: buildings as plans (game/BuildPlan.h) ──────
+    // The tools (BuildTool::planTool), the sizes new ones take, the
+    // Paint tool's block. The equipped palette (Palettes tab) gives
+    // every role's block; a plan keeps the one it was laid with.
+    void buildTab(UIRenderer& ui, float px, float top, float pw, float bottom) {
+        (void)bottom;
+        const auto& theme = gResourcePacks.getTheme();
+        float x = px + 20, y = top + 6;
+        ui.drawText("Tools", x, y, theme.textDim, 2);
+        y += 26;
+        static const char* HELP[] = {
+            "drag a rectangle on the ground: a foundation (3 ft cells); upstairs: a floor",
+            "drag a rectangle on a foundation: four walls round a room",
+            "drag from a point: a wall, straight, 45 or 2-to-1 (sprint: off the grid)",
+            "click: a pillar, through any wall there",
+            "click a wall: a frame there, with a door, a window or open",
+            "click a building: a roof over it (drag: a rectangle); on a roof: restyle, T turns it",
+            "drag the way it climbs: a stair up to the next level (the floor above opens over it)",
+            "drag: a fence or railing, one voxel wide; over a stair it follows the steps",
+            "click a wall's side or a roof: paint it",
+            "click a wall: its level 1 ft taller (crouch: lower; sprint: that wall only); a roof: its peak; a foundation: the floor",
+            "click a roof, frame, pillar, wall or foundation: take it away",
+        };
+        // the tools in rows of five; the help for the one pointed at (else the one chosen)
+        int shown = (int)build->planTool;
+        {
+            const float bw = 186, bh = 34;
+            for (int i = 0; i < (int)PlanTool::COUNT; i++) {
+                float bx = x + (i % 5) * (bw + 8), by = y + (i / 5) * (bh + 6);
+                bool on = build->mode == HammerMode::Plan && (int)build->planTool == i;
+                bool hov = hovered(bx, by, bw, bh);
+                if (hov) shown = i;
+                ui.drawRect(bx, by, bw, bh, on ? theme.bgHover : theme.inputBg);
+                ui.drawBorder(bx, by, bw, bh, on ? theme.accent : theme.border, on ? 2.0f : 1.0f);
+                ui.drawTextCentered(planToolName((PlanTool)i), bx, by, bw, bh, hov ? theme.textHover : theme.text, 2);
+                if (hov && clicked()) { build->mode = HammerMode::Plan; build->planTool = (PlanTool)i; build->planDrag = false; }
+            }
+            y += ((int)PlanTool::COUNT + 4) / 5 * (bh + 6) + 4;
+            ui.drawText(HELP[std::clamp(shown, 0, (int)PlanTool::COUNT - 1)], x, y, theme.textDim, 1);
+            y += 16;
+        }
+        y += 14;
+        ui.drawText("Sizes", x, y, theme.textDim, 2);
+        y += 28;
+        auto stepper = [&](const char* label, std::string value, int& v, int step, int lo, int hi) {
+            ui.drawText(label, x, y + 8, theme.text, 2);
+            float bx = x + 300;
+            bool l = hovered(bx, y, 34, 30), r = hovered(bx + 150, y, 34, 30);
+            ui.drawRect(bx, y, 34, 30, l ? theme.bgHover : theme.inputBg);
+            ui.drawTextCentered("<", bx, y, 34, 30, theme.text, 2);
+            ui.drawTextCentered(value.c_str(), bx + 34, y, 116, 30, theme.textHover, 2);
+            ui.drawRect(bx + 150, y, 34, 30, r ? theme.bgHover : theme.inputBg);
+            ui.drawTextCentered(">", bx + 150, y, 34, 30, theme.text, 2);
+            if (l && clicked()) v = std::max(lo, v - step);
+            if (r && clicked()) v = std::min(hi, v + step);
+            y += 38;
+        };
+        auto ft = [](int v) { return std::to_string(v) + " vox"; };
+        // a row of buttons, one chosen
+        auto choice = [&](const char* label, const char* const* names, int n, int& v, float bw) {
+            ui.drawText(label, x, y + 8, theme.text, 2);
+            for (int i = 0; i < n; i++) {
+                float bx = x + 300 + i * (bw + 6);
+                bool on = v == i, hov = hovered(bx, y, bw, 30);
+                ui.drawRect(bx, y, bw, 30, on || hov ? theme.bgHover : theme.inputBg);
+                ui.drawBorder(bx, y, bw, 30, on ? theme.accent : theme.border, on ? 2.0f : 1.0f);
+                ui.drawTextCentered(names[i], bx, y, bw, 30, theme.textHover, 2);
+                if (hov && clicked()) v = i;
+            }
+            y += 38;
+        };
+        // the plans' own railings, on or off (every plan)
+        auto railsRow = [&]() {
+            static const char* RL[] = { "off", "on" };
+            int r = build->planRails ? 1 : 0;
+            choice("Auto railings", RL, 2, r, 90);
+            if ((r != 0) != build->planRails) { build->planRails = r != 0; build->planRailsChanged = true; }
+        };
+        {
+            // the storey the tools build on (Page Up / Down in the world too)
+            ui.drawText("Level", x, y + 8, theme.text, 2);
+            for (int i = 0; i < plan::MAX_LEVELS; i++) {
+                float bx = x + 300 + i * 66;
+                bool on = build->planLevel == i, hov = hovered(bx, y, 60, 30);
+                ui.drawRect(bx, y, 60, 30, on || hov ? theme.bgHover : theme.inputBg);
+                ui.drawBorder(bx, y, 60, 30, on ? theme.accent : theme.border, on ? 2.0f : 1.0f);
+                ui.drawTextCentered(i == 0 ? "G" : std::to_string(i).c_str(), bx, y, 60, 30, theme.textHover, 2);
+                if (hov && clicked()) build->planLevel = i;
+            }
+            y += 38;
+            // the build camera's cutaway (V in the build camera)
+            static const char* VW[] = { "all", "walls up", "walls down" };
+            choice("Build camera view", VW, 3, build->planView, 150);
+        }
+        if (build->planTool == PlanTool::Stair) {
+            static const char* SH[] = { "straight", "L", "U", "spiral" };
+            choice("Shape", SH, 4, build->planStairShape, 120);
+            if (build->planStairShape != 0) {
+                static const char* TN[] = { "left", "right" };
+                int t = build->planStairTurn > 0 ? 1 : 0;
+                choice("Turns (T)", TN, 2, t, 90);
+                build->planStairTurn = t ? 1 : -1;
+            }
+            stepper(build->planStairShape == 3 ? "Stair radius" : "Stair width", ft(build->planStairW), build->planStairW, 1, 3, 30);
+            railsRow();
+            y += 10;
+        } else if (build->planTool == PlanTool::Fence) {
+            ui.drawText("Style", x, y + 8, theme.text, 2);
+            for (int i = 0; i < (int)plan::FenceStyle::COUNT; i++) {
+                float bx = x + 300 + i * 136;
+                bool on = build->planFenceStyle == i, hov = hovered(bx, y, 130, 30);
+                ui.drawRect(bx, y, 130, 30, on || hov ? theme.bgHover : theme.inputBg);
+                ui.drawBorder(bx, y, 130, 30, on ? theme.accent : theme.border, on ? 2.0f : 1.0f);
+                ui.drawTextCentered(plan::fenceStyleName((plan::FenceStyle)i), bx, y, 130, 30, theme.textHover, 2);
+                if (hov && clicked()) build->planFenceStyle = i;
+            }
+            y += 38;
+            stepper("Fence height", ft(build->planFenceH), build->planFenceH, 1, 3, 30);
+            railsRow();
+            y += 10;
+        } else if (build->planTool == PlanTool::Frame) {
+            // what goes in it (choosing one sets its usual size), then the size
+            static const char* FILL[] = { "open", "door", "window" };
+            ui.drawText("Filled with", x, y + 8, theme.text, 2);
+            for (int i = 0; i < 3; i++) {
+                float bx = x + 300 + i * 116;
+                bool on = build->planFill == i, hov = hovered(bx, y, 110, 30);
+                ui.drawRect(bx, y, 110, 30, on || hov ? theme.bgHover : theme.inputBg);
+                ui.drawBorder(bx, y, 110, 30, on ? theme.accent : theme.border, on ? 2.0f : 1.0f);
+                ui.drawTextCentered(FILL[i], bx, y, 110, 30, theme.textHover, 2);
+                if (hov && clicked() && build->planFill != i) {
+                    build->planFill = i;
+                    if (i == 1) { build->planOpenW = 10; build->planOpenH = 24; build->planSill = 0; }
+                    if (i == 2) { build->planOpenW = 9; build->planOpenH = 12; build->planSill = 9; }
+                }
+            }
+            y += 38;
+            stepper("Frame width", ft(build->planOpenW), build->planOpenW, 1, build->planFill == 1 ? 9 : 2, 60);
+            stepper("Frame height", ft(build->planOpenH), build->planOpenH, 1, build->planFill == 1 ? 21 : 2, 80);
+            if (build->planFill != 1) stepper("Off the floor", ft(build->planSill), build->planSill, 1, build->planFill == 2 ? 1 : 0, 60);
+            if (build->planFill == 1) {
+                // which door: any door piece that sizes to its doorway
+                ui.drawText("Door", x, y + 8, theme.text, 2);
+                float cx = x + 300;
+                for (uint16_t tid : gStructures.buildMenu()) {
+                    const StructureType* t = gStructures.get(tid);
+                    if (!t || t->kind != StructureKind::Door || !t->sizable()) continue;
+                    std::string label = t->displayName;
+                    float bw = 8.0f * label.size() + 16.0f;
+                    if (cx + bw > px + pw - 20) { cx = x + 300; y += 36; }
+                    bool on = build->planDoor == t->name || (build->planDoor.empty() && t->name == "plank_ledged_door");
+                    bool hov = hovered(cx, y, bw, 30);
+                    ui.drawRect(cx, y, bw, 30, on || hov ? theme.bgHover : theme.inputBg);
+                    ui.drawBorder(cx, y, bw, 30, on ? theme.accent : theme.border, on ? 2.0f : 1.0f);
+                    ui.drawTextCentered(label.c_str(), cx, y, bw, 30, theme.textHover, 1);
+                    if (hov && clicked()) build->planDoor = t->name;
+                    cx += bw + 6;
+                }
+                y += 38;
+            }
+            y += 10;
+        } else if (build->planTool == PlanTool::Roof) {
+            ui.drawText("Style", x, y + 8, theme.text, 2);
+            for (int i = 0; i < 4; i++) {
+                float bx = x + 300 + i * 96;
+                bool on = build->planRoofStyle == i, hov = hovered(bx, y, 90, 30);
+                ui.drawRect(bx, y, 90, 30, on || hov ? theme.bgHover : theme.inputBg);
+                ui.drawBorder(bx, y, 90, 30, on ? theme.accent : theme.border, on ? 2.0f : 1.0f);
+                ui.drawTextCentered(plan::roofStyleName((plan::RoofStyle)i), bx, y, 90, 30, theme.textHover, 2);
+                if (hov && clicked()) build->planRoofStyle = i;
+            }
+            y += 38;
+            stepper("Peak", ft(build->planPeak), build->planPeak, 3, 0, 60);
+            stepper("Overhang", ft(build->planOverhang), build->planOverhang, 1, 0, 9);
+            y += 10;
+        } else {
+            stepper("Foundation height", std::to_string(build->planFloor) + " vox", build->planFloor, 1, 1, plan::MAX_FLOOR);
+            stepper("Wall height", std::to_string(build->planWallH / 3) + " ft", build->planWallH, 3, 6, plan::MAX_WALL_H);
+            stepper("Wall thickness", std::to_string(build->planThick) + " vox", build->planThick, 1, 1, 7);
+            stepper("Pillar size", std::to_string(build->planPillar) + " vox", build->planPillar, 1, 1, 15);
+            {
+                bool hov = hovered(x + 300, y, 184, 30);
+                ui.drawText("Pillar shape", x, y + 8, theme.text, 2);
+                ui.drawRect(x + 300, y, 184, 30, hov ? theme.bgHover : theme.inputBg);
+                ui.drawTextCentered(build->planRound ? "round" : "square", x + 300, y, 184, 30, theme.textHover, 2);
+                if (hov && clicked()) build->planRound = !build->planRound;
+                y += 38;
+            }
+            y += 10;
+        }
+        const BuildPalette* pal = gBuildPalettes.find(build->palette.empty() ? std::string("tudor") : build->palette);
+        ui.drawText(("Palette: " + (pal ? pal->display : std::string("(none)")) + "   (the Palettes tab equips another)").c_str(), x, y, theme.textDim, 2);
+        y += 32;
+        // the Paint tool's block: the palette's own, or a wall or inside block
+        ui.drawText("Paint", x, y, theme.textDim, 2);
+        y += 26;
+        std::vector<std::string> opts = { "" };
+        for (const char* role : { "fill", "paint", "panel", "base", "roof" })
+            for (const std::string& n : gBuildPalettes.options(role))
+                if (std::find(opts.begin(), opts.end(), n) == opts.end()) opts.push_back(n);
+        float cx = x, cw = 150, ch = 30;
+        for (const std::string& n : opts) {
+            if (cx + cw > px + pw - 20) { cx = x; y += ch + 6; }
+            bool on = build->planPaint == n, hov = hovered(cx, y, cw, ch);
+            uint16_t id = n.empty() ? 0 : gRegistry.getIDByName(n);
+            ui.drawRect(cx, y, cw, ch, on ? theme.bgHover : theme.inputBg);
+            ui.drawBorder(cx, y, cw, ch, on ? theme.accent : theme.border, on ? 2.0f : 1.0f);
+            if (id) {
+                const VoxelTypeDef& d = gRegistry.get(id);
+                float col[4] = { d.color[0] * 255, d.color[1] * 255, d.color[2] * 255, 255 };
+                ui.drawRect(cx + 4, y + 4, 22, ch - 8, col);
+            }
+            std::string label = n.empty() ? "palette's" : n;
+            if (label.size() > 14) label = label.substr(0, 13) + ".";
+            ui.drawText(label.c_str(), cx + 32, y + 9, hov ? theme.textHover : theme.text, 1);
+            if (hov && clicked()) { build->planPaint = n; build->mode = HammerMode::Plan; build->planTool = PlanTool::Paint; }
+            cx += cw + 6;
+        }
     }
 
     // ── Sizes (Pieces tab, a made piece chosen) ───────────

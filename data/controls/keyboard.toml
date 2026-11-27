@@ -23,6 +23,8 @@ block           = "Q"               # combat special (pad LT): guard / parry wit
 draw_weapon     = "R"               # combat mode on / off (pad Select)
 interact        = "E"               # use / open / talk
 ledge_grab      = "F"               # burst to face, hang, press again = lift
+build_camera    = "B"               # hammer, Build tab: the build camera over the ground (WASD pans, wheel zooms)
+build_view      = "C"               # … in it: everything / walls up / walls down
 inventory       = "I"               # open the inventory (50 slots + equipment)
 swap_weapon     = "X"               # combat: the other loadout (pad D-pad down)
 use_slot_x      = "1"               # combat: use the item up in X (pad X)

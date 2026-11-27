@@ -3,6 +3,8 @@
 #include "BodyMass.h"
 #include "../physics/Ragdoll.h"
 #include "../game/Combat.h"
+#include "../game/GrappleState.h"
+#include "../game/Spells.h"
 #include <string>
 #include <vector>
 #include <cmath>
@@ -45,6 +47,7 @@ struct HumanIntent {
     bool attackLight = false;
     bool attackHeavy = false;
     bool heavyHeld   = false;  // the heavy button held: a heavy charges (game/Combat.h charge)
+    bool castHeld    = false;  // a spell's button held: a charge powers up, a channel goes on (game/Spells.h)
     bool guard       = false;
     // Use an item (one-shot): a spell from an X / Y / B slot or the
     // off hand (game/CombatKit.h); plays the item's 'cast' attack.
@@ -54,7 +57,17 @@ struct HumanIntent {
     // a boss's charge). Not sent over the network
     const AttackDef* special = nullptr;
 
-    void clearOneShots() { jump = false; dodge = false; attackLight = false; attackHeavy = false; useItem = 0; special = nullptr; }
+    // The grapple (game/Grapple.h): thrown (one-shot) at a point or a
+    // body, worked out where the player aims (the game: grapple::aim),
+    // checked by the simulation (it has to carry one, in reach); held
+    // past a tap, it swings instead of pulling all the way
+    bool      grapple     = false;
+    bool      grappleHeld = false;
+    glm::vec3 grappleAt{ 0.0f };
+    uint64_t  grappleOn   = 0;         // a body's id (0: the block at grappleAt)
+    bool      grappleSwing = true;     // that body can be swung from (a flyer's grapple point). Not sent: the server works it out
+
+    void clearOneShots() { jump = false; dodge = false; attackLight = false; attackHeavy = false; useItem = 0; special = nullptr; grapple = false; }
 };
 
 class Human : public Entity {
@@ -204,6 +217,52 @@ public:
         float carryX = 0.0f, carryZ = 0.0f;   // that hop's way along the ground
         int   hops = 0;                // hops made (tests, the squash when drawn)
     } hop;
+    // A flier (npcs.toml fly = { … }): no gravity while alive; it
+    // goes where intent.flyMove points (its length: how fast, up to
+    // flySpeed; sprint: flyFast), colliding with the world
+    // (VoxelPhysics::flierTick). Dead, it falls.
+    bool  flier = false;
+    float flySpeed = 20.0f, flyFast = 40.0f;
+    // ── Spells on this body (sim/SpellSystem.h) ───────────
+    // Statuses (spell::Status): burn and poison hurt each second,
+    // slow and haste change its speed, freeze holds it still, silence
+    // stops its casts. A ward soaks up damage until it's gone or its
+    // time is up. An aura: a toggle spell kept on. Cooldowns by spell.
+    // Resistances by damage type (spell::Element): 0.5 takes half.
+    struct StatusOn {
+        spell::Status kind = spell::Status::None;
+        float left = 0.0f, amount = 0.0f, tick = 0.0f;
+        uint64_t from = 0;
+    };
+    std::vector<StatusOn> statuses;
+    float ward = 0.0f, wardLeft = 0.0f;
+    const spell::Def* aura = nullptr;
+    float auraTick = 0.0f;
+    float resist[(int)spell::Element::COUNT] = {};
+    std::vector<std::pair<const spell::Def*, float>> cooldowns;
+    bool has(spell::Status s) const { for (const StatusOn& x : statuses) if (x.kind == s && x.left > 0.0f) return true; return false; }
+    float statusAmount(spell::Status s) const { float a = 0.0f; for (const StatusOn& x : statuses) if (x.kind == s && x.left > 0.0f) a = std::max(a, x.amount); return a; }
+    float cooldownOf(const spell::Def* d) const { for (auto& c : cooldowns) if (c.first == d) return c.second; return 0.0f; }
+    // Damage taken: a ward soaks it up first. Returns what got through
+    float takeDamage(float dmg) {
+        if (ward > 0.0f && dmg > 0.0f) { float soak = std::min(ward, dmg); ward -= soak; dmg -= soak; }
+        health = std::max(0.0f, health - dmg);
+        return dmg;
+    }
+    // How fast it moves (statuses): 0 frozen
+    float statusSpeed() const {
+        if (has(spell::Status::Freeze)) return 0.0f;
+        float k = 1.0f;
+        if (has(spell::Status::Slow)) k *= std::clamp(1.0f - statusAmount(spell::Status::Slow), 0.2f, 1.0f);
+        if (has(spell::Status::Haste)) k *= 1.0f + std::clamp(statusAmount(spell::Status::Haste), 0.0f, 1.0f);
+        return k;
+    }
+
+    // The grapple on this body (game/Grapple.h), and the one it
+    // carries: how far it reaches and how fast it pulls (0: none;
+    // Player::refreshGrapple)
+    GrappleState grapple;
+    float grappleReach = 0.0f, grappleSpeed = 0.0f;
 
     // ── Slopes ────────────────────────────────────────────
     float climb = 1.0f;               // how much slopes slow this body (NPC types: npcs.toml climb)

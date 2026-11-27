@@ -52,9 +52,29 @@ inline bool beginAttack(Human& h, AttackKind k, int chain = 0, const AttackDef* 
 // heavy. Air: lurch / plunge, once per jump.
 // An item's own attack (a spell's cast: ItemDef::cast). Needs
 // no weapon; can't start mid-attack, rolling or in the air.
+// The body's situation for a spell's 'when' (spell::WHEN_ bits)
+inline uint8_t castSituation(const Human& h) {
+    if (h.grapple.active()) return spell::WHEN_GRAPPLE;
+    if (h.move == Human::Move::Roll || h.move == Human::Move::Backstep) return spell::WHEN_ROLL;
+    if (!h.grounded) return spell::WHEN_AIR;
+    if (h.sprinting) return spell::WHEN_SPRINT;
+    return spell::WHEN_GROUND;
+}
+// A spell's cast (d->spell): where it may be cast, its cooldown, not
+// while silenced
+inline bool spellReady(const Human& h, const AttackDef& d) {
+    if (d.spell.empty()) return true;
+    const spell::Def* s = gSpells.find(d.spell);
+    if (!s) return false;
+    if (h.has(spell::Status::Silence) || h.has(spell::Status::Freeze)) return false;
+    if (h.cooldownOf(s) > 0.0f) return false;
+    return s->castable(castSituation(h));
+}
 inline bool beginCast(Human& h, const AttackDef* d, uint16_t item = 0) {
     if (!d || h.dead() || h.attack.active() || h.exposed > 0.0f || h.flying) return false;
-    if (h.move == Human::Move::Roll || h.move == Human::Move::Backstep) return false;
+    const bool spellCast = !d->spell.empty();
+    if (!spellCast && (h.move == Human::Move::Roll || h.move == Human::Move::Backstep)) return false;
+    if (!spellReady(h, *d)) return false;
     if (!h.spend(d->stamina)) return false;
     h.attack = AttackState();
     h.attack.kind = AttackKind::Cast;
@@ -69,9 +89,11 @@ inline bool beginCast(Human& h, const AttackDef* d, uint16_t item = 0) {
 inline void startAttack(Human& h, const HumanIntent& in) {
     if (in.useItem) {
         const ItemDef& item = gItems.get(in.useItem);
-        if (item.valid() && !item.cast.empty()) beginCast(h, gMovesets.attack(item.cast), in.useItem);
+        if (item.valid() && !item.spell.empty()) beginCast(h, gSpells.attack(item.spell), in.useItem);
+        else if (item.valid() && !item.cast.empty()) beginCast(h, gMovesets.attack(item.cast), in.useItem);
         return;
     }
+    if (in.special && !in.special->spell.empty()) { beginCast(h, in.special); return; }   // a spell by name (an NPC's)
     if (in.special && !h.attack.active() && h.moveset && h.weaponDamage > 0.0f && !h.dead() && h.grounded && h.exposed <= 0.0f &&
         h.move != Human::Move::Roll && h.move != Human::Move::Backstep && !h.flying) {
         beginAttack(h, AttackKind::Heavy, 0, in.special);              // a special: as a heavy, by name
@@ -119,6 +141,9 @@ inline void advanceAttack(Human& h, float dt) {
     }
     // a charge: held at charge_at while the button is down
     if (a.charging()) { a.charged += dt; return; }
+    // a channel: held at its active window while the button is down
+    // (the spell repeats meanwhile: sim/SpellSystem.h)
+    if (d.channel && a.held && a.t >= d.activeStart && a.channelled < d.channelMax) { a.channelled += dt; a.prevT = a.t; return; }
     if (a.kind == AttackKind::AirHeavy && !a.landed) {
         if (a.t < PLUNGE_HANG) a.t = std::min(a.t + dt, PLUNGE_HANG);
         else if (h.grounded) { a.plunging = false; a.landed = true; a.t = a.prevT = SLAM_AT; }
